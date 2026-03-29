@@ -13,8 +13,21 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
-	"github.com/johnpostlethwait/bluforge/internal/web"
 )
+
+// SSEMessage represents a server-sent event with a named event type and JSON
+// data payload. It mirrors web.SSEEvent but is defined here to avoid an import
+// cycle between the workflow and web packages.
+type SSEMessage struct {
+	Event string // SSE event name
+	Data  string // JSON payload
+}
+
+// Broadcaster abstracts SSE broadcasting so the workflow package does not
+// depend directly on the web package.
+type Broadcaster interface {
+	Broadcast(msg SSEMessage)
+}
 
 // DiscScanner abstracts disc scanning for testability.
 type DiscScanner interface {
@@ -26,7 +39,7 @@ type OrchestratorDeps struct {
 	Store     *db.Store
 	Engine    *ripper.Engine
 	Organizer *organizer.Organizer
-	SSEHub    *web.SSEHub
+	SSEHub    Broadcaster
 	Scanner   DiscScanner
 	DiscDB    *discdb.Client
 	Cache     *discdb.Cache
@@ -39,7 +52,7 @@ type Orchestrator struct {
 	store     *db.Store
 	engine    *ripper.Engine
 	organizer *organizer.Organizer
-	sseHub    *web.SSEHub
+	sseHub    Broadcaster
 	scanner   DiscScanner
 	discDB    *discdb.Client
 	cache     *discdb.Cache
@@ -414,7 +427,7 @@ func (o *Orchestrator) broadcastJobUpdate(jobID int64, status string) {
 		slog.Error("failed to marshal SSE data", "error", err)
 		return
 	}
-	o.sseHub.Broadcast(web.SSEEvent{
+	o.sseHub.Broadcast(SSEMessage{
 		Event: "job_update",
 		Data:  string(data),
 	})

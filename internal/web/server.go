@@ -14,6 +14,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
+	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
 // ServerDeps groups all dependencies required by the Server.
@@ -24,7 +25,9 @@ type ServerDeps struct {
 	DriveMgr     *drivemanager.Manager
 	RipEngine    *ripper.Engine
 	DiscDBClient *discdb.Client
+	DiscDBCache  *discdb.Cache
 	SSEHub       *SSEHub
+	Orchestrator *workflow.Orchestrator
 }
 
 // Server wraps an Echo instance and all application dependencies.
@@ -37,7 +40,9 @@ type Server struct {
 	driveMgr     *drivemanager.Manager
 	ripEngine    *ripper.Engine
 	discdbClient *discdb.Client
+	discdbCache  *discdb.Cache
 	sseHub       *SSEHub
+	orchestrator *workflow.Orchestrator
 }
 
 // NewServer creates and configures a new Server from the provided dependencies.
@@ -64,7 +69,9 @@ func NewServer(deps ServerDeps) *Server {
 		driveMgr:     deps.DriveMgr,
 		ripEngine:    deps.RipEngine,
 		discdbClient: deps.DiscDBClient,
+		discdbCache:  deps.DiscDBCache,
 		sseHub:       deps.SSEHub,
+		orchestrator: deps.Orchestrator,
 	}
 
 	// Static files
@@ -82,7 +89,6 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/settings", s.handleSettingsSave)
 	e.GET("/events", s.handleSSE)
 	e.GET("/drives/:id/contribute", s.handleContribute)
-	e.POST("/drives/:id/contribute", s.handleContributeSubmit)
 
 	return s
 }

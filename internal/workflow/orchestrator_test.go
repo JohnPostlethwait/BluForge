@@ -12,8 +12,13 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
-	"github.com/johnpostlethwait/bluforge/internal/web"
 )
+
+// noopBroadcaster satisfies workflow.Broadcaster for testing without pulling in
+// the web package.
+type noopBroadcaster struct{}
+
+func (noopBroadcaster) Broadcast(SSEMessage) {}
 
 // mockRipExecutor completes rips instantly by firing a 100% progress event.
 type mockRipExecutor struct{}
@@ -73,13 +78,11 @@ func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestra
 		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
 		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
 	)
-	hub := web.NewSSEHub()
-
 	orch := NewOrchestrator(OrchestratorDeps{
 		Store:     store,
 		Engine:    engine,
 		Organizer: org,
-		SSEHub:    hub,
+		SSEHub:    noopBroadcaster{},
 		Scanner:   scanner,
 	})
 
