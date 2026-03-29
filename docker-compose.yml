@@ -1,0 +1,13 @@
+services:
+  bluforge:
+    build: .
+    ports:
+      - "9160:9160"
+    volumes:
+      - ./config:/config
+      - ./output:/output
+    devices:
+      - /dev/sr0:/dev/sr0
+      - /dev/sg0:/dev/sg0
+    environment:
+      - BLUFORGE_AUTO_RIP=false
