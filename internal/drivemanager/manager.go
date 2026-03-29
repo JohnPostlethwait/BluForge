@@ -1,0 +1,172 @@
+package drivemanager
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+)
+
+// EventType describes the kind of drive event that occurred.
+type EventType string
+
+const (
+	EventDiscInserted    EventType = "disc_inserted"
+	EventDiscEjected     EventType = "disc_ejected"
+	EventDriveDisconnect EventType = "drive_disconnect"
+	EventStateChange     EventType = "state_change"
+)
+
+// DriveEvent carries information about a change detected on a drive.
+type DriveEvent struct {
+	Type       EventType
+	DriveIndex int
+	DiscName   string
+	State      DriveState
+}
+
+// DriveExecutor is the interface for querying MakeMKV drive information.
+type DriveExecutor interface {
+	ListDrives(ctx context.Context) ([]makemkv.DriveInfo, error)
+	ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error)
+}
+
+// Manager polls drives and emits events when drive state changes.
+type Manager struct {
+	mu      sync.RWMutex
+	exec    DriveExecutor
+	drives  map[int]*DriveStateMachine
+	known   map[int]string // last known disc name per drive index
+	onEvent func(DriveEvent)
+}
+
+// NewManager creates a new Manager with the given executor and event callback.
+func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
+	return &Manager{
+		exec:    executor,
+		drives:  make(map[int]*DriveStateMachine),
+		known:   make(map[int]string),
+		onEvent: onEvent,
+	}
+}
+
+// discPresent returns true when a DriveInfo has a non-empty disc name and
+// non-zero flags, indicating a disc is actually loaded.
+func discPresent(info makemkv.DriveInfo) bool {
+	return info.DiscName != "" && info.Flags > 0
+}
+
+// PollOnce lists drives, compares against previous state, and emits events.
+func (m *Manager) PollOnce(ctx context.Context) {
+	infos, err := m.exec.ListDrives(ctx)
+	if err != nil {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Track which drive indices are present in this poll.
+	seen := make(map[int]bool, len(infos))
+
+	for _, info := range infos {
+		seen[info.Index] = true
+
+		// Ensure a state machine exists for this drive.
+		if _, ok := m.drives[info.Index]; !ok {
+			m.drives[info.Index] = NewDriveState(info.Index, info.DriveName)
+		}
+
+		dsm := m.drives[info.Index]
+		prev, hadDisc := m.known[info.Index]
+
+		if discPresent(info) {
+			// A disc is present now.
+			if !hadDisc || prev != info.DiscName {
+				// New disc inserted (or disc name changed — treat as new insert).
+				m.known[info.Index] = info.DiscName
+				dsm.SetDiscName(info.DiscName)
+				// Transition to Detected if currently empty.
+				if dsm.State() == StateEmpty {
+					_ = dsm.TransitionTo(StateDetected)
+				}
+				if m.onEvent != nil {
+					m.onEvent(DriveEvent{
+						Type:       EventDiscInserted,
+						DriveIndex: info.Index,
+						DiscName:   info.DiscName,
+						State:      dsm.State(),
+					})
+				}
+			}
+		} else {
+			// No disc present now.
+			if hadDisc {
+				// Disc was ejected.
+				delete(m.known, info.Index)
+				dsm.ForceReset()
+				if m.onEvent != nil {
+					m.onEvent(DriveEvent{
+						Type:       EventDiscEjected,
+						DriveIndex: info.Index,
+						DiscName:   prev,
+						State:      dsm.State(),
+					})
+				}
+			}
+		}
+	}
+
+	// Detect drives that have disappeared entirely.
+	for idx := range m.drives {
+		if !seen[idx] {
+			dsm := m.drives[idx]
+			prev := m.known[idx]
+			dsm.ForceReset()
+			delete(m.known, idx)
+			if m.onEvent != nil {
+				m.onEvent(DriveEvent{
+					Type:       EventDriveDisconnect,
+					DriveIndex: idx,
+					DiscName:   prev,
+					State:      dsm.State(),
+				})
+			}
+		}
+	}
+}
+
+// Run starts a ticker-based polling loop that calls PollOnce at the given
+// interval. It blocks until ctx is cancelled.
+func (m *Manager) Run(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.PollOnce(ctx)
+		}
+	}
+}
+
+// GetDrive returns the DriveStateMachine for the given index, or nil if unknown.
+func (m *Manager) GetDrive(index int) *DriveStateMachine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.drives[index]
+}
+
+// GetAllDrives returns all known DriveStateMachines.
+func (m *Manager) GetAllDrives() []*DriveStateMachine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*DriveStateMachine, 0, len(m.drives))
+	for _, dsm := range m.drives {
+		result = append(result, dsm)
+	}
+	return result
+}
