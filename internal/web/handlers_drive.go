@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,30 +80,52 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 	searchType := c.FormValue("search_type")
 
 	var rows []templates.SearchResultRow
+	var searchErr string
 
 	if query != "" {
 		ctx := c.Request().Context()
+		cacheKey := searchType + ":" + query
 
-		switch searchType {
-		case "upc":
-			results, err := s.discdbClient.SearchByUPC(ctx, query)
-			if err == nil {
-				rows = mediaItemsToRows(results)
+		// Try cache first.
+		var items []discdb.MediaItem
+		if s.discdbCache != nil {
+			if cached, err := s.discdbCache.Get(cacheKey); err == nil && cached != nil {
+				if err := json.Unmarshal(cached, &items); err != nil {
+					slog.WarnContext(ctx, "discdb cache unmarshal failed", "key", cacheKey, "error", err)
+					items = nil // fall through to API
+				}
 			}
-		case "asin":
-			results, err := s.discdbClient.SearchByASIN(ctx, query)
-			if err == nil {
-				rows = mediaItemsToRows(results)
+		}
+
+		// Cache miss — call API.
+		if items == nil {
+			var apiErr error
+
+			switch searchType {
+			case "upc":
+				items, apiErr = s.discdbClient.SearchByUPC(ctx, query)
+			case "asin":
+				items, apiErr = s.discdbClient.SearchByASIN(ctx, query)
+			default:
+				items, apiErr = s.discdbClient.SearchByTitle(ctx, query)
 			}
-		default:
-			results, err := s.discdbClient.SearchByTitle(ctx, query)
-			if err == nil {
-				rows = mediaItemsToRows(results)
+
+			if apiErr != nil {
+				slog.ErrorContext(ctx, "discdb search failed", "type", searchType, "query", query, "error", apiErr)
+				searchErr = "Search failed — TheDiscDB may be unavailable. Please try again."
+			} else if s.discdbCache != nil {
+				if data, err := json.Marshal(items); err == nil {
+					_ = s.discdbCache.Set(cacheKey, data)
+				}
 			}
+		}
+
+		if items != nil {
+			rows = mediaItemsToRows(items)
 		}
 	}
 
-	return templates.DriveSearchResults(idx, rows).Render(c.Request().Context(), c.Response().Writer)
+	return templates.DriveSearchResults(idx, rows, searchErr).Render(c.Request().Context(), c.Response().Writer)
 }
 
 // handleDriveRip submits rip jobs for the selected titles and redirects to the queue.

@@ -17,10 +17,15 @@ type SearchResultRow struct {
 	MediaItemID  string
 }
 
-templ DriveSearchResults(driveIndex int, results []SearchResultRow) {
-	if len(results) == 0 {
+templ DriveSearchResults(driveIndex int, results []SearchResultRow, searchError string) {
+	if searchError != "" {
+		<div class="alert alert-error">
+			{ searchError }
+		</div>
+	}
+	if len(results) == 0 && searchError == "" {
 		<p class="text-muted" style="padding: 0.5rem 0;">No results found.</p>
-	} else {
+	} else if len(results) > 0 {
 		<div style="overflow-x:auto;">
 			<table>
 				<thead>
