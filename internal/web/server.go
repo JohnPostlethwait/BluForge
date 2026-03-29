@@ -93,52 +93,6 @@ func (s *Server) Stop() error {
 	return s.echo.Shutdown(context.Background())
 }
 
-// --- Placeholder handlers ---
-
-func (s *Server) handleDashboard(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleDriveDetail(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleDriveSearch(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleDriveRip(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleDriveRescan(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleQueue(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleHistory(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleSettings(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleSettingsSave(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleContribute(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
-func (s *Server) handleContributeSubmit(c echo.Context) error {
-	return c.String(http.StatusOK, "coming soon")
-}
-
 // handleSSE streams Server-Sent Events to the connected client.
 func (s *Server) handleSSE(c echo.Context) error {
 	w := c.Response()
