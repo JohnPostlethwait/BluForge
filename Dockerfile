@@ -52,9 +52,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=go-builder /build/bluforge .
 COPY --from=go-builder /build/static ./static
-COPY --from=makemkv-builder /usr/local/bin/makemkvcon /usr/local/bin/makemkvcon
-COPY --from=makemkv-builder /usr/local/lib/libdriveio.so* /usr/local/lib/
-COPY --from=makemkv-builder /usr/local/lib/libmakemkv.so* /usr/local/lib/
+COPY --from=makemkv-builder /usr/bin/makemkvcon /usr/bin/makemkvcon
+COPY --from=makemkv-builder /usr/lib/libdriveio.so* /usr/lib/
+COPY --from=makemkv-builder /usr/lib/libmakemkv.so* /usr/lib/
 
 RUN ldconfig
 
