@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go build -o bluforge .
 # Stage 2: Build MakeMKV
 FROM ubuntu:24.04 AS makemkv-builder
 
-ARG MAKEMKV_VERSION=1.17.9
+ARG MAKEMKV_VERSION=1.18.3
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
