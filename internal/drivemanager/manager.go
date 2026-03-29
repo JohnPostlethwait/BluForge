@@ -65,8 +65,6 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		slog.Error("drive poll failed", "error", err)
 		return
 	}
-	slog.Debug("drive poll complete", "drive_count", len(infos))
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -146,6 +144,22 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 	// Poll immediately on startup so drives appear without waiting for the
 	// first tick interval.
 	m.PollOnce(ctx)
+
+	// Log initial drive inventory.
+	m.mu.RLock()
+	if len(m.drives) == 0 {
+		slog.Warn("no drives detected on initial poll")
+	} else {
+		for _, dsm := range m.drives {
+			slog.Info("drive detected",
+				"index", dsm.Index(),
+				"device", dsm.DevicePath(),
+				"state", dsm.State(),
+				"disc", dsm.DiscName(),
+			)
+		}
+	}
+	m.mu.RUnlock()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

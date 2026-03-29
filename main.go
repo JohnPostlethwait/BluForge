@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -42,6 +43,13 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("config loaded",
+		"output_dir", cfg.OutputDir,
+		"auto_rip", cfg.AutoRip,
+		"poll_interval", cfg.PollInterval,
+		"min_title_length", cfg.MinTitleLength,
+		"duplicate_action", cfg.DuplicateAction,
+	)
 
 	// 3. Open SQLite database.
 	store, err := db.Open("/config/bluforge.db")
@@ -50,9 +58,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+	slog.Info("database opened", "path", "/config/bluforge.db")
 
-	// 4. Create MakeMKV executor.
+	// 4. Create MakeMKV executor and verify it works.
 	executor := makemkv.NewExecutor()
+	if path, err := exec.LookPath("makemkvcon"); err != nil {
+		slog.Error("makemkvcon not found in PATH", "error", err)
+	} else {
+		slog.Info("makemkvcon found", "path", path)
+	}
 
 	// 5. Create TheDiscDB client.
 	discdbClient := discdb.NewClient()
