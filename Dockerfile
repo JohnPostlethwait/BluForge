@@ -17,8 +17,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config wget ca-certificates \
-    libssl-dev libexpat1-dev zlib1g-dev \
+    libc6-dev libssl-dev libexpat1-dev zlib1g-dev \
     libavcodec-dev libavutil-dev libavformat-dev \
+    libgl1-mesa-dev qtbase5-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/makemkv
