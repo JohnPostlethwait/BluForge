@@ -1,38 +1,28 @@
 # Stage 1: Build
 FROM golang:1.23-alpine AS builder
 
-WORKDIR /app
+RUN apk add --no-cache gcc musl-dev
 
-COPY go.mod ./
-RUN go mod download
-
+WORKDIR /build
+COPY go.mod go.sum* ./
+RUN go mod download 2>/dev/null || true
 COPY . .
-RUN go build -o bluforge .
+RUN CGO_ENABLED=0 go build -o bluforge .
 
 # Stage 2: Runtime
 FROM alpine:3.20
 
-# Install MakeMKV dependencies and FFmpeg
-RUN apk add --no-cache \
-    ffmpeg \
-    libstdc++ \
-    libgcc \
-    ca-certificates \
-    wget
+RUN apk add --no-cache ffmpeg ca-certificates
 
-# Install MakeMKV
-RUN apk add --no-cache --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing \
-    makemkv 2>/dev/null || \
-    (wget -q https://www.makemkv.com/download/makemkv-bin-1.17.7.tar.gz -O /tmp/makemkv-bin.tar.gz && \
-     wget -q https://www.makemkv.com/download/makemkv-oss-1.17.7.tar.gz -O /tmp/makemkv-oss.tar.gz && \
-     echo "MakeMKV will be installed at runtime or provided via volume mount")
+# Note: MakeMKV (makemkvcon) must be available in the runtime image.
+# For production, use a base image with MakeMKV pre-installed (e.g., jlesage/makemkv)
+# or build MakeMKV from source in an additional build stage.
 
 WORKDIR /app
-
-COPY --from=builder /app/bluforge .
+COPY --from=builder /build/bluforge .
 
 EXPOSE 9160
 
 VOLUME ["/config", "/output"]
 
-CMD ["./bluforge"]
+ENTRYPOINT ["/app/bluforge"]
