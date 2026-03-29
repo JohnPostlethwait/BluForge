@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,6 +19,7 @@ import (
 // ServerDeps groups all dependencies required by the Server.
 type ServerDeps struct {
 	Config       *config.AppConfig
+	ConfigPath   string
 	Store        *db.Store
 	DriveMgr     *drivemanager.Manager
 	RipEngine    *ripper.Engine
@@ -28,7 +30,9 @@ type ServerDeps struct {
 // Server wraps an Echo instance and all application dependencies.
 type Server struct {
 	echo         *echo.Echo
+	cfgMu        sync.RWMutex
 	cfg          *config.AppConfig
+	configPath   string
 	store        *db.Store
 	driveMgr     *drivemanager.Manager
 	ripEngine    *ripper.Engine
@@ -55,6 +59,7 @@ func NewServer(deps ServerDeps) *Server {
 	s := &Server{
 		echo:         e,
 		cfg:          deps.Config,
+		configPath:   deps.ConfigPath,
 		store:        deps.Store,
 		driveMgr:     deps.DriveMgr,
 		ripEngine:    deps.RipEngine,
@@ -82,9 +87,30 @@ func NewServer(deps ServerDeps) *Server {
 	return s
 }
 
+// GetConfig returns a snapshot of the current configuration. Safe for
+// concurrent use; callers receive a copy so mutations do not affect shared
+// state.
+func (s *Server) GetConfig() config.AppConfig {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return *s.cfg
+}
+
+// UpdateConfig applies fn to a locked copy of the config, writes it to disk,
+// and replaces the in-memory value. The mutex is held for the duration so
+// that concurrent readers always see a consistent value.
+func (s *Server) UpdateConfig(fn func(*config.AppConfig)) error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	fn(s.cfg)
+
+	return config.Save(*s.cfg, s.configPath)
+}
+
 // Start begins listening on the configured port.
 func (s *Server) Start() error {
-	addr := fmt.Sprintf(":%d", s.cfg.Port)
+	addr := fmt.Sprintf(":%d", s.GetConfig().Port)
 	return s.echo.Start(addr)
 }
 
