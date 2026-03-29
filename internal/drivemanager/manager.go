@@ -2,6 +2,7 @@ package drivemanager
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -61,8 +62,10 @@ func discPresent(info makemkv.DriveInfo) bool {
 func (m *Manager) PollOnce(ctx context.Context) {
 	infos, err := m.exec.ListDrives(ctx)
 	if err != nil {
+		slog.Error("drive poll failed", "error", err)
 		return
 	}
+	slog.Debug("drive poll complete", "drive_count", len(infos))
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,7 +76,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	for _, info := range infos {
 		seen[info.Index] = true
 
-		// Ensure a state machine exists for this drive.
+		// Ensure a state machine exists for every visible drive, even if empty.
 		if _, ok := m.drives[info.Index]; !ok {
 			m.drives[info.Index] = NewDriveState(info.Index, info.DriveName)
 		}
@@ -137,9 +140,13 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	}
 }
 
-// Run starts a ticker-based polling loop that calls PollOnce at the given
-// interval. It blocks until ctx is cancelled.
+// Run performs an initial poll, then starts a ticker-based polling loop that
+// calls PollOnce at the given interval. It blocks until ctx is cancelled.
 func (m *Manager) Run(ctx context.Context, interval time.Duration) {
+	// Poll immediately on startup so drives appear without waiting for the
+	// first tick interval.
+	m.PollOnce(ctx)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

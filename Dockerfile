@@ -53,10 +53,11 @@ WORKDIR /app
 COPY --from=go-builder /build/bluforge .
 COPY --from=go-builder /build/static ./static
 COPY --from=makemkv-builder /usr/bin/makemkvcon /usr/bin/makemkvcon
-COPY --from=makemkv-builder /usr/lib/libdriveio.so* /usr/lib/
-COPY --from=makemkv-builder /usr/lib/libmakemkv.so* /usr/lib/
+COPY --from=makemkv-builder /usr/lib/libdriveio.so.0 /usr/lib/libdriveio.so.0
+COPY --from=makemkv-builder /usr/lib/libmakemkv.so.1 /usr/lib/libmakemkv.so.1
+COPY --from=makemkv-builder /usr/share/MakeMKV /usr/share/MakeMKV
 
-RUN ldconfig
+RUN ldconfig && makemkvcon --version
 
 EXPOSE 9160
 
