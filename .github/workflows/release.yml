@@ -6,9 +6,29 @@ on:
       - 'v*'
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+
   publish:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    needs: test
     permissions:
       contents: read
       packages: write
