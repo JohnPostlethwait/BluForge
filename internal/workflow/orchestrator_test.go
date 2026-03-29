@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
+	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
@@ -27,7 +28,35 @@ func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, on
 	return nil
 }
 
+// mockDriveExecutor implements DiscScanner for testing.
+type mockDriveExecutor struct{}
+
+func (m *mockDriveExecutor) ScanDisc(_ context.Context, driveIndex int) (*makemkv.DiscScan, error) {
+	return &makemkv.DiscScan{
+		DriveIndex: driveIndex,
+		DiscName:   "DEADPOOL_2",
+		TitleCount: 1,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index: 0,
+				Attributes: map[int]string{
+					2:  "Deadpool 2",
+					9:  "1:59:45",
+					11: "1024",
+					27: "title_t00.mkv",
+					33: "00001.mpls",
+				},
+			},
+		},
+	}, nil
+}
+
 func setupOrchestrator(t *testing.T) (*Orchestrator, *db.Store, string) {
+	t.Helper()
+	return setupOrchestratorWithScanner(t, nil)
+}
+
+func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestrator, *db.Store, string) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -51,6 +80,7 @@ func setupOrchestrator(t *testing.T) (*Orchestrator, *db.Store, string) {
 		Engine:    engine,
 		Organizer: org,
 		SSEHub:    hub,
+		Scanner:   scanner,
 	})
 
 	// Create the output directory so disk space checks pass.
@@ -198,5 +228,151 @@ func TestManualRip_DuplicateSkip(t *testing.T) {
 	}
 	if result.Titles[0].Reason == "" {
 		t.Error("expected a reason for the skip")
+	}
+}
+
+func TestAutoRip_WithMapping(t *testing.T) {
+	scanner := &mockDriveExecutor{}
+	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
+
+	// Pre-save a disc mapping. We need the disc key that BuildDiscKey will
+	// produce for our mock scan. Compute it the same way.
+	scan, _ := scanner.ScanDisc(context.Background(), 0)
+	discKey := discdb.BuildDiscKey(scan)
+
+	err := store.SaveMapping(db.DiscMapping{
+		DiscKey:     discKey,
+		DiscName:    "DEADPOOL_2",
+		MediaItemID: "item-dp2",
+		ReleaseID:   "rel-dp2",
+		MediaTitle:  "Deadpool 2",
+		MediaYear:   "2018",
+		MediaType:   "movie",
+	})
+	if err != nil {
+		t.Fatalf("SaveMapping: %v", err)
+	}
+
+	cfg := AutoRipConfig{
+		OutputDir:       outputDir,
+		MovieTemplate:   "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
+		SeriesTemplate:  "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
+		DuplicateAction: "overwrite",
+	}
+
+	if err := orch.AutoRip(context.Background(), 0, cfg); err != nil {
+		t.Fatalf("AutoRip: %v", err)
+	}
+
+	// Wait for the async rip to complete.
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for job to complete")
+		case <-tick.C:
+			jobs, err := store.ListJobsByStatus("completed")
+			if err != nil {
+				t.Fatalf("ListJobsByStatus: %v", err)
+			}
+			if len(jobs) > 0 {
+				if jobs[0].DiscName != "DEADPOOL_2" {
+					t.Errorf("expected disc name 'DEADPOOL_2', got %q", jobs[0].DiscName)
+				}
+				return
+			}
+		}
+	}
+}
+
+func TestAutoRip_NoMatch_UsesUnmatched(t *testing.T) {
+	scanner := &mockDriveExecutor{}
+	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
+
+	// No mapping saved, no discdb client — should use unmatched titles.
+	cfg := AutoRipConfig{
+		OutputDir:       outputDir,
+		MovieTemplate:   "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
+		SeriesTemplate:  "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
+		DuplicateAction: "overwrite",
+	}
+
+	if err := orch.AutoRip(context.Background(), 0, cfg); err != nil {
+		t.Fatalf("AutoRip: %v", err)
+	}
+
+	// Wait for the async rip to complete.
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for job to complete")
+		case <-tick.C:
+			jobs, err := store.ListJobsByStatus("completed")
+			if err != nil {
+				t.Fatalf("ListJobsByStatus: %v", err)
+			}
+			if len(jobs) > 0 {
+				if jobs[0].DiscName != "DEADPOOL_2" {
+					t.Errorf("expected disc name 'DEADPOOL_2', got %q", jobs[0].DiscName)
+				}
+				// Unmatched path should contain the disc name.
+				if jobs[0].OutputPath == "" {
+					t.Error("expected output path to be set")
+				}
+				return
+			}
+		}
+	}
+}
+
+func TestRescan(t *testing.T) {
+	scanner := &mockDriveExecutor{}
+	orch, store, _ := setupOrchestratorWithScanner(t, scanner)
+
+	// Pre-save a disc mapping.
+	scan, _ := scanner.ScanDisc(context.Background(), 0)
+	discKey := discdb.BuildDiscKey(scan)
+
+	err := store.SaveMapping(db.DiscMapping{
+		DiscKey:     discKey,
+		DiscName:    "DEADPOOL_2",
+		MediaItemID: "item-dp2",
+		ReleaseID:   "rel-dp2",
+		MediaTitle:  "Deadpool 2",
+		MediaYear:   "2018",
+		MediaType:   "movie",
+	})
+	if err != nil {
+		t.Fatalf("SaveMapping: %v", err)
+	}
+
+	// Verify mapping exists.
+	mapping, err := store.GetMapping(discKey)
+	if err != nil {
+		t.Fatalf("GetMapping: %v", err)
+	}
+	if mapping == nil {
+		t.Fatal("expected mapping to exist before rescan")
+	}
+
+	// Rescan should delete the mapping.
+	if err := orch.Rescan(context.Background(), 0); err != nil {
+		t.Fatalf("Rescan: %v", err)
+	}
+
+	// Verify mapping is deleted.
+	mapping, err = store.GetMapping(discKey)
+	if err != nil {
+		t.Fatalf("GetMapping after rescan: %v", err)
+	}
+	if mapping != nil {
+		t.Error("expected mapping to be deleted after rescan")
 	}
 }

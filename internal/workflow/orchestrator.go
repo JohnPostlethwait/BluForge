@@ -1,16 +1,25 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
+	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/web"
 )
+
+// DiscScanner abstracts disc scanning for testability.
+type DiscScanner interface {
+	ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error)
+}
 
 // OrchestratorDeps holds the dependencies required to construct an Orchestrator.
 type OrchestratorDeps struct {
@@ -18,6 +27,9 @@ type OrchestratorDeps struct {
 	Engine    *ripper.Engine
 	Organizer *organizer.Organizer
 	SSEHub    *web.SSEHub
+	Scanner   DiscScanner
+	DiscDB    *discdb.Client
+	Cache     *discdb.Cache
 }
 
 // Orchestrator coordinates the end-to-end rip pipeline: disk space check,
@@ -28,6 +40,9 @@ type Orchestrator struct {
 	engine    *ripper.Engine
 	organizer *organizer.Organizer
 	sseHub    *web.SSEHub
+	scanner   DiscScanner
+	discDB    *discdb.Client
+	cache     *discdb.Cache
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
@@ -37,6 +52,9 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		engine:    deps.Engine,
 		organizer: deps.Organizer,
 		sseHub:    deps.SSEHub,
+		scanner:   deps.Scanner,
+		discDB:    deps.DiscDB,
+		cache:     deps.Cache,
 	}
 }
 
@@ -188,6 +206,202 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 	default:
 		return o.organizer.BuildUnmatchedPath(params.DiscName, sel.SourceFile), nil
 	}
+}
+
+// ScanDisc delegates disc scanning to the configured scanner.
+func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
+	if o.scanner == nil {
+		return nil, fmt.Errorf("no scanner configured")
+	}
+	return o.scanner.ScanDisc(ctx, driveIndex)
+}
+
+// AutoRip scans a disc, attempts to auto-match it against TheDiscDB, and
+// submits all titles for ripping. If a cached disc mapping exists, it is used
+// directly; otherwise the disc name is searched via the DiscDB client.
+func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipConfig) error {
+	scan, err := o.ScanDisc(ctx, driveIndex)
+	if err != nil {
+		return fmt.Errorf("auto-rip scan: %w", err)
+	}
+
+	discKey := discdb.BuildDiscKey(scan)
+
+	// Check for an existing disc mapping.
+	mapping, err := o.store.GetMapping(discKey)
+	if err != nil {
+		return fmt.Errorf("auto-rip get mapping: %w", err)
+	}
+
+	var titles []TitleSelection
+	var mediaItemID, releaseID, mediaTitle, mediaYear, mediaType string
+
+	if mapping != nil {
+		slog.Info("auto-rip: using cached disc mapping",
+			"disc_key", discKey, "media_title", mapping.MediaTitle)
+		titles = o.titlesFromMapping(scan, mapping)
+		mediaItemID = mapping.MediaItemID
+		releaseID = mapping.ReleaseID
+		mediaTitle = mapping.MediaTitle
+		mediaYear = mapping.MediaYear
+		mediaType = mapping.MediaType
+	} else {
+		titles, mediaItemID, releaseID, mediaTitle, mediaYear, mediaType = o.autoMatch(ctx, scan)
+	}
+
+	params := ManualRipParams{
+		DriveIndex:      driveIndex,
+		DiscName:        scan.DiscName,
+		DiscKey:         discKey,
+		Titles:          titles,
+		OutputDir:       cfg.OutputDir,
+		MovieTemplate:   cfg.MovieTemplate,
+		SeriesTemplate:  cfg.SeriesTemplate,
+		DuplicateAction: cfg.DuplicateAction,
+		MediaItemID:     mediaItemID,
+		ReleaseID:       releaseID,
+		MediaTitle:      mediaTitle,
+		MediaYear:       mediaYear,
+		MediaType:       mediaType,
+	}
+
+	result := o.ManualRip(params)
+	if result.HasErrors() {
+		slog.Warn("auto-rip completed with errors", "summary", result.ErrorSummary())
+	}
+
+	return nil
+}
+
+// Rescan scans the disc and deletes any existing disc mapping so that
+// the next AutoRip performs a fresh lookup.
+func (o *Orchestrator) Rescan(ctx context.Context, driveIndex int) error {
+	scan, err := o.ScanDisc(ctx, driveIndex)
+	if err != nil {
+		return fmt.Errorf("rescan: %w", err)
+	}
+
+	discKey := discdb.BuildDiscKey(scan)
+	if err := o.store.DeleteMapping(discKey); err != nil {
+		return fmt.Errorf("rescan delete mapping: %w", err)
+	}
+
+	slog.Info("rescan: deleted disc mapping", "disc_key", discKey, "disc_name", scan.DiscName)
+	return nil
+}
+
+// titlesFromMapping builds TitleSelections using a saved disc mapping for all
+// titles in the scan.
+func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.DiscMapping) []TitleSelection {
+	titles := make([]TitleSelection, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		var sizeBytes int64
+		if s := t.SizeBytes(); s != "" {
+			fmt.Sscanf(s, "%d", &sizeBytes)
+		}
+		titles = append(titles, TitleSelection{
+			TitleIndex:   t.Index,
+			TitleName:    t.Name(),
+			SourceFile:   t.SourceFile(),
+			SizeBytes:    sizeBytes,
+			ContentType:  mapping.MediaType,
+			ContentTitle: mapping.MediaTitle,
+			Year:         mapping.MediaYear,
+		})
+	}
+	return titles
+}
+
+// autoMatch searches TheDiscDB for the disc name, scores matches, and returns
+// title selections along with metadata. Falls back to unmatched titles if no
+// confident match is found.
+func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
+	titles []TitleSelection,
+	mediaItemID, releaseID, mediaTitle, mediaYear, mediaType string,
+) {
+	if o.discDB != nil && scan.DiscName != "" {
+		items, err := o.discDB.SearchByTitle(ctx, scan.DiscName)
+		if err != nil {
+			slog.Warn("auto-rip: discdb search failed", "error", err)
+		} else if len(items) > 0 {
+			best, score := discdb.BestRelease(scan, items)
+			if best != nil && score >= 10 {
+				slog.Info("auto-rip: matched via discdb",
+					"title", best.MediaItem.Title, "score", score)
+				titles = o.titlesFromSearchResult(scan, best)
+				mediaItemID = best.MediaItem.ID
+				releaseID = best.Release.ID
+				mediaTitle = best.MediaItem.Title
+				mediaYear = strconv.Itoa(best.MediaItem.Year)
+				mediaType = best.MediaItem.Type
+				return
+			}
+		}
+	}
+
+	slog.Info("auto-rip: no confident match, using unmatched titles",
+		"disc_name", scan.DiscName)
+	titles = o.unmatchedTitles(scan)
+	return
+}
+
+// titlesFromSearchResult builds TitleSelections from a TheDiscDB match using
+// MatchTitles to correlate scan titles with disc metadata.
+func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb.SearchResult) []TitleSelection {
+	matches := discdb.MatchTitles(scan, sr.Disc)
+	titles := make([]TitleSelection, 0, len(scan.Titles))
+
+	for _, cm := range matches {
+		// Find the scan title for size info.
+		var sizeBytes int64
+		var titleName string
+		for _, t := range scan.Titles {
+			if t.Index == cm.TitleIndex {
+				if s := t.SizeBytes(); s != "" {
+					fmt.Sscanf(s, "%d", &sizeBytes)
+				}
+				titleName = t.Name()
+				break
+			}
+		}
+
+		sel := TitleSelection{
+			TitleIndex: cm.TitleIndex,
+			TitleName:  titleName,
+			SourceFile: cm.SourceFile,
+			SizeBytes:  sizeBytes,
+		}
+
+		if cm.Matched {
+			sel.ContentType = cm.ContentType
+			sel.ContentTitle = cm.ContentTitle
+			sel.Season = strconv.Itoa(cm.Season)
+			sel.Episode = strconv.Itoa(cm.Episode)
+		}
+
+		titles = append(titles, sel)
+	}
+
+	return titles
+}
+
+// unmatchedTitles builds TitleSelections with no content metadata — the
+// organizer will place them in an unmatched directory.
+func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection {
+	titles := make([]TitleSelection, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		var sizeBytes int64
+		if s := t.SizeBytes(); s != "" {
+			fmt.Sscanf(s, "%d", &sizeBytes)
+		}
+		titles = append(titles, TitleSelection{
+			TitleIndex: t.Index,
+			TitleName:  t.Name(),
+			SourceFile: t.SourceFile(),
+			SizeBytes:  sizeBytes,
+		})
+	}
+	return titles
 }
 
 // broadcastJobUpdate sends a job status update over SSE.
