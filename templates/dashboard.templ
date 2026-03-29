@@ -1,0 +1,33 @@
+package templates
+
+import "github.com/johnpostlethwait/bluforge/templates/components"
+
+// DashboardData holds the data needed to render the dashboard page.
+type DashboardData struct {
+	Drives []components.DriveCardData
+}
+
+templ Dashboard(data DashboardData) {
+	@Layout("Dashboard") {
+		<div class="page-header">
+			<h1>Drives</h1>
+		</div>
+		<div
+			class="drive-grid"
+			hx-ext="sse"
+			sse-connect="/events"
+			sse-swap="drive-update"
+			hx-swap="none"
+		>
+			if len(data.Drives) == 0 {
+				<div class="empty-state">
+					<p>No drives detected. Make sure MakeMKV is installed and a drive is connected.</p>
+				</div>
+			} else {
+				for _, drive := range data.Drives {
+					@components.DriveCard(drive)
+				}
+			}
+		</div>
+	}
+}

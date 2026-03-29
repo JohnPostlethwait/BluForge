@@ -1,0 +1,100 @@
+package templates
+
+import "fmt"
+
+// ContributeTitleRow holds data for a single title in the contribution form.
+type ContributeTitleRow struct {
+	Index      int
+	Name       string
+	Duration   string
+	SourceFile string
+	ItemType   string
+	Season     string
+	Episode    string
+}
+
+// ContributeData holds all data needed to render the contribution page.
+type ContributeData struct {
+	DriveIndex int
+	DiscName   string
+	Titles     []ContributeTitleRow
+	HasGitHub  bool
+}
+
+templ Contribute(data ContributeData) {
+	@Layout("Contribute") {
+		<div class="page-header">
+			<h1>Contribute Disc Data</h1>
+			<a href={ templ.SafeURL(fmt.Sprintf("/drives/%d", data.DriveIndex)) } class="btn btn-secondary btn-sm">← Back</a>
+		</div>
+		if !data.HasGitHub {
+			<div class="warning-box">
+				GitHub authentication is not configured. Please add your GitHub Client ID and Secret in Settings to enable contributions.
+			</div>
+		}
+		<div class="card">
+			<div class="section-title">{ data.DiscName }</div>
+			if len(data.Titles) == 0 {
+				<div class="empty-state"><p>No titles available to label.</p></div>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/drives/%d/contribute", data.DriveIndex)) }
+				>
+					<div style="overflow-x:auto;">
+						<table>
+							<thead>
+								<tr>
+									<th>#</th>
+									<th>Name</th>
+									<th>Duration</th>
+									<th>Type</th>
+									<th>Season</th>
+									<th>Episode</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, t := range data.Titles {
+									<tr>
+										<td class="text-muted">{ fmt.Sprintf("%d", t.Index) }</td>
+										<td>{ t.Name }</td>
+										<td class="text-secondary">{ t.Duration }</td>
+										<td>
+											<select name={ fmt.Sprintf("type_%d", t.Index) } style="width: auto;">
+												<option value="" selected?={ t.ItemType == "" }>—</option>
+												<option value="movie" selected?={ t.ItemType == "movie" }>Movie</option>
+												<option value="episode" selected?={ t.ItemType == "episode" }>Episode</option>
+												<option value="extra" selected?={ t.ItemType == "extra" }>Extra</option>
+											</select>
+										</td>
+										<td>
+											<input
+												type="number"
+												name={ fmt.Sprintf("season_%d", t.Index) }
+												value={ t.Season }
+												placeholder="—"
+												style="width: 70px;"
+											/>
+										</td>
+										<td>
+											<input
+												type="number"
+												name={ fmt.Sprintf("episode_%d", t.Index) }
+												value={ t.Episode }
+												placeholder="—"
+												style="width: 70px;"
+											/>
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+					<div class="mt-3">
+						<button type="submit" class="btn btn-primary" disabled?={ !data.HasGitHub }>Submit Contribution</button>
+					</div>
+				</form>
+			}
+		</div>
+	}
+}

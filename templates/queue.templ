@@ -1,0 +1,125 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/johnpostlethwait/bluforge/templates/components"
+)
+
+// QueueJobRow holds display data for a single rip job in the queue view.
+type QueueJobRow struct {
+	ID          int64
+	DiscName    string
+	TitleName   string
+	ContentType string
+	Status      string
+	Progress    int
+	Error       string
+	DriveIndex  int
+}
+
+templ Queue(active, pending, completed []QueueJobRow) {
+	@Layout("Queue") {
+		<div class="page-header">
+			<h1>Queue</h1>
+		</div>
+		<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+			<div class="card">
+				<div class="section-title">Active</div>
+				if len(active) == 0 {
+					<div class="empty-state"><p>No active jobs.</p></div>
+				} else {
+					<table>
+						<thead>
+							<tr>
+								<th>Disc</th>
+								<th>Title</th>
+								<th>Type</th>
+								<th>Progress</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, j := range active {
+								<tr
+									hx-ext="sse"
+									sse-connect="/events"
+									sse-swap={ fmt.Sprintf("job-update-%d", j.ID) }
+									hx-target={ fmt.Sprintf("#job-row-%d", j.ID) }
+									hx-swap="outerHTML"
+									id={ fmt.Sprintf("job-row-%d", j.ID) }
+								>
+									<td>{ j.DiscName }</td>
+									<td>{ j.TitleName }</td>
+									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
+									<td style="min-width: 140px;">
+										<span class="text-secondary">{ fmt.Sprintf("%d%%", j.Progress) }</span>
+										@components.ProgressBar(fmt.Sprintf("job-%d", j.ID), j.Progress)
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+			<div class="card">
+				<div class="section-title">Pending</div>
+				if len(pending) == 0 {
+					<div class="empty-state"><p>No pending jobs.</p></div>
+				} else {
+					<table>
+						<thead>
+							<tr>
+								<th>Disc</th>
+								<th>Title</th>
+								<th>Type</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, j := range pending {
+								<tr>
+									<td>{ j.DiscName }</td>
+									<td>{ j.TitleName }</td>
+									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
+									<td><span class={ fmt.Sprintf("badge badge-%s", j.Status) }>{ j.Status }</span></td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+			<div class="card">
+				<div class="section-title">Recently Completed</div>
+				if len(completed) == 0 {
+					<div class="empty-state"><p>No completed jobs yet.</p></div>
+				} else {
+					<table>
+						<thead>
+							<tr>
+								<th>Disc</th>
+								<th>Title</th>
+								<th>Type</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, j := range completed {
+								<tr>
+									<td>{ j.DiscName }</td>
+									<td>{ j.TitleName }</td>
+									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
+									<td>
+										if j.Status == "failed" && j.Error != "" {
+											<span class="text-error">{ j.Error }</span>
+										} else {
+											<span class={ fmt.Sprintf("badge badge-%s", j.Status) }>{ j.Status }</span>
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+		</div>
+	}
+}

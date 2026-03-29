@@ -1,0 +1,92 @@
+package templates
+
+import "fmt"
+
+// SettingsData holds the current settings values for the settings form.
+type SettingsData struct {
+	OutputDir          string
+	AutoRip            bool
+	MinTitleLength     string
+	PollInterval       string
+	DuplicateAction    string
+	MovieTemplate      string
+	SeriesTemplate     string
+	GitHubClientID     string
+	GitHubClientSecret string
+}
+
+templ Settings(data SettingsData) {
+	@Layout("Settings") {
+		<div class="page-header">
+			<h1>Settings</h1>
+		</div>
+		<form method="POST" action="/settings">
+			<div class="card" style="margin-bottom: 1rem;">
+				<div class="section-title">General</div>
+				<div class="form-group">
+					<label for="output_dir">Output Directory</label>
+					<input type="text" id="output_dir" name="output_dir" value={ data.OutputDir }/>
+				</div>
+				<div class="form-group">
+					<label>
+						<input type="checkbox" name="auto_rip" value="true" checked?={ data.AutoRip } style="width:auto; margin-right: 0.4rem;"/>
+						Auto-rip when disc detected
+					</label>
+				</div>
+				<div class="form-group">
+					<label for="min_title_length">Minimum Title Length (seconds)</label>
+					<input type="number" id="min_title_length" name="min_title_length" value={ data.MinTitleLength }/>
+				</div>
+				<div class="form-group">
+					<label for="poll_interval">Drive Poll Interval (seconds)</label>
+					<input type="number" id="poll_interval" name="poll_interval" value={ data.PollInterval }/>
+				</div>
+				<div class="form-group">
+					<label for="duplicate_action">Duplicate Action</label>
+					<select id="duplicate_action" name="duplicate_action">
+						<option value="skip" selected?={ data.DuplicateAction == "skip" }>Skip</option>
+						<option value="overwrite" selected?={ data.DuplicateAction == "overwrite" }>Overwrite</option>
+						<option value="rename" selected?={ data.DuplicateAction == "rename" }>Rename</option>
+					</select>
+				</div>
+			</div>
+			<div class="card" style="margin-bottom: 1rem;">
+				<div class="section-title">Naming Templates</div>
+				<div class="form-group">
+					<label for="movie_template">Movie Template</label>
+					<input type="text" id="movie_template" name="movie_template" value={ data.MovieTemplate }/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">Variables: &#123;&#123;.Title&#125;&#125;, &#123;&#123;.Year&#125;&#125;</p>
+				</div>
+				<div class="form-group">
+					<label for="series_template">Series Template</label>
+					<input type="text" id="series_template" name="series_template" value={ data.SeriesTemplate }/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">Variables: &#123;&#123;.Show&#125;&#125;, &#123;&#123;.Season&#125;&#125;, &#123;&#123;.Episode&#125;&#125;, &#123;&#123;.EpisodeTitle&#125;&#125;</p>
+				</div>
+			</div>
+			<div class="card" style="margin-bottom: 1rem;">
+				<div class="section-title">TheDiscDB Contribution (optional)</div>
+				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+					Configure GitHub OAuth to enable contributing disc data back to TheDiscDB.
+				</p>
+				<div class="form-group">
+					<label for="github_client_id">GitHub Client ID</label>
+					<input type="text" id="github_client_id" name="github_client_id" value={ data.GitHubClientID } placeholder="Optional"/>
+				</div>
+				<div class="form-group">
+					<label for="github_client_secret">GitHub Client Secret</label>
+					<input type="password" id="github_client_secret" name="github_client_secret" value={ fmt.Sprintf("%s", maskSecret(data.GitHubClientSecret)) } placeholder="Optional"/>
+				</div>
+			</div>
+			<div>
+				<button type="submit" class="btn btn-primary">Save Settings</button>
+			</div>
+		</form>
+	}
+}
+
+func maskSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	return "••••••••"
+}

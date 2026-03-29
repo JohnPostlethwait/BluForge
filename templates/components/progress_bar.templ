@@ -1,0 +1,9 @@
+package components
+
+import "fmt"
+
+templ ProgressBar(jobID string, percent int) {
+	<div class="progress-bar" id={ fmt.Sprintf("progress-%s", jobID) }>
+		<div class="progress-fill" style={ fmt.Sprintf("width: %d%%", percent) }></div>
+	</div>
+}

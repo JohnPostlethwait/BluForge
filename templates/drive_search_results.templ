@@ -1,0 +1,61 @@
+package templates
+
+import "fmt"
+
+// SearchResultRow holds one result from a TheDiscDB search.
+type SearchResultRow struct {
+	MediaTitle   string
+	MediaYear    int
+	MediaType    string
+	ReleaseTitle string
+	ReleaseUPC   string
+	ReleaseASIN  string
+	RegionCode   string
+	Format       string
+	DiscCount    int
+	ReleaseID    string
+	MediaItemID  string
+}
+
+templ DriveSearchResults(driveIndex int, results []SearchResultRow) {
+	if len(results) == 0 {
+		<p class="text-muted" style="padding: 0.5rem 0;">No results found.</p>
+	} else {
+		<div style="overflow-x:auto;">
+			<table>
+				<thead>
+					<tr>
+						<th>Title</th>
+						<th>Year</th>
+						<th>Type</th>
+						<th>Release</th>
+						<th>UPC</th>
+						<th>Format</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range results {
+						<tr>
+							<td>{ r.MediaTitle }</td>
+							<td class="text-secondary">{ fmt.Sprintf("%d", r.MediaYear) }</td>
+							<td><span class="badge badge-identified">{ r.MediaType }</span></td>
+							<td class="text-secondary">{ r.ReleaseTitle }</td>
+							<td class="text-muted">{ r.ReleaseUPC }</td>
+							<td class="text-secondary">{ r.Format }</td>
+							<td>
+								<button
+									class="btn btn-primary btn-sm"
+									hx-post={ fmt.Sprintf("/drives/%d/search", driveIndex) }
+									hx-vals={ fmt.Sprintf(`{"release_id": "%s", "media_item_id": "%s"}`, r.ReleaseID, r.MediaItemID) }
+									hx-target="body"
+									hx-swap="outerHTML"
+								>Select</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}

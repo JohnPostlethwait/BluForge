@@ -1,0 +1,122 @@
+package templates
+
+import "fmt"
+
+// TitleRow holds display data for a single disc title in the drive detail view.
+type TitleRow struct {
+	Index       int
+	Name        string
+	Duration    string
+	Size        string
+	SourceFile  string
+	Matched     bool
+	ContentType string
+	ContentName string
+	Selected    bool
+}
+
+// DriveDetailData holds all data needed to render the drive detail page.
+type DriveDetailData struct {
+	DriveIndex     int
+	DriveName      string
+	DiscName       string
+	State          string
+	Titles         []TitleRow
+	MatchedMedia   string
+	MatchedRelease string
+	HasMapping     bool
+}
+
+templ DriveDetail(data DriveDetailData) {
+	@Layout(data.DiscName) {
+		<div class="page-header">
+			<h1>{ data.DriveName }</h1>
+			<a href="/" class="btn btn-secondary btn-sm">← Back</a>
+		</div>
+		<div class="card" style="margin-bottom: 1rem;">
+			<div class="card-header">
+				<span class="card-title">Disc Info</span>
+				<span class={ fmt.Sprintf("badge badge-%s", data.State) }>{ data.State }</span>
+			</div>
+			<p class="text-secondary">{ data.DiscName }</p>
+			if data.HasMapping {
+				<p class="mt-2">
+					<span class="text-muted">Matched: </span>
+					<span>{ data.MatchedMedia }</span>
+					if data.MatchedRelease != "" {
+						<span class="text-muted"> — </span>
+						<span class="text-secondary">{ data.MatchedRelease }</span>
+					}
+				</p>
+				<div class="mt-3">
+					<button
+						class="btn btn-secondary btn-sm"
+						hx-post={ fmt.Sprintf("/drives/%d/rescan", data.DriveIndex) }
+						hx-target="body"
+						hx-swap="outerHTML"
+					>Re-scan</button>
+				</div>
+			}
+		</div>
+		<div class="card" style="margin-bottom: 1rem;">
+			<div class="section-title">Search TheDiscDB</div>
+			<form
+				hx-post={ fmt.Sprintf("/drives/%d/search", data.DriveIndex) }
+				hx-target="#search-results"
+				hx-swap="innerHTML"
+			>
+				<div class="flex gap-2 items-center">
+					<input type="search" name="query" placeholder="Search by title, UPC, ASIN…" style="flex:1;"/>
+					<button type="submit" class="btn btn-primary btn-sm">Search</button>
+				</div>
+			</form>
+			<div id="search-results" class="mt-3"></div>
+		</div>
+		<div class="card">
+			<div class="section-title">Titles</div>
+			if len(data.Titles) == 0 {
+				<div class="empty-state">
+					<p>No titles found. Try scanning the disc first.</p>
+				</div>
+			} else {
+				<form hx-post={ fmt.Sprintf("/drives/%d/rip", data.DriveIndex) } hx-target="body" hx-swap="outerHTML">
+					<div style="overflow-x:auto;">
+						<table>
+							<thead>
+								<tr>
+									<th></th>
+									<th>#</th>
+									<th>Name</th>
+									<th>Duration</th>
+									<th>Size</th>
+									<th>Content</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, t := range data.Titles {
+									<tr>
+										<td><input type="checkbox" name="titles" value={ fmt.Sprintf("%d", t.Index) } checked?={ t.Selected }/></td>
+										<td class="text-muted">{ fmt.Sprintf("%d", t.Index) }</td>
+										<td>{ t.Name }</td>
+										<td class="text-secondary">{ t.Duration }</td>
+										<td class="text-secondary">{ t.Size }</td>
+										<td>
+											if t.Matched {
+												<span class="text-success">{ t.ContentName }</span>
+											} else {
+												<span class="text-muted">—</span>
+											}
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+					<div class="mt-3">
+						<button type="submit" class="btn btn-primary">Rip Selected</button>
+					</div>
+				</form>
+			}
+		</div>
+	}
+}
