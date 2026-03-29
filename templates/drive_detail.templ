@@ -25,10 +25,16 @@ type DriveDetailData struct {
 	MatchedMedia   string
 	MatchedRelease string
 	HasMapping     bool
+	Error          string
 }
 
 templ DriveDetail(data DriveDetailData) {
 	@Layout(data.DiscName) {
+		if data.Error != "" {
+			<div class="alert alert-error">
+				{ data.Error }
+			</div>
+		}
 		<div class="page-header">
 			<h1>{ data.DriveName }</h1>
 			<a href="/" class="btn btn-secondary btn-sm">← Back</a>

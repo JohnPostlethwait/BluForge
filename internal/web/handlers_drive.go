@@ -2,15 +2,17 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
-	"github.com/johnpostlethwait/bluforge/internal/ripper"
+	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
@@ -54,16 +56,47 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
-	dsm := s.driveMgr.GetDrive(idx)
-	if dsm == nil {
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
 	}
 
 	data := templates.DriveDetailData{
-		DriveIndex: dsm.Index(),
-		DriveName:  dsm.DevicePath(),
-		DiscName:   dsm.DiscName(),
-		State:      string(dsm.State()),
+		DriveIndex: idx,
+		DriveName:  drv.DevicePath(),
+		DiscName:   drv.DiscName(),
+		State:      string(drv.State()),
+	}
+
+	// Check for a remembered disc mapping.
+	if drv.DiscName() != "" && s.store != nil {
+		scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
+		if scanErr == nil && scan != nil {
+			discKey := discdb.BuildDiscKey(scan)
+			mapping, _ := s.store.GetMapping(discKey)
+			if mapping != nil {
+				data.HasMapping = true
+				data.MatchedMedia = mapping.MediaTitle + " (" + mapping.MediaYear + ")"
+				data.MatchedRelease = mapping.ReleaseID
+			}
+
+			// Populate title rows from scan.
+			for _, t := range scan.Titles {
+				data.Titles = append(data.Titles, templates.TitleRow{
+					Index:      t.Index,
+					Name:       t.Name(),
+					Duration:   t.Duration(),
+					Size:       t.SizeHuman(),
+					SourceFile: t.SourceFile(),
+					Selected:   true,
+				})
+			}
+		}
+	}
+
+	// Check for error flash.
+	if errMsg := c.QueryParam("error"); errMsg != "" {
+		data.Error = errMsg
 	}
 
 	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
@@ -135,35 +168,74 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
-	dsm := s.driveMgr.GetDrive(idx)
-	discName := ""
-	if dsm != nil {
-		discName = dsm.DiscName()
-	}
+	cfg := s.GetConfig()
 
 	if err := c.Request().ParseForm(); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
 	}
 
+	discName := c.FormValue("disc_name")
+
+	// Build title selections from form.
+	var titles []workflow.TitleSelection
 	for _, tv := range c.Request().Form["titles"] {
 		titleIdx, err := strconv.Atoi(tv)
 		if err != nil {
 			continue
 		}
-		job := ripper.NewJob(idx, titleIdx, discName, s.cfg.OutputDir)
-		// Ignore submit errors (e.g. duplicate active drive) and continue.
-		_ = s.ripEngine.Submit(job)
+		titles = append(titles, workflow.TitleSelection{
+			TitleIndex:   titleIdx,
+			TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
+			ContentType:  c.FormValue("content_type"),
+			ContentTitle: c.FormValue("content_title"),
+			Year:         c.FormValue("content_year"),
+		})
+	}
+
+	if len(titles) == 0 {
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape("No titles selected")))
+	}
+
+	// Build disc key if we have scan data.
+	discKey := ""
+	if scan, err := s.orchestrator.ScanDisc(c.Request().Context(), idx); err == nil {
+		discKey = discdb.BuildDiscKey(scan)
+	}
+
+	params := workflow.ManualRipParams{
+		DriveIndex:      idx,
+		DiscName:        discName,
+		DiscKey:         discKey,
+		Titles:          titles,
+		OutputDir:       cfg.OutputDir,
+		MovieTemplate:   cfg.MovieTemplate,
+		SeriesTemplate:  cfg.SeriesTemplate,
+		DuplicateAction: cfg.DuplicateAction,
+		MediaItemID:     c.FormValue("media_item_id"),
+		ReleaseID:       c.FormValue("release_id"),
+		MediaTitle:      c.FormValue("content_title"),
+		MediaYear:       c.FormValue("content_year"),
+		MediaType:       c.FormValue("content_type"),
+	}
+
+	result := s.orchestrator.ManualRip(params)
+
+	if result.HasErrors() {
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape(result.ErrorSummary())))
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/queue")
 }
 
 // handleDriveRescan clears any existing mapping for a drive and redirects back to the detail page.
-// TODO: delete disc mapping from store when the mapping layer is implemented.
 func (s *Server) handleDriveRescan(c echo.Context) error {
 	idx, err := parseDriveIndex(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	if err := s.orchestrator.Rescan(c.Request().Context(), idx); err != nil {
+		slog.Error("rescan failed", "error", err, "drive_index", idx)
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/drives/"+strconv.Itoa(idx))
