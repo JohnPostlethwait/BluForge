@@ -62,6 +62,68 @@ func TestEngineRejectsSecondRipOnSameDrive(t *testing.T) {
 	mock.release()
 }
 
+// immediateRipExecutor is a test double that returns immediately with no error.
+type immediateRipExecutor struct{}
+
+func (m *immediateRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+	if onEvent != nil {
+		onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Current: 65536, Total: 65536, Max: 65536}})
+	}
+	return nil
+}
+
+func TestEngine_OnCompleteCallback(t *testing.T) {
+	engine := NewEngine(&immediateRipExecutor{})
+
+	var (
+		cbMu      sync.Mutex
+		cbJob     *Job
+		cbErr     error
+		cbCalled  bool
+	)
+
+	job := NewJob(0, 1, "DISC", "/output")
+	job.OnComplete = func(j *Job, err error) {
+		cbMu.Lock()
+		defer cbMu.Unlock()
+		cbJob = j
+		cbErr = err
+		cbCalled = true
+	}
+
+	if err := engine.Submit(job); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Wait for the job to complete and the callback to fire.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		cbMu.Lock()
+		called := cbCalled
+		cbMu.Unlock()
+		if called {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cbMu.Lock()
+	defer cbMu.Unlock()
+
+	if !cbCalled {
+		t.Fatal("OnComplete callback was never called")
+	}
+	if cbJob != job {
+		t.Errorf("OnComplete received wrong job pointer: got %p, want %p", cbJob, job)
+	}
+	if cbErr != nil {
+		t.Errorf("OnComplete received non-nil error: %v", cbErr)
+	}
+	if cbJob.Status != StatusCompleted {
+		t.Errorf("job status = %q, want %q", cbJob.Status, StatusCompleted)
+	}
+}
+
 func TestEngineAllowsConcurrentDrives(t *testing.T) {
 	mock := newMockRipExecutor()
 	engine := NewEngine(mock)

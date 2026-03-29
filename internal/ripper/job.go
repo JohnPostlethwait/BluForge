@@ -32,6 +32,9 @@ type Job struct {
 	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
+	// OnComplete is an optional callback invoked after the job finishes and is
+	// removed from the engine's active map. err is nil on success.
+	OnComplete func(job *Job, err error)
 }
 
 // NewJob creates a new Job in the Pending state.

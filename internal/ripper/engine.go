@@ -119,4 +119,8 @@ func (e *Engine) run(job *Job) {
 	e.mu.Lock()
 	delete(e.active, job.DriveIndex)
 	e.mu.Unlock()
+
+	if job.OnComplete != nil {
+		job.OnComplete(job, err)
+	}
 }
