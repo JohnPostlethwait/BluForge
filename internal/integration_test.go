@@ -7,13 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
+	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/testutil"
 )
+
+// noopBroadcaster satisfies workflow.Broadcaster without doing anything.
+type noopBroadcaster struct{}
+
+func (noopBroadcaster) Broadcast(workflow.SSEMessage) {}
 
 // fullMockExecutor implements both drivemanager.DriveExecutor and ripper.RipExecutor
 // using the testutil fixture data.
@@ -251,4 +258,203 @@ func TestFullRipFlow(t *testing.T) {
 	if finalJob.Progress != 100 {
 		t.Errorf("expected progress 100, got %d", finalJob.Progress)
 	}
+}
+
+// TestFullPipeline_ManualRip exercises a manual rip through the orchestrator,
+// verifying that a DB job is created and a disc mapping is saved.
+func TestFullPipeline_ManualRip(t *testing.T) {
+	store, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer store.Close()
+
+	exec := &fullMockExecutor{}
+	engine := ripper.NewEngine(exec)
+	org := organizer.New(
+		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
+		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
+	)
+
+	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{
+		Store:     store,
+		Engine:    engine,
+		Organizer: org,
+		SSEHub:    noopBroadcaster{},
+		Scanner:   exec,
+	})
+
+	params := workflow.ManualRipParams{
+		DriveIndex:  0,
+		DiscName:    "DEADPOOL_2",
+		DiscKey:     "test-disc-key",
+		OutputDir:   t.TempDir(),
+		MediaItemID: "item-123",
+		ReleaseID:   "rel-456",
+		MediaTitle:  "Deadpool 2",
+		MediaYear:   "2018",
+		MediaType:   "movie",
+		Titles: []workflow.TitleSelection{
+			{
+				TitleIndex:   0,
+				TitleName:    "main feature",
+				SourceFile:   "/dev/sr0",
+				SizeBytes:    1024,
+				ContentType:  "movie",
+				ContentTitle: "Deadpool 2",
+				Year:         "2018",
+			},
+		},
+	}
+
+	result := orch.ManualRip(params)
+
+	if len(result.Titles) != 1 {
+		t.Fatalf("expected 1 title result, got %d", len(result.Titles))
+	}
+	if result.Titles[0].Status != "submitted" {
+		t.Fatalf("expected status 'submitted', got %q (reason: %s)", result.Titles[0].Status, result.Titles[0].Reason)
+	}
+
+	// Wait for the async rip job to complete.
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify a job was created in the DB.
+	jobs, err := store.ListAllJobs(10, 0)
+	if err != nil {
+		t.Fatalf("ListAllJobs: %v", err)
+	}
+	if len(jobs) == 0 {
+		t.Fatal("expected at least one job in DB, got none")
+	}
+
+	// Verify disc mapping was saved.
+	mapping, err := store.GetMapping("test-disc-key")
+	if err != nil {
+		t.Fatalf("GetMapping: %v", err)
+	}
+	if mapping == nil {
+		t.Fatal("expected disc mapping to be saved, got nil")
+	}
+	if mapping.MediaTitle != "Deadpool 2" {
+		t.Errorf("expected MediaTitle 'Deadpool 2', got %q", mapping.MediaTitle)
+	}
+}
+
+// TestFullPipeline_Rescan verifies that rescanning a disc deletes its cached mapping.
+func TestFullPipeline_Rescan(t *testing.T) {
+	store, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer store.Close()
+
+	exec := &fullMockExecutor{}
+	engine := ripper.NewEngine(exec)
+	org := organizer.New(
+		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
+		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
+	)
+
+	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{
+		Store:     store,
+		Engine:    engine,
+		Organizer: org,
+		SSEHub:    noopBroadcaster{},
+		Scanner:   exec,
+	})
+
+	// First, compute the disc key the scanner will produce so we can pre-save
+	// a mapping with the same key.
+	scan, err := exec.ScanDisc(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ScanDisc: %v", err)
+	}
+	discKey := discdb.BuildDiscKey(scan)
+
+	// Save a mapping that the rescan should delete.
+	if err := store.SaveMapping(db.DiscMapping{
+		DiscKey:     discKey,
+		DiscName:    "DEADPOOL_2",
+		MediaItemID: "item-123",
+		MediaTitle:  "Deadpool 2",
+		MediaYear:   "2018",
+		MediaType:   "movie",
+	}); err != nil {
+		t.Fatalf("SaveMapping: %v", err)
+	}
+
+	// Confirm it was saved.
+	mapping, err := store.GetMapping(discKey)
+	if err != nil {
+		t.Fatalf("GetMapping before rescan: %v", err)
+	}
+	if mapping == nil {
+		t.Fatal("expected mapping to exist before rescan")
+	}
+
+	// Rescan should delete the mapping.
+	if err := orch.Rescan(context.Background(), 0); err != nil {
+		t.Fatalf("Rescan: %v", err)
+	}
+
+	// Verify mapping is gone.
+	mapping, err = store.GetMapping(discKey)
+	if err != nil {
+		t.Fatalf("GetMapping after rescan: %v", err)
+	}
+	if mapping != nil {
+		t.Fatal("expected mapping to be deleted after rescan, but it still exists")
+	}
+}
+
+// TestFullPipeline_AutoRip_Unmatched verifies that auto-rip with no DiscDB client
+// creates unmatched jobs in the database.
+func TestFullPipeline_AutoRip_Unmatched(t *testing.T) {
+	store, err := db.Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer store.Close()
+
+	exec := &fullMockExecutor{}
+	engine := ripper.NewEngine(exec)
+	org := organizer.New(
+		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
+		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
+	)
+
+	// No DiscDB client — forces the unmatched path.
+	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{
+		Store:     store,
+		Engine:    engine,
+		Organizer: org,
+		SSEHub:    noopBroadcaster{},
+		Scanner:   exec,
+	})
+
+	cfg := workflow.AutoRipConfig{
+		OutputDir:       t.TempDir(),
+		DuplicateAction: "skip",
+	}
+
+	if err := orch.AutoRip(context.Background(), 0, cfg); err != nil {
+		t.Fatalf("AutoRip: %v", err)
+	}
+
+	// Wait for async rip jobs to complete.
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify jobs were created in the DB (one per title in the fixture scan).
+	jobs, err := store.ListAllJobs(20, 0)
+	if err != nil {
+		t.Fatalf("ListAllJobs: %v", err)
+	}
+	if len(jobs) == 0 {
+		t.Fatal("expected unmatched jobs in DB, got none")
+	}
+
+	// At least one job should have been created. Some fixture titles may be
+	// skipped due to disk-space checks against the local filesystem.
+	t.Logf("created %d unmatched job(s)", len(jobs))
 }
