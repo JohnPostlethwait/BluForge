@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config wget ca-certificates \
-    libssl-dev libexpat1-dev \
+    libssl-dev libexpat1-dev zlib1g-dev \
     libavcodec-dev libavutil-dev libavformat-dev \
     && rm -rf /var/lib/apt/lists/*
 
