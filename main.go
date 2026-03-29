@@ -90,6 +90,9 @@ func main() {
 	})
 
 	// 11. Create drive manager with onEvent callback.
+	// srv is declared here so the callback closure can read live config via
+	// srv.GetConfig() instead of the stale startup cfg value.
+	var srv *web.Server
 	driveMgr := drivemanager.NewManager(executor, func(ev drivemanager.DriveEvent) {
 		slog.Info("drive event", "type", ev.Type, "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 		data, err := json.Marshal(ev)
@@ -100,14 +103,18 @@ func main() {
 		sseHub.Broadcast(web.SSEEvent{Event: "drive-event", Data: string(data)})
 
 		// Auto-rip: trigger on disc insert when enabled.
-		if ev.Type == drivemanager.EventDiscInserted && cfg.AutoRip {
+		if srv == nil {
+			return
+		}
+		snapCfg := srv.GetConfig()
+		if ev.Type == drivemanager.EventDiscInserted && snapCfg.AutoRip {
 			go func() {
 				slog.Info("auto-rip triggered", "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 				autoErr := orch.AutoRip(context.Background(), ev.DriveIndex, workflow.AutoRipConfig{
-					OutputDir:       cfg.OutputDir,
-					MovieTemplate:   cfg.MovieTemplate,
-					SeriesTemplate:  cfg.SeriesTemplate,
-					DuplicateAction: cfg.DuplicateAction,
+					OutputDir:       snapCfg.OutputDir,
+					MovieTemplate:   snapCfg.MovieTemplate,
+					SeriesTemplate:  snapCfg.SeriesTemplate,
+					DuplicateAction: snapCfg.DuplicateAction,
 				})
 				if autoErr != nil {
 					slog.Error("auto-rip failed", "error", autoErr, "drive_index", ev.DriveIndex)
@@ -117,8 +124,9 @@ func main() {
 	})
 
 	// 12. Create web server with all dependencies.
-	srv := web.NewServer(web.ServerDeps{
+	srv = web.NewServer(web.ServerDeps{
 		Config:       &cfg,
+		ConfigPath:   "/config/config.yaml",
 		Store:        store,
 		DriveMgr:     driveMgr,
 		RipEngine:    ripEngine,

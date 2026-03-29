@@ -73,7 +73,10 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
 		if scanErr == nil && scan != nil {
 			discKey := discdb.BuildDiscKey(scan)
-			mapping, _ := s.store.GetMapping(discKey)
+			mapping, mappingErr := s.store.GetMapping(discKey)
+			if mappingErr != nil {
+				slog.WarnContext(c.Request().Context(), "failed to load disc mapping", "disc_key", discKey, "error", mappingErr)
+			}
 			if mapping != nil {
 				data.HasMapping = true
 				data.MatchedMedia = mapping.MediaTitle + " (" + mapping.MediaYear + ")"

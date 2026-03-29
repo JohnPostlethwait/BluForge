@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -20,6 +20,7 @@ RUN apk add --no-cache ffmpeg ca-certificates
 
 WORKDIR /app
 COPY --from=builder /build/bluforge .
+COPY --from=builder /build/static ./static
 
 EXPOSE 9160
 
