@@ -1,0 +1,21 @@
+services:
+  bluforge:
+    image: ghcr.io/johnpostlethwait/bluforge:latest
+    container_name: bluforge
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "9160:9160"
+    volumes:
+      - /mnt/user/appdata/bluforge:/config
+      - /mnt/user/media:/output
+    environment:
+      - BLUFORGE_AUTO_RIP=false
+      # Override output subdirectory structure if needed:
+      # - BLUFORGE_MOVIE_TEMPLATE=Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})
+      # - BLUFORGE_SERIES_TEMPLATE=TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}
+      # - BLUFORGE_DUPLICATE_ACTION=skip
+      # - BLUFORGE_MIN_TITLE_LENGTH=120
+      # GitHub OAuth (optional, for TheDiscDB authentication):
+      # - BLUFORGE_GITHUB_CLIENT_ID=
+      # - BLUFORGE_GITHUB_CLIENT_SECRET=
