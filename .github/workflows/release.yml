@@ -16,14 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build binary
-        run: CGO_ENABLED=0 go build -o bluforge .
-
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
