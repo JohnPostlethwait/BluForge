@@ -462,6 +462,14 @@ func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection 
 	return titles
 }
 
+// InjectCachedScan is a test helper that inserts a scan into the cache.
+func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) {
+	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
+	o.scanMu.Lock()
+	defer o.scanMu.Unlock()
+	o.scanCache[key] = scan
+}
+
 // broadcastJobUpdate sends a job status update over SSE.
 func (o *Orchestrator) broadcastJobUpdate(jobID int64, status string) {
 	if o.onBroadcast == nil {

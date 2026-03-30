@@ -12,8 +12,10 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/johnpostlethwait/bluforge/internal/config"
+	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
 // stubExecutor satisfies drivemanager.DriveExecutor for tests.
@@ -263,5 +265,102 @@ func TestDriveSessionClearedOnEject(t *testing.T) {
 
 	if session := store.Get(0); session != nil {
 		t.Error("expected session to be nil after clear (simulating eject)")
+	}
+}
+
+func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
+	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld_Season_1"}, nil)
+	mgr.PollOnce(context.Background())
+
+	cfg := config.AppConfig{OutputDir: "/tmp/test"}
+	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{})
+
+	srv := &Server{
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+		orchestrator:  orch,
+	}
+	srv.echo.POST("/drives/:id/match", srv.handleDriveMatch)
+
+	// Pre-populate: cached scan in orchestrator.
+	scan := &makemkv.DiscScan{
+		DiscName:   "Seinfeld_Season_1",
+		TitleCount: 2,
+		Titles: []makemkv.TitleInfo{
+			{Index: 0, Attributes: map[int]string{2: "Title 0", 9: "0:23:01", 11: "10.9 GB", 33: "00001.mpls"}},
+			{Index: 1, Attributes: map[int]string{2: "Title 1", 9: "0:02:17", 11: "312.6 MB", 33: "99999.mpls"}},
+		},
+	}
+	orch.InjectCachedScan(0, scan)
+
+	// Pre-populate: session with raw search results.
+	srv.driveSessions.Set(0, &DriveSession{
+		ReleaseID: "10",
+		RawSearchResults: []discdb.MediaItem{
+			{
+				ID: 1, Title: "Seinfeld", Type: "series",
+				Releases: []discdb.Release{
+					{
+						ID: 10,
+						Discs: []discdb.Disc{
+							{
+								ID: 100,
+								Titles: []discdb.DiscTitle{
+									{SourceFile: "00001.mpls", ItemType: "series", Season: "1", Episode: "1",
+										Item: &discdb.DiscItemReference{Title: "The Seinfeld Chronicles"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/drives/0/match", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var titles []TitleJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &titles); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if len(titles) != 2 {
+		t.Fatalf("expected 2 titles, got %d", len(titles))
+	}
+
+	// Find by index.
+	byIdx := make(map[int]TitleJSON)
+	for _, tj := range titles {
+		byIdx[tj.Index] = tj
+	}
+
+	if !byIdx[0].Matched {
+		t.Error("title 0 should be matched")
+	}
+	if byIdx[0].ContentTitle != "The Seinfeld Chronicles" {
+		t.Errorf("title 0 ContentTitle: expected \"The Seinfeld Chronicles\", got %q", byIdx[0].ContentTitle)
+	}
+	if byIdx[0].Season != "1" || byIdx[0].Episode != "1" {
+		t.Errorf("title 0 S/E: expected 1/1, got %s/%s", byIdx[0].Season, byIdx[0].Episode)
+	}
+	if !byIdx[0].Selected {
+		t.Error("title 0 should be selected (matched)")
+	}
+
+	if byIdx[1].Matched {
+		t.Error("title 1 should NOT be matched")
+	}
+	if byIdx[1].Selected {
+		t.Error("title 1 should NOT be selected (unmatched)")
 	}
 }
