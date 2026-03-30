@@ -40,7 +40,7 @@ func (m *mockRipExecutor) callCount() int {
 	return int(atomic.LoadInt32(&m.calls))
 }
 
-func TestEngineRejectsSecondRipOnSameDrive(t *testing.T) {
+func TestEngineQueuesSecondRipOnSameDrive(t *testing.T) {
 	mock := newMockRipExecutor()
 	engine := NewEngine(mock)
 
@@ -53,12 +53,16 @@ func TestEngineRejectsSecondRipOnSameDrive(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	job2 := NewJob(0, 2, "DISC", "/output")
-	err := engine.Submit(job2)
-	if err == nil {
-		t.Fatal("second submit on drive 0 should return an error")
+	if err := engine.Submit(job2); err != nil {
+		t.Fatalf("second submit on drive 0 should queue, not error: %v", err)
 	}
 
-	// Unblock to allow cleanup.
+	// Only one call should have reached the executor so far.
+	if c := mock.callCount(); c != 1 {
+		t.Errorf("expected 1 executor call while first job runs, got %d", c)
+	}
+
+	// Unblock to allow first job to finish and queue to drain.
 	mock.release()
 }
 

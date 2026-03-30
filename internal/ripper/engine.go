@@ -2,7 +2,6 @@ package ripper
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -14,10 +13,12 @@ type RipExecutor interface {
 }
 
 // Engine manages concurrent rip jobs, enforcing one active rip per drive.
+// Additional jobs for the same drive are queued and processed sequentially.
 type Engine struct {
 	mu       sync.Mutex
 	executor RipExecutor
 	active   map[int]*Job
+	queued   map[int][]*Job // per-drive FIFO queue
 	onUpdate func(*Job)
 }
 
@@ -26,6 +27,7 @@ func NewEngine(executor RipExecutor) *Engine {
 	return &Engine{
 		executor: executor,
 		active:   make(map[int]*Job),
+		queued:   make(map[int][]*Job),
 	}
 }
 
@@ -36,19 +38,42 @@ func (e *Engine) OnUpdate(fn func(*Job)) {
 	e.onUpdate = fn
 }
 
-// Submit queues a job for execution. It returns an error if a rip is already
-// active on the same drive.
+// Submit queues a job for execution. If no rip is active on the drive, the job
+// starts immediately. Otherwise it is queued and will start automatically when
+// the current (and any earlier queued) jobs finish.
 func (e *Engine) Submit(job *Job) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if _, exists := e.active[job.DriveIndex]; exists {
-		return fmt.Errorf("ripper: drive %d already has an active rip", job.DriveIndex)
+		e.queued[job.DriveIndex] = append(e.queued[job.DriveIndex], job)
+		return nil
 	}
 
 	e.active[job.DriveIndex] = job
 	go e.run(job)
 	return nil
+}
+
+// drainQueue starts the next queued job for a drive, if any.
+// Must NOT hold e.mu when calling — run() releases the lock before calling this.
+func (e *Engine) drainQueue(driveIndex int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	q := e.queued[driveIndex]
+	if len(q) == 0 {
+		return
+	}
+
+	next := q[0]
+	e.queued[driveIndex] = q[1:]
+	if len(e.queued[driveIndex]) == 0 {
+		delete(e.queued, driveIndex)
+	}
+
+	e.active[driveIndex] = next
+	go e.run(next)
 }
 
 // IsActive reports whether a rip is currently running on the given drive.
@@ -115,7 +140,7 @@ func (e *Engine) run(job *Job) {
 		e.notify(job)
 	}
 
-	// Remove from active map.
+	// Remove from active map and start next queued job.
 	e.mu.Lock()
 	delete(e.active, job.DriveIndex)
 	e.mu.Unlock()
@@ -123,4 +148,6 @@ func (e *Engine) run(job *Job) {
 	if job.OnComplete != nil {
 		job.OnComplete(job, err)
 	}
+
+	e.drainQueue(job.DriveIndex)
 }
