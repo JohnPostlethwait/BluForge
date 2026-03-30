@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -70,8 +71,17 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 
 	// Check for a remembered disc mapping.
 	if drv.DiscName() != "" && s.store != nil {
-		scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
-		if scanErr == nil && scan != nil {
+		// Use cached scan if available; otherwise trigger a background scan.
+		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
+		if scan == nil {
+			data.Scanning = true
+			go func() {
+				bgCtx := context.Background()
+				if _, err := s.orchestrator.ScanDisc(bgCtx, idx); err != nil {
+					slog.Error("background disc scan failed", "drive_index", idx, "error", err)
+				}
+			}()
+		} else {
 			discKey := discdb.BuildDiscKey(scan)
 			mapping, mappingErr := s.store.GetMapping(discKey)
 			if mappingErr != nil {

@@ -25,6 +25,7 @@ type DriveDetailData struct {
 	MatchedMedia   string
 	MatchedRelease string
 	HasMapping     bool
+	Scanning       bool // true when a background disc scan is in progress
 	Error          string
 }
 
@@ -78,9 +79,21 @@ templ DriveDetail(data DriveDetailData) {
 			</form>
 			<div id="search-results" class="mt-3"></div>
 		</div>
-		<div class="card">
+		<div class="card"
+			if data.Scanning {
+				hx-get={ fmt.Sprintf("/drives/%d", data.DriveIndex) }
+				hx-trigger="every 2s"
+				hx-select=".card:last-child"
+				hx-target="this"
+				hx-swap="outerHTML"
+			}
+		>
 			<div class="section-title">Titles</div>
-			if len(data.Titles) == 0 {
+			if data.Scanning {
+				<div class="empty-state">
+					<p>Scanning disc…</p>
+				</div>
+			} else if len(data.Titles) == 0 {
 				<div class="empty-state">
 					<p>No titles found. Try scanning the disc first.</p>
 				</div>

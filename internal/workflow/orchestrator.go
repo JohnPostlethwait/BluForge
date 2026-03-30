@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
@@ -56,6 +57,9 @@ type Orchestrator struct {
 	scanner   DiscScanner
 	discDB    *discdb.Client
 	cache     *discdb.Cache
+
+	scanMu    sync.RWMutex
+	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
@@ -68,6 +72,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		scanner:   deps.Scanner,
 		discDB:    deps.DiscDB,
 		cache:     deps.Cache,
+		scanCache: make(map[string]*makemkv.DiscScan),
 	}
 }
 
@@ -221,12 +226,46 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 	}
 }
 
-// ScanDisc delegates disc scanning to the configured scanner.
+// ScanDisc delegates disc scanning to the configured scanner. Results are cached
+// per drive+disc combination so that repeated visits to the drive detail page
+// don't re-read the physical disc each time.
 func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
 	if o.scanner == nil {
 		return nil, fmt.Errorf("no scanner configured")
 	}
-	return o.scanner.ScanDisc(ctx, driveIndex)
+
+	scan, err := o.scanner.ScanDisc(ctx, driveIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
+	o.scanMu.Lock()
+	o.scanCache[key] = scan
+	o.scanMu.Unlock()
+
+	return scan, nil
+}
+
+// CachedScan returns a previously cached scan for the given drive and disc name,
+// or nil if no cached result exists.
+func (o *Orchestrator) CachedScan(driveIndex int, discName string) *makemkv.DiscScan {
+	key := fmt.Sprintf("%d:%s", driveIndex, discName)
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+	return o.scanCache[key]
+}
+
+// InvalidateScan removes any cached scan for the given drive index.
+func (o *Orchestrator) InvalidateScan(driveIndex int) {
+	o.scanMu.Lock()
+	defer o.scanMu.Unlock()
+	for key := range o.scanCache {
+		prefix := fmt.Sprintf("%d:", driveIndex)
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(o.scanCache, key)
+		}
+	}
 }
 
 // AutoRip scans a disc, attempts to auto-match it against TheDiscDB, and

@@ -116,6 +116,11 @@ func main() {
 		}
 		sseHub.Broadcast(web.SSEEvent{Event: "drive-event", Data: string(data)})
 
+		// Invalidate cached scan when disc changes.
+		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {
+			orch.InvalidateScan(ev.DriveIndex)
+		}
+
 		// Auto-rip: trigger on disc insert when enabled.
 		if srv == nil {
 			return

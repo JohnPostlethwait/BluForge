@@ -73,7 +73,9 @@ func makeDeadpool2Response() json.RawMessage {
 	}
 
 	data, _ := json.Marshal(map[string]any{
-		"allMediaItems": []MediaItem{item},
+		"mediaItems": map[string]any{
+			"nodes": []MediaItem{item},
+		},
 	})
 	return data
 }
