@@ -41,8 +41,9 @@ type Server struct {
 	ripEngine    *ripper.Engine
 	discdbClient *discdb.Client
 	discdbCache  *discdb.Cache
-	sseHub       *SSEHub
-	orchestrator *workflow.Orchestrator
+	sseHub        *SSEHub
+	orchestrator  *workflow.Orchestrator
+	driveSessions *DriveSessionStore
 }
 
 // NewServer creates and configures a new Server from the provided dependencies.
@@ -70,8 +71,9 @@ func NewServer(deps ServerDeps) *Server {
 		ripEngine:    deps.RipEngine,
 		discdbClient: deps.DiscDBClient,
 		discdbCache:  deps.DiscDBCache,
-		sseHub:       deps.SSEHub,
-		orchestrator: deps.Orchestrator,
+		sseHub:        deps.SSEHub,
+		orchestrator:  deps.Orchestrator,
+		driveSessions: NewDriveSessionStore(),
 	}
 
 	// Static files
