@@ -94,7 +94,13 @@ templ DriveDetail(data DriveDetailData) {
 		}
 		<div class="card"
 			if data.Scanning {
-				hx-get={ fmt.Sprintf("/drives/%d", data.DriveIndex) }
+				if data.SelectedMediaItemID != "" {
+					hx-get={ fmt.Sprintf("/drives/%d?media_item_id=%s&release_id=%s&media_title=%s&media_year=%s&media_type=%s",
+						data.DriveIndex, data.SelectedMediaItemID, data.SelectedReleaseID,
+						data.SelectedMediaTitle, data.SelectedMediaYear, data.SelectedMediaType) }
+				} else {
+					hx-get={ fmt.Sprintf("/drives/%d", data.DriveIndex) }
+				}
 				hx-trigger="every 2s"
 				hx-select=".card:last-child"
 				hx-target="this"

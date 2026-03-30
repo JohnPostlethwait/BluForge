@@ -107,6 +107,16 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		}
 	}
 
+	// Carry forward selected release metadata from query params (used by
+	// auto-refresh during scanning to preserve the user's selection).
+	if mid := c.QueryParam("media_item_id"); mid != "" {
+		data.SelectedMediaItemID = mid
+		data.SelectedReleaseID = c.QueryParam("release_id")
+		data.SelectedMediaTitle = c.QueryParam("media_title")
+		data.SelectedMediaYear = c.QueryParam("media_year")
+		data.SelectedMediaType = c.QueryParam("media_type")
+	}
+
 	// Check for error flash.
 	if errMsg := c.QueryParam("error"); errMsg != "" {
 		data.Error = errMsg
@@ -220,10 +230,18 @@ func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, release
 		SelectedMediaType:   c.FormValue("media_type"),
 	}
 
-	// Populate titles from scan if available.
+	// Populate titles from scan if available; trigger background scan if not.
 	if drv.DiscName() != "" && s.orchestrator != nil {
 		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
-		if scan != nil {
+		if scan == nil {
+			data.Scanning = true
+			go func() {
+				bgCtx := context.Background()
+				if _, err := s.orchestrator.ScanDisc(bgCtx, idx); err != nil {
+					slog.Error("background disc scan failed", "drive_index", idx, "error", err)
+				}
+			}()
+		} else {
 			for _, t := range scan.Titles {
 				data.Titles = append(data.Titles, templates.TitleRow{
 					Index:      t.Index,
