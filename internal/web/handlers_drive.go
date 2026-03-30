@@ -134,7 +134,8 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
-	// "Select" flow: release_id + media_item_id are present.
+	// "Select" flow (old HTMX path): release_id + media_item_id are present.
+	// This will be removed when the old HTMX templates are cleaned up in Task 9.
 	releaseID := c.FormValue("release_id")
 	mediaItemID := c.FormValue("media_item_id")
 	if releaseID != "" && mediaItemID != "" {
@@ -144,18 +145,32 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 	query := strings.TrimSpace(c.FormValue("query"))
 	searchType := c.FormValue("search_type")
 
-	var rows []templates.SearchResultRow
+	var items []discdb.MediaItem
 	var searchErr string
 
 	if query != "" {
-		items := s.searchDiscDB(c, searchType, query)
+		items = s.searchDiscDB(c, searchType, query)
 		if items == nil {
 			searchErr = "Search failed — TheDiscDB may be unavailable. Please try again."
-		} else {
-			rows = mediaItemsToRows(items)
 		}
 	}
 
+	// Content negotiation: JSON for Alpine, HTML for legacy.
+	if wantsJSON(c) {
+		if searchErr != "" {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": searchErr})
+		}
+		jsonRows := mediaItemsToSearchJSON(items)
+		// Cache search results in drive session.
+		s.driveSessions.SetSearchResults(idx, jsonRows)
+		return c.JSON(http.StatusOK, jsonRows)
+	}
+
+	// HTML fallback (for non-Alpine consumers).
+	var rows []templates.SearchResultRow
+	if items != nil {
+		rows = mediaItemsToRows(items)
+	}
 	return templates.DriveSearchResults(idx, rows, searchErr).Render(c.Request().Context(), c.Response().Writer)
 }
 

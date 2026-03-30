@@ -2,10 +2,12 @@ package web
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
@@ -72,6 +74,36 @@ type DriveStoreJSON struct {
 type DrivesStoreJSON struct {
 	Ready bool        `json:"ready"`
 	List  []DriveJSON `json:"list"`
+}
+
+// mediaItemsToSearchJSON converts MediaItems to SearchResultJSON rows.
+func mediaItemsToSearchJSON(items []discdb.MediaItem) []SearchResultJSON {
+	var rows []SearchResultJSON
+	for _, item := range items {
+		for _, rel := range item.Releases {
+			format := ""
+			if len(rel.Discs) > 0 {
+				format = rel.Discs[0].Format
+			}
+			rows = append(rows, SearchResultJSON{
+				MediaTitle:   item.Title,
+				MediaYear:    item.Year,
+				MediaType:    item.Type,
+				ReleaseTitle: rel.Title,
+				ReleaseUPC:   rel.UPC,
+				ReleaseASIN:  rel.ASIN,
+				RegionCode:   rel.RegionCode,
+				Format:       format,
+				DiscCount:    len(rel.Discs),
+				ReleaseID:    strconv.Itoa(rel.ID),
+				MediaItemID:  strconv.Itoa(item.ID),
+			})
+		}
+	}
+	if rows == nil {
+		rows = []SearchResultJSON{}
+	}
+	return rows
 }
 
 // scanToTitleJSON converts a makemkv.DiscScan's titles into TitleJSON slices.

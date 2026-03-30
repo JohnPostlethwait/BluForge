@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -180,10 +181,11 @@ func testServerWithDrive(t *testing.T, discName string) *Server {
 	cfg := config.AppConfig{OutputDir: "/tmp/test"}
 
 	s := &Server{
-		echo:     echo.New(),
-		cfg:      &cfg,
-		driveMgr: mgr,
-		sseHub:   NewSSEHub(),
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
 	}
 
 	// Register routes needed for tests.
@@ -366,6 +368,78 @@ func TestHandleDrivesPartial_NotReady(t *testing.T) {
 	}
 	if !strings.Contains(body, "Scanning for drives") {
 		t.Error("partial response should show scanning message when not ready")
+	}
+}
+
+func TestHandleDriveSearch_JSONResponse(t *testing.T) {
+	// A minimal test: query with no DiscDB client should return empty JSON array.
+	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
+	cfg := config.AppConfig{OutputDir: "/tmp/test"}
+
+	srv := &Server{
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+	}
+	srv.echo.POST("/drives/:id/search", srv.handleDriveSearch)
+
+	form := url.Values{}
+	form.Set("query", "Seinfeld")
+
+	req := httptest.NewRequest(http.MethodPost, "/drives/0/search", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	// With no DiscDB client, search returns nil items, which means "search failed".
+	// When wantsJSON, that's a 503 with error message.
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 (no discdb client), got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected JSON content type, got %q", contentType)
+	}
+}
+
+func TestHandleDriveSearch_JSONEmptyQuery(t *testing.T) {
+	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
+	cfg := config.AppConfig{OutputDir: "/tmp/test"}
+
+	srv := &Server{
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+	}
+	srv.echo.POST("/drives/:id/search", srv.handleDriveSearch)
+
+	form := url.Values{}
+	form.Set("query", "")
+
+	req := httptest.NewRequest(http.MethodPost, "/drives/0/search", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var results []SearchResultJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty results for empty query, got %d", len(results))
 	}
 }
 
