@@ -72,6 +72,11 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	seen := make(map[int]bool, len(infos))
 
 	for _, info := range infos {
+		// Skip phantom drive slots with no hardware attached.
+		if info.DriveName == "" {
+			continue
+		}
+
 		seen[info.Index] = true
 
 		// Ensure a state machine exists for every visible drive, even if empty.
