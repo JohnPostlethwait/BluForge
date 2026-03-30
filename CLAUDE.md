@@ -71,9 +71,28 @@ An SSE adapter pattern in `main.go` bridges `web.SSEHub` to `workflow.Broadcaste
 ## Frontend
 
 - **Templ** for type-safe Go HTML templates (in `templates/`)
-- **HTMX** for form submissions and partial page updates
+- **Alpine.js** for client-side reactive state on dynamic pages (dashboard, drive detail)
+- **HTMX** for form submissions and page navigation
 - **SSE** for real-time drive events and rip progress
 - **Static CSS** in `static/style.css` (dark theme)
+
+### Alpine.js + SSE Design Pattern
+
+All Alpine-enabled pages follow this pattern:
+
+```
+SSE delivers JSON → Alpine.store() updates → Alpine templates re-render
+HTMX handles form POSTs and page navigation
+Accept header determines response format (JSON vs HTML)
+```
+
+**Key rules:**
+- SSE events carry JSON data. Alpine manages `EventSource` directly (not via HTMX SSE extension).
+- `Alpine.store()` holds shared reactive state, hydrated from a server-rendered `<script>` tag on page load.
+- Endpoints check the `Accept` header: `application/json` returns JSON, otherwise returns HTML.
+- Requests that need JSON responses use Alpine `fetch()` with `Accept: application/json` (not HTMX `hx-post`).
+- HTMX is used only for requests that expect HTML responses (page navigation, form submissions that redirect).
+- Pages without Alpine (queue, settings, history) keep the existing HTMX/SSE pattern unchanged.
 
 ## Database
 
