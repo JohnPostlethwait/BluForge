@@ -17,34 +17,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
-// mediaItemsToRows flattens a slice of discdb.MediaItem into template SearchResultRows,
-// one row per release across all items.
-func mediaItemsToRows(items []discdb.MediaItem) []templates.SearchResultRow {
-	var rows []templates.SearchResultRow
-	for _, item := range items {
-		for _, rel := range item.Releases {
-			format := ""
-			if len(rel.Discs) > 0 {
-				format = rel.Discs[0].Format
-			}
-			rows = append(rows, templates.SearchResultRow{
-				MediaTitle:   item.Title,
-				MediaYear:    item.Year,
-				MediaType:    item.Type,
-				ReleaseTitle: rel.Title,
-				ReleaseUPC:   rel.UPC,
-				ReleaseASIN:  rel.ASIN,
-				RegionCode:   rel.RegionCode,
-				Format:       format,
-				DiscCount:    len(rel.Discs),
-				ReleaseID:    strconv.Itoa(rel.ID),
-				MediaItemID:  strconv.Itoa(item.ID),
-			})
-		}
-	}
-	return rows
-}
-
 // parseDriveIndex extracts and validates the ":id" path parameter as an int.
 func parseDriveIndex(c echo.Context) (int, error) {
 	return strconv.Atoi(c.Param("id"))
@@ -160,21 +132,11 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
 }
 
-// handleDriveSearch executes a TheDiscDB search and returns the results partial.
-// When called with release_id + media_item_id (from the "Select" button), it
-// re-renders the full drive detail page with the selected release metadata.
+// handleDriveSearch executes a TheDiscDB search and returns the results as JSON.
 func (s *Server) handleDriveSearch(c echo.Context) error {
 	idx, err := parseDriveIndex(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
-	}
-
-	// "Select" flow (old HTMX path): release_id + media_item_id are present.
-	// This will be removed when the old HTMX templates are cleaned up in Task 9.
-	releaseID := c.FormValue("release_id")
-	mediaItemID := c.FormValue("media_item_id")
-	if releaseID != "" && mediaItemID != "" {
-		return s.handleDriveSelect(c, idx, mediaItemID, releaseID)
 	}
 
 	query := strings.TrimSpace(c.FormValue("query"))
@@ -190,23 +152,13 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 		}
 	}
 
-	// Content negotiation: JSON for Alpine, HTML for legacy.
-	if wantsJSON(c) {
-		if searchErr != "" {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": searchErr})
-		}
-		jsonRows := mediaItemsToSearchJSON(items)
-		// Cache search results in drive session.
-		s.driveSessions.SetSearchResults(idx, jsonRows)
-		return c.JSON(http.StatusOK, jsonRows)
+	// Return JSON response.
+	if searchErr != "" {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": searchErr})
 	}
-
-	// HTML fallback (for non-Alpine consumers).
-	var rows []templates.SearchResultRow
-	if items != nil {
-		rows = mediaItemsToRows(items)
-	}
-	return templates.DriveSearchResults(idx, rows, searchErr).Render(c.Request().Context(), c.Response().Writer)
+	jsonRows := mediaItemsToSearchJSON(items)
+	s.driveSessions.SetSearchResults(idx, jsonRows)
+	return c.JSON(http.StatusOK, jsonRows)
 }
 
 // searchDiscDB performs a cached search against TheDiscDB API.
@@ -257,95 +209,6 @@ func (s *Server) searchDiscDB(c echo.Context, searchType, query string) []discdb
 	}
 
 	return items
-}
-
-// handleDriveSelect handles the "Select" button click from search results.
-// It re-renders the full drive detail page with the selected release metadata
-// pre-populated in the rip form.
-func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, releaseID string) error {
-	drv := s.driveMgr.GetDrive(idx)
-	if drv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
-	}
-
-	data := templates.DriveDetailData{
-		DriveIndex: idx,
-		DriveName:  drv.DriveName(),
-		DiscName:   drv.DiscName(),
-		State:      string(drv.State()),
-	}
-
-	// Populate titles from scan if available; trigger background scan if not.
-	if drv.DiscName() != "" && s.orchestrator != nil {
-		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
-		if scan == nil {
-			data.Scanning = true
-			go func() {
-				bgCtx := context.Background()
-				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
-				if scanErr != nil {
-					slog.Error("background disc scan failed", "drive_index", idx, "error", scanErr)
-					return
-				}
-				titles := scanToTitleJSON(result)
-				s.broadcastScanComplete(idx, titles)
-			}()
-		} else {
-			for _, t := range scan.Titles {
-				data.Titles = append(data.Titles, templates.TitleRow{
-					Index:      t.Index,
-					Name:       t.Name(),
-					Duration:   t.Duration(),
-					Size:       t.SizeHuman(),
-					SourceFile: t.SourceFile(),
-					Selected:   true,
-				})
-			}
-		}
-	}
-
-	// Also persist in drive session so Alpine hydration picks it up.
-	s.driveSessions.Set(idx, &DriveSession{
-		MediaItemID: mediaItemID,
-		ReleaseID:   releaseID,
-		MediaTitle:  c.FormValue("media_title"),
-		MediaYear:   c.FormValue("media_year"),
-		MediaType:   c.FormValue("media_type"),
-	})
-
-	// Build store JSON for hydration.
-	driveStore := DriveStoreJSON{
-		DriveIndex:    idx,
-		DriveName:     drv.DriveName(),
-		DiscName:      drv.DiscName(),
-		State:         string(drv.State()),
-		Scanning:      data.Scanning,
-		Titles:        make([]TitleJSON, 0),
-		SearchResults: make([]SearchResultJSON, 0),
-	}
-	for _, t := range data.Titles {
-		driveStore.Titles = append(driveStore.Titles, TitleJSON{
-			Index:      t.Index,
-			Name:       t.Name,
-			Duration:   t.Duration,
-			Size:       t.Size,
-			SourceFile: t.SourceFile,
-			Selected:   t.Selected,
-		})
-	}
-	if session := s.driveSessions.Get(idx); session != nil {
-		driveStore.SelectedRelease = &SelectedReleaseJSON{
-			MediaItemID: session.MediaItemID,
-			ReleaseID:   session.ReleaseID,
-			Title:       session.MediaTitle,
-			Year:        session.MediaYear,
-			Type:        session.MediaType,
-		}
-	}
-	storeBytes, _ := json.Marshal(driveStore)
-	data.StoreJSON = string(storeBytes)
-
-	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
 }
 
 // handleDriveRip submits rip jobs for the selected titles and redirects to the queue.
