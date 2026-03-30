@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // CmdRunner is the interface for running makemkvcon commands. It receives the
@@ -18,7 +19,14 @@ type CmdRunner interface {
 // realRunner executes the real makemkvcon binary.
 type realRunner struct{}
 
+// commandTimeout is the maximum time a single makemkvcon invocation may run
+// before being killed. Prevents indefinite hangs on unresponsive drives.
+const commandTimeout = 2 * time.Minute
+
 func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -77,10 +85,10 @@ type DiscScan struct {
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	opticalDevices := DetectOpticalDevices()
 	if len(opticalDevices) > 0 {
-		slog.Debug("detected optical devices via sysfs", "devices", opticalDevices)
+		slog.Info("detected optical devices via sysfs", "count", len(opticalDevices), "devices", opticalDevices)
 		return e.listDrivesTargeted(ctx, opticalDevices)
 	}
-	slog.Debug("sysfs detection unavailable, falling back to disc:9999 scan")
+	slog.Info("sysfs detection unavailable, falling back to disc:9999 scan")
 	return e.listDrivesFull(ctx)
 }
 
@@ -88,8 +96,10 @@ func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 func (e *Executor) listDrivesTargeted(ctx context.Context, devices []string) ([]DriveInfo, error) {
 	var allDrives []DriveInfo
 	for i, dev := range devices {
+		slog.Info("probing optical device", "device", dev, "index", i)
 		target := fmt.Sprintf("dev:%s", dev)
 		r, err := e.runner.Run(ctx, "-r", "info", target)
+		slog.Info("probe complete", "device", dev, "error", err)
 		events, parseErr := ParseAll(r)
 		if parseErr != nil {
 			if err != nil {
