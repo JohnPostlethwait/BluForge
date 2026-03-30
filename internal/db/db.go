@@ -28,6 +28,11 @@ func Open(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("enable WAL mode: %w", err)
 	}
 
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
+
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
