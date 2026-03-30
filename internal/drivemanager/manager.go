@@ -96,6 +96,18 @@ func (m *Manager) PollOnce(ctx context.Context) {
 			continue
 		}
 
+		if isFirst {
+			slog.Info("makemkvcon reported drive",
+				"index", info.Index,
+				"drive_name", info.DriveName,
+				"disc_name", info.DiscName,
+				"device", info.DevicePath,
+				"flags", info.Flags,
+				"visible", info.Visible,
+				"enabled", info.Enabled,
+			)
+		}
+
 		seen[info.Index] = true
 
 		// Ensure a state machine exists for every visible drive, even if empty.

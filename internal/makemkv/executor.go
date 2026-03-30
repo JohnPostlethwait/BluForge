@@ -63,10 +63,10 @@ type DiscScan struct {
 	Messages   []Message
 }
 
-// ListDrives runs `makemkvcon -r --cache=1 info disc:9999` and returns the
-// list of drives reported via DRV lines.
+// ListDrives runs `makemkvcon -r info disc:9999` and returns the list of
+// drives reported via DRV lines.
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
-	r, err := e.runner.Run(ctx, "-r", "--cache=1", "info", "disc:9999")
+	r, err := e.runner.Run(ctx, "-r", "info", "disc:9999")
 	if err != nil {
 		// makemkvcon returns non-zero when no disc is present; try to parse
 		// whatever output we have before returning the error.
