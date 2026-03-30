@@ -147,27 +147,10 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 			driveStore.SearchResults = make([]SearchResultJSON, 0)
 		}
 
-		// Also populate old template fields for backward compat during migration.
-		data.SelectedMediaItemID = session.MediaItemID
-		data.SelectedReleaseID = session.ReleaseID
-		data.SelectedMediaTitle = session.MediaTitle
-		data.SelectedMediaYear = session.MediaYear
-		data.SelectedMediaType = session.MediaType
 	}
 
 	storeBytes, _ := json.Marshal(driveStore)
 	data.StoreJSON = string(storeBytes)
-
-	// Carry forward selected release metadata from query params (used by
-	// auto-refresh during scanning to preserve the user's selection).
-	// This will be removed when the Alpine template replaces HTMX polling.
-	if mid := c.QueryParam("media_item_id"); mid != "" {
-		data.SelectedMediaItemID = mid
-		data.SelectedReleaseID = c.QueryParam("release_id")
-		data.SelectedMediaTitle = c.QueryParam("media_title")
-		data.SelectedMediaYear = c.QueryParam("media_year")
-		data.SelectedMediaType = c.QueryParam("media_type")
-	}
 
 	// Check for error flash.
 	if errMsg := c.QueryParam("error"); errMsg != "" {
@@ -286,15 +269,10 @@ func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, release
 	}
 
 	data := templates.DriveDetailData{
-		DriveIndex:          idx,
-		DriveName:           drv.DriveName(),
-		DiscName:            drv.DiscName(),
-		State:               string(drv.State()),
-		SelectedMediaItemID: mediaItemID,
-		SelectedReleaseID:   releaseID,
-		SelectedMediaTitle:  c.FormValue("media_title"),
-		SelectedMediaYear:   c.FormValue("media_year"),
-		SelectedMediaType:   c.FormValue("media_type"),
+		DriveIndex: idx,
+		DriveName:  drv.DriveName(),
+		DiscName:   drv.DiscName(),
+		State:      string(drv.State()),
 	}
 
 	// Populate titles from scan if available; trigger background scan if not.
@@ -304,9 +282,13 @@ func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, release
 			data.Scanning = true
 			go func() {
 				bgCtx := context.Background()
-				if _, err := s.orchestrator.ScanDisc(bgCtx, idx); err != nil {
-					slog.Error("background disc scan failed", "drive_index", idx, "error", err)
+				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
+				if scanErr != nil {
+					slog.Error("background disc scan failed", "drive_index", idx, "error", scanErr)
+					return
 				}
+				titles := scanToTitleJSON(result)
+				s.broadcastScanComplete(idx, titles)
 			}()
 		} else {
 			for _, t := range scan.Titles {
@@ -321,6 +303,47 @@ func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, release
 			}
 		}
 	}
+
+	// Also persist in drive session so Alpine hydration picks it up.
+	s.driveSessions.Set(idx, &DriveSession{
+		MediaItemID: mediaItemID,
+		ReleaseID:   releaseID,
+		MediaTitle:  c.FormValue("media_title"),
+		MediaYear:   c.FormValue("media_year"),
+		MediaType:   c.FormValue("media_type"),
+	})
+
+	// Build store JSON for hydration.
+	driveStore := DriveStoreJSON{
+		DriveIndex:    idx,
+		DriveName:     drv.DriveName(),
+		DiscName:      drv.DiscName(),
+		State:         string(drv.State()),
+		Scanning:      data.Scanning,
+		Titles:        make([]TitleJSON, 0),
+		SearchResults: make([]SearchResultJSON, 0),
+	}
+	for _, t := range data.Titles {
+		driveStore.Titles = append(driveStore.Titles, TitleJSON{
+			Index:      t.Index,
+			Name:       t.Name,
+			Duration:   t.Duration,
+			Size:       t.Size,
+			SourceFile: t.SourceFile,
+			Selected:   t.Selected,
+		})
+	}
+	if session := s.driveSessions.Get(idx); session != nil {
+		driveStore.SelectedRelease = &SelectedReleaseJSON{
+			MediaItemID: session.MediaItemID,
+			ReleaseID:   session.ReleaseID,
+			Title:       session.MediaTitle,
+			Year:        session.MediaYear,
+			Type:        session.MediaType,
+		}
+	}
+	storeBytes, _ := json.Marshal(driveStore)
+	data.StoreJSON = string(storeBytes)
 
 	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
 }
