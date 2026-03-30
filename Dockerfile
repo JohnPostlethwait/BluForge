@@ -57,7 +57,7 @@ COPY --from=makemkv-builder /usr/lib/libdriveio.so.0 /usr/lib/libdriveio.so.0
 COPY --from=makemkv-builder /usr/lib/libmakemkv.so.1 /usr/lib/libmakemkv.so.1
 COPY --from=makemkv-builder /usr/share/MakeMKV /usr/share/MakeMKV
 
-RUN ldconfig && makemkvcon --version
+RUN ldconfig && ldd /usr/bin/makemkvcon
 
 EXPOSE 9160
 
