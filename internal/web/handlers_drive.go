@@ -65,6 +65,16 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		if driveStore.SearchResults == nil {
 			driveStore.SearchResults = make([]SearchResultJSON, 0)
 		}
+
+		// If both a cached scan and selected release exist, hydrate with
+		// enriched titles so match data survives page refreshes.
+		if session.ReleaseID != "" && session.RawSearchResults != nil && s.orchestrator != nil {
+			if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+				if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID); disc != nil {
+					driveStore.Titles = enrichTitlesWithMatches(scan, *disc)
+				}
+			}
+		}
 	}
 
 	storeBytes, err := json.Marshal(driveStore)
