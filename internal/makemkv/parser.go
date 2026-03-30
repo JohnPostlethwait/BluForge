@@ -50,7 +50,7 @@ func ParseLine(line string) (Event, error) {
 	switch typ {
 	case "DRV":
 		return parseDRV(rest)
-	case "TCOUT":
+	case "TCOUT", "TCOUNT":
 		return parseTCOUT(rest)
 	case "CINFO":
 		return parseCINFO(rest)
@@ -62,6 +62,9 @@ func ParseLine(line string) (Event, error) {
 		return parseMSG(rest)
 	case "PRGV":
 		return parsePRGV(rest)
+	case "PRGT", "PRGC":
+		// Progress title/chapter text — informational only, no data to extract.
+		return Event{Type: typ}, nil
 	default:
 		return Event{}, fmt.Errorf("makemkv: unknown line type: %q", typ)
 	}

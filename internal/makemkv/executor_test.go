@@ -186,3 +186,39 @@ func TestExecutorScanDiscNonZeroExitNoData(t *testing.T) {
 		t.Fatal("ScanDisc should return error when command fails with no usable output")
 	}
 }
+
+// TestExecutorScanDiscFailedToOpen verifies that ScanDisc returns an error
+// when makemkvcon reports "Failed to open disc" (MSG 5010), even if the
+// command exits with status 0.
+func TestExecutorScanDiscFailedToOpen(t *testing.T) {
+	output := `DRV:0,2,999,1,"BD-RE PIONEER","Seinfeld Season 1","/dev/sr0"
+MSG:3346,0,0,"LibreDrive compatible drive is required to open this disc","",""
+MSG:5010,0,0,"Failed to open disc","Failed to open disc"
+TCOUNT:0
+`
+	mock := &mockCmdRunner{output: output}
+	ex := NewExecutor(WithRunner(mock))
+
+	_, err := ex.ScanDisc(context.Background(), 0)
+	if err == nil {
+		t.Fatal("ScanDisc should return error when makemkvcon reports 'Failed to open disc'")
+	}
+	if !strings.Contains(err.Error(), "Failed to open disc") {
+		t.Errorf("error should contain 'Failed to open disc', got: %v", err)
+	}
+}
+
+// TestParseTCOUNTLine verifies that TCOUNT (alternate spelling of TCOUT) is
+// parsed correctly.
+func TestParseTCOUNTLine(t *testing.T) {
+	ev, err := ParseLine("TCOUNT:5")
+	if err != nil {
+		t.Fatalf("ParseLine(TCOUNT) error: %v", err)
+	}
+	if ev.Type != "TCOUT" {
+		t.Errorf("expected type TCOUT, got %q", ev.Type)
+	}
+	if ev.Count != 5 {
+		t.Errorf("expected count 5, got %d", ev.Count)
+	}
+}

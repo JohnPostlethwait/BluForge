@@ -3,7 +3,6 @@ package makemkv
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -21,14 +20,15 @@ type CmdRunner interface {
 // realRunner executes the real makemkvcon binary.
 type realRunner struct{}
 
-// commandTimeout is the maximum time a single makemkvcon invocation may run
-// before being killed. Prevents indefinite hangs on unresponsive drives.
-const commandTimeout = 2 * time.Minute
+// scanTimeout is the maximum time a disc scan may run. UHD discs with AACS
+// negotiation and LibreDrive activation can take several minutes.
+const scanTimeout = 10 * time.Minute
+
+// driveListTimeout is the maximum time a drive listing may run. This is a
+// lightweight operation that should complete quickly.
+const driveListTimeout = 30 * time.Second
 
 func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
-	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
-	defer cancel()
-
 	slog.Info("makemkvcon: executing", "args", args)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
@@ -83,13 +83,19 @@ type DiscScan struct {
 	Messages   []Message
 }
 
-// ListDrives runs `makemkvcon -r info disc:9999` and returns the list of
-// drives reported via DRV lines.
+// ListDrives runs `makemkvcon -r --cache=1 --noscan info disc:9999` and
+// returns the list of drives reported via DRV lines.
+//
+// --cache=1 minimizes memory allocation for this lightweight operation.
+// --noscan prevents makemkvcon from probing media in drives during enumeration.
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	r, err := e.runner.Run(ctx, "-r", "info", "disc:9999")
+	ctx, cancel := context.WithTimeout(ctx, driveListTimeout)
+	defer cancel()
+
+	r, err := e.runner.Run(ctx, "-r", "--cache=1", "--noscan", "info", "disc:9999")
 	if err != nil {
 		// makemkvcon returns non-zero when no disc is present; try to parse
 		// whatever output we have before returning the error.
@@ -126,6 +132,11 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // metadata, TINFO attributes are merged per title index, and SINFO streams are
 // attached to their respective titles.
 //
+// Title minimum length filtering is controlled by dvd_MinimumTitleLength in
+// MakeMKV's settings.conf, NOT via --minlength here. Using --minlength with
+// info renumbers title IDs, causing mismatches when those IDs are later passed
+// to mkv for ripping.
+//
 // makemkvcon often exits with a non-zero status even when it successfully
 // enumerates titles (e.g. AACS warnings on Blu-ray discs). We always attempt
 // to parse the output regardless of exit code, returning an error only when no
@@ -136,23 +147,15 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	target := fmt.Sprintf("disc:%d", driveIndex)
-	r, cmdErr := e.runner.Run(ctx, "-r", "--minlength=120", "info", target)
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
 
-	// Capture raw output so we can log it for diagnostics if 0 titles found.
-	rawBytes, readErr := io.ReadAll(r)
-	if readErr != nil {
-		slog.Error("executor: failed to read scan output", "drive_index", driveIndex, "error", readErr)
-		if cmdErr != nil {
-			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
-		}
-		return nil, fmt.Errorf("makemkv: scan disc %d read: %w", driveIndex, readErr)
-	}
-	rawOutput := string(rawBytes)
+	target := fmt.Sprintf("disc:%d", driveIndex)
+	r, cmdErr := e.runner.Run(ctx, "-r", "info", target)
 
 	// Always attempt to parse output — makemkvcon returns non-zero on AACS
 	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
-	events, parseErr := ParseAll(strings.NewReader(rawOutput))
+	events, parseErr := ParseAll(r)
 	if parseErr != nil {
 		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", parseErr)
 		if cmdErr != nil {
@@ -166,40 +169,22 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 			"drive_index", driveIndex, "error", cmdErr, "event_count", len(events))
 	}
 
-	// Log event type distribution for diagnostics.
-	typeCounts := make(map[string]int)
-	for _, ev := range events {
-		typeCounts[ev.Type]++
-	}
-	slog.Info("executor: disc scan event breakdown", "drive_index", driveIndex,
-		"event_counts", typeCounts, "total", len(events))
-
 	scan := buildDiscScan(driveIndex, events)
 
-	// If we got 0 titles, log diagnostics to help debug.
+	// If we got 0 titles, check for actionable error messages from makemkvcon.
 	if len(scan.Titles) == 0 {
-		// Log MSG text samples.
-		if len(scan.Messages) > 0 {
-			var samples []string
-			for i, m := range scan.Messages {
-				if i >= 10 {
-					break
-				}
-				samples = append(samples, m.Text)
+		var failureReason string
+		for _, m := range scan.Messages {
+			// MSG code 5010 = "Failed to open disc" — terminal failure.
+			if m.Code == 5010 {
+				failureReason = m.Text
+				break
 			}
-			slog.Warn("executor: disc scan returned 0 titles, sample messages",
-				"drive_index", driveIndex, "msg_count", len(scan.Messages), "samples", samples)
 		}
-
-		// Log last 30 lines of raw output for debugging.
-		lines := strings.Split(strings.TrimRight(rawOutput, "\n"), "\n")
-		start := 0
-		if len(lines) > 30 {
-			start = len(lines) - 30
+		if failureReason != "" {
+			slog.Error("executor: disc scan failed", "drive_index", driveIndex, "reason", failureReason)
+			return nil, fmt.Errorf("makemkv: scan disc %d: %s", driveIndex, failureReason)
 		}
-		tail := lines[start:]
-		slog.Warn("executor: disc scan 0 titles — raw output tail",
-			"drive_index", driveIndex, "total_lines", len(lines), "tail", tail)
 	}
 
 	// If the command failed AND we got no useful data, return the original error.
@@ -210,8 +195,7 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	}
 
 	slog.Info("executor: disc scan completed", "drive_index", driveIndex,
-		"disc_name", scan.DiscName, "title_count", len(scan.Titles),
-		"cmd_error", cmdErr != nil)
+		"disc_name", scan.DiscName, "title_count", len(scan.Titles))
 	return scan, nil
 }
 
@@ -302,6 +286,9 @@ func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event)) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
 
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	titleStr := fmt.Sprintf("%d", titleID)
