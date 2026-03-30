@@ -70,7 +70,7 @@ async function selectRelease(driveIndex, result) {
 		type: result.mediaType,
 	}
 
-	await fetch('/drives/' + driveIndex + '/select', {
+	const resp = await fetch('/drives/' + driveIndex + '/select', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -84,6 +84,29 @@ async function selectRelease(driveIndex, result) {
 			type: result.mediaType,
 		}),
 	})
+
+	if (resp.ok) {
+		const data = await resp.json()
+		if (data.titles) {
+			Alpine.store('drive').titles = data.titles
+		}
+	}
+}
+
+function selectAllTitles() {
+	Alpine.store('drive').titles.forEach(t => t.selected = true)
+}
+
+function deselectAllTitles() {
+	Alpine.store('drive').titles.forEach(t => t.selected = false)
+}
+
+function matchDisplay(t) {
+	if (!t.matched) return ''
+	if (t.contentType === 'series' && t.season && t.episode) {
+		return 'S' + t.season.padStart(2, '0') + 'E' + t.episode.padStart(2, '0') + ' - ' + t.contentTitle
+	}
+	return t.contentTitle || ''
 }
 
 async function scanDisc(driveIndex) {
@@ -202,7 +225,10 @@ async function scanDisc(driveIndex) {
 		<div class="card" x-data>
 			<div style="display:flex; justify-content:space-between; align-items:center;">
 				<div class="section-title" style="margin-bottom:0;">Titles</div>
-				@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
+				<div style="display:flex; gap:0.5rem; align-items:center;">
+					@templ.Raw(`<template x-if="$store.drive.titles.length > 0"><span style="display:flex; gap:0.5rem;"><button class="btn btn-secondary btn-sm" x-on:click="selectAllTitles()">Select All</button><button class="btn btn-secondary btn-sm" x-on:click="deselectAllTitles()">Deselect All</button></span></template>`)
+					@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
+				</div>
 			</div>
 
 			<template x-if="$store.drive.scanError">
@@ -245,6 +271,7 @@ async function scanDisc(driveIndex) {
 								<tr>
 									<th></th>
 									<th>#</th>
+									@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
 									<th>Name</th>
 									<th>Duration</th>
 									<th>Size</th>
@@ -253,8 +280,9 @@ async function scanDisc(driveIndex) {
 							<tbody>
 								<template x-for="t in $store.drive.titles" :key="t.index">
 									<tr>
-										<td><input type="checkbox" name="titles" :value="t.index" :checked="t.selected"/></td>
+										<td><input type="checkbox" name="titles" :value="t.index" :checked="t.selected" x-on:change="t.selected = $el.checked"/></td>
 										<td class="text-muted" x-text="t.index"></td>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 										<td x-text="t.name"></td>
 										<td class="text-secondary" x-text="t.duration"></td>
 										<td class="text-secondary" x-text="t.size"></td>
