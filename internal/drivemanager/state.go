@@ -54,6 +54,7 @@ type DriveStateMachine struct {
 	mu         sync.RWMutex
 	index      int
 	devicePath string
+	driveName  string // human-readable drive name, e.g. "BD-RE ASUS BW-16D1HT"
 	state      DriveState
 	discName   string
 }
@@ -79,9 +80,23 @@ func (d *DriveStateMachine) Index() int {
 	return d.index
 }
 
-// DevicePath returns the device path for the drive.
+// DevicePath returns the device path for the drive (e.g. "/dev/sr0").
 func (d *DriveStateMachine) DevicePath() string {
 	return d.devicePath
+}
+
+// DriveName returns the human-readable drive name (e.g. "BD-RE ASUS BW-16D1HT").
+func (d *DriveStateMachine) DriveName() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.driveName
+}
+
+// SetDriveName sets the human-readable drive name.
+func (d *DriveStateMachine) SetDriveName(name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.driveName = name
 }
 
 // DiscName returns the disc name (read-locked).

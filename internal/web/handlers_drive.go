@@ -64,7 +64,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 
 	data := templates.DriveDetailData{
 		DriveIndex: idx,
-		DriveName:  drv.DevicePath(),
+		DriveName:  drv.DriveName(),
 		DiscName:   drv.DiscName(),
 		State:      string(drv.State()),
 	}

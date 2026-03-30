@@ -100,7 +100,8 @@ func (m *Manager) PollOnce(ctx context.Context) {
 
 		// Ensure a state machine exists for every visible drive, even if empty.
 		if _, ok := m.drives[info.Index]; !ok {
-			m.drives[info.Index] = NewDriveState(info.Index, info.DriveName)
+			m.drives[info.Index] = NewDriveState(info.Index, info.DevicePath)
+			m.drives[info.Index].SetDriveName(info.DriveName)
 		}
 
 		dsm := m.drives[info.Index]

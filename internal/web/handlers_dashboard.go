@@ -15,7 +15,7 @@ func (s *Server) handleDashboard(c echo.Context) error {
 	for _, dsm := range drives {
 		cards = append(cards, components.DriveCardData{
 			Index:    dsm.Index(),
-			Name:     dsm.DevicePath(),
+			Name:     dsm.DriveName(),
 			DiscName: dsm.DiscName(),
 			State:    string(dsm.State()),
 		})

@@ -100,16 +100,17 @@ func mustAtoi(s string) int {
 // parseDRV parses: index,visible,enabled,flags,"drivename","discname","device"
 func parseDRV(s string) (Event, error) {
 	parts := parseCSV(s)
-	if len(parts) < 6 {
-		return Event{}, fmt.Errorf("makemkv: DRV: expected >=6 fields, got %d", len(parts))
+	if len(parts) < 7 {
+		return Event{}, fmt.Errorf("makemkv: DRV: expected >=7 fields, got %d", len(parts))
 	}
 	d := &DriveInfo{
-		Index:     mustAtoi(parts[0]),
-		Visible:   mustAtoi(parts[1]),
-		Enabled:   mustAtoi(parts[2]),
-		Flags:     mustAtoi(parts[3]),
-		DriveName: parts[4],
-		DiscName:  parts[5],
+		Index:      mustAtoi(parts[0]),
+		Visible:    mustAtoi(parts[1]),
+		Enabled:    mustAtoi(parts[2]),
+		Flags:      mustAtoi(parts[3]),
+		DriveName:  parts[4],
+		DiscName:   parts[5],
+		DevicePath: parts[6],
 	}
 	return Event{Type: "DRV", Drive: d}, nil
 }
