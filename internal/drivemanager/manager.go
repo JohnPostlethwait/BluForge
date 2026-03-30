@@ -41,6 +41,7 @@ type Manager struct {
 	drives  map[int]*DriveStateMachine
 	known   map[int]string // last known disc name per drive index
 	onEvent func(DriveEvent)
+	ready   bool // true after the first poll completes
 }
 
 // NewManager creates a new Manager with the given executor and event callback.
@@ -51,6 +52,13 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 		known:   make(map[int]string),
 		onEvent: onEvent,
 	}
+}
+
+// Ready returns true after the first drive poll has completed.
+func (m *Manager) Ready() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.ready
 }
 
 // discPresent returns true when a DriveInfo has a non-empty disc name and
@@ -68,6 +76,8 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.ready = true
 
 	// Track which drive indices are present in this poll.
 	seen := make(map[int]bool, len(infos))

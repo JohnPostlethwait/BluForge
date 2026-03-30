@@ -5,6 +5,7 @@ import "github.com/johnpostlethwait/bluforge/templates/components"
 // DashboardData holds the data needed to render the dashboard page.
 type DashboardData struct {
 	Drives []components.DriveCardData
+	Ready  bool // true after the first drive poll completes
 }
 
 templ Dashboard(data DashboardData) {
@@ -18,8 +19,19 @@ templ Dashboard(data DashboardData) {
 			sse-connect="/events"
 			sse-swap="drive-update"
 			hx-swap="none"
+			if !data.Ready {
+				hx-get="/"
+				hx-trigger="every 2s"
+				hx-select=".drive-grid"
+				hx-target=".drive-grid"
+				hx-swap="outerHTML"
+			}
 		>
-			if len(data.Drives) == 0 {
+			if !data.Ready {
+				<div class="empty-state">
+					<p>Scanning for drives…</p>
+				</div>
+			} else if len(data.Drives) == 0 {
 				<div class="empty-state">
 					<p>No drives detected. Make sure MakeMKV is installed and a drive is connected.</p>
 				</div>

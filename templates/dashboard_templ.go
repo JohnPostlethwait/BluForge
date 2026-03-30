@@ -13,6 +13,7 @@ import "github.com/johnpostlethwait/bluforge/templates/components"
 // DashboardData holds the data needed to render the dashboard page.
 type DashboardData struct {
 	Drives []components.DriveCardData
+	Ready  bool // true after the first drive poll completes
 }
 
 func Dashboard(data DashboardData) templ.Component {
@@ -48,12 +49,27 @@ func Dashboard(data DashboardData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"page-header\"><h1>Drives</h1></div><div class=\"drive-grid\" hx-ext=\"sse\" sse-connect=\"/events\" sse-swap=\"drive-update\" hx-swap=\"none\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"page-header\"><h1>Drives</h1></div><div class=\"drive-grid\" hx-ext=\"sse\" sse-connect=\"/events\" sse-swap=\"drive-update\" hx-swap=\"none\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if len(data.Drives) == 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"empty-state\"><p>No drives detected. Make sure MakeMKV is installed and a drive is connected.</p></div>")
+			if !data.Ready {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " hx-get=\"/\" hx-trigger=\"every 2s\" hx-select=\".drive-grid\" hx-target=\".drive-grid\" hx-swap=\"outerHTML\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, ">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if !data.Ready {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"empty-state\"><p>Scanning for drives…</p></div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else if len(data.Drives) == 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div class=\"empty-state\"><p>No drives detected. Make sure MakeMKV is installed and a drive is connected.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -65,7 +81,7 @@ func Dashboard(data DashboardData) templ.Component {
 					}
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

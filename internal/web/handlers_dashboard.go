@@ -21,6 +21,6 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		})
 	}
 
-	data := templates.DashboardData{Drives: cards}
+	data := templates.DashboardData{Drives: cards, Ready: s.driveMgr.Ready()}
 	return templates.Dashboard(data).Render(c.Request().Context(), c.Response().Writer)
 }
