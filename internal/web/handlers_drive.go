@@ -267,11 +267,6 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))
 	}
 
-	// DEBUG: Dump all attributes for the first title to find the source file attribute.
-	if len(scan.Titles) > 0 {
-		t0 := scan.Titles[0]
-		slog.Info("DEBUG: title 0 all attributes", "index", t0.Index, "attributes", t0.Attributes)
-	}
 
 	// Save disc mapping if a release was selected in the session.
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {

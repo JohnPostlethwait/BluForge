@@ -60,18 +60,21 @@ func TestExecutorListDrives(t *testing.T) {
 //	2  = disc name
 //	9  = duration
 //	27 = output filename
-//	33 = source file
+//	16 = source file (MPLS playlist name)
+//	33 = device path
 const scanDiscOutput = `TCOUT:2
 CINFO:2,0,"DEADPOOL_2"
 CINFO:1,0,"Blu-ray disc"
 TINFO:0,2,0,"Deadpool 2"
 TINFO:0,9,0,"1:59:45"
+TINFO:0,16,0,"00100.mpls"
 TINFO:0,27,0,"title_t00.mkv"
-TINFO:0,33,0,"/path/to/source.m2ts"
+TINFO:0,33,0,"/dev/sr0"
 TINFO:1,2,0,"Special Features"
 TINFO:1,9,0,"0:05:30"
+TINFO:1,16,0,"00200.mpls"
 TINFO:1,27,0,"title_t01.mkv"
-TINFO:1,33,0,"/path/to/source2.m2ts"
+TINFO:1,33,0,"/dev/sr0"
 SINFO:0,0,1,0,"V_MPEG4/ISO/AVC"
 SINFO:0,1,1,0,"A_AC3"
 MSG:1005,0,1,"Operation successfully completed","",""
@@ -128,8 +131,8 @@ func TestExecutorScanDisc(t *testing.T) {
 	if t0.Filename() != "title_t00.mkv" {
 		t.Errorf("t0.Filename: expected \"title_t00.mkv\", got %q", t0.Filename())
 	}
-	if t0.SourceFile() != "/path/to/source.m2ts" {
-		t.Errorf("t0.SourceFile (attr 33): expected \"/path/to/source.m2ts\", got %q", t0.SourceFile())
+	if t0.SourceFile() != "00100.mpls" {
+		t.Errorf("t0.SourceFile (attr 16): expected \"00100.mpls\", got %q", t0.SourceFile())
 	}
 
 	// Title 0 should have 2 streams attached.
@@ -141,8 +144,8 @@ func TestExecutorScanDisc(t *testing.T) {
 	if t1.Name() != "Special Features" {
 		t.Errorf("t1.Name: expected \"Special Features\", got %q", t1.Name())
 	}
-	if t1.SourceFile() != "/path/to/source2.m2ts" {
-		t.Errorf("t1.SourceFile (attr 33): expected \"/path/to/source2.m2ts\", got %q", t1.SourceFile())
+	if t1.SourceFile() != "00200.mpls" {
+		t.Errorf("t1.SourceFile (attr 16): expected \"00200.mpls\", got %q", t1.SourceFile())
 	}
 
 	// One message should be captured.

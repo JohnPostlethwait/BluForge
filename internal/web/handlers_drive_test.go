@@ -290,8 +290,8 @@ func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
 		DiscName:   "Seinfeld_Season_1",
 		TitleCount: 2,
 		Titles: []makemkv.TitleInfo{
-			{Index: 0, Attributes: map[int]string{2: "Title 0", 9: "0:23:01", 11: "10.9 GB", 33: "00001.mpls"}},
-			{Index: 1, Attributes: map[int]string{2: "Title 1", 9: "0:02:17", 11: "312.6 MB", 33: "99999.mpls"}},
+			{Index: 0, Attributes: map[int]string{2: "Title 0", 9: "0:23:01", 11: "10.9 GB", 16: "00001.mpls"}},
+			{Index: 1, Attributes: map[int]string{2: "Title 1", 9: "0:02:17", 11: "312.6 MB", 16: "99999.mpls"}},
 		},
 	}
 	orch.InjectCachedScan(0, scan)

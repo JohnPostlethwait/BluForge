@@ -64,13 +64,17 @@ func (t *TitleInfo) Filename() string {
 }
 
 // SegmentMap returns the segment map (attribute 16).
+// For UHD/4K discs this contains the MPLS playlist filename (e.g. "00300.mpls").
+// For standard Blu-ray it may contain segment numbers (e.g. "1,2,3").
 func (t *TitleInfo) SegmentMap() string {
 	return t.Attributes[16]
 }
 
-// SourceFile returns the source file path (attribute 33).
+// SourceFile returns the source playlist/file name used for matching against
+// TheDiscDB. This is attribute 16 (the MPLS playlist, e.g. "00300.mpls"),
+// NOT attribute 33 (which is the device path or drive index).
 func (t *TitleInfo) SourceFile() string {
-	return t.Attributes[33]
+	return t.Attributes[16]
 }
 
 // StreamInfo represents a single audio, video, or subtitle stream within a title.

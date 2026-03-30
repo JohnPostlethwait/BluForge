@@ -162,15 +162,13 @@ func TestFullRipFlow(t *testing.T) {
 
 	// -------------------------------------------------------------------------
 	// Step (c): MatchTitles against a mock discdb.Disc
-	// All 3 fixture titles have SourceFile "/dev/sr0", so we use that as the key.
+	// Fixture titles have SourceFile from attribute 16: 00100.mpls, 00200.mpls, 00300.mpls.
 	// -------------------------------------------------------------------------
 	mockDisc := discdb.Disc{
 		Titles: []discdb.DiscTitle{
-			{
-				SourceFile: "/dev/sr0",
-				ItemType:   "movie",
-				Item:       &discdb.DiscItemReference{Title: "Deadpool 2"},
-			},
+			{SourceFile: "00100.mpls", ItemType: "movie", Item: &discdb.DiscItemReference{Title: "Deadpool 2"}},
+			{SourceFile: "00200.mpls", ItemType: "movie", Item: &discdb.DiscItemReference{Title: "Deadpool 2"}},
+			{SourceFile: "00300.mpls", ItemType: "movie", Item: &discdb.DiscItemReference{Title: "Deadpool 2"}},
 		},
 	}
 
@@ -293,7 +291,7 @@ func TestFullPipeline_ManualRip(t *testing.T) {
 			{
 				TitleIndex:   0,
 				TitleName:    "main feature",
-				SourceFile:   "/dev/sr0",
+				SourceFile:   "00100.mpls",
 				SizeBytes:    1024,
 				ContentType:  "movie",
 				ContentTitle: "Deadpool 2",

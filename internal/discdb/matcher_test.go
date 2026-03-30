@@ -12,7 +12,7 @@ func makeScan(discName string, sourceFiles ...string) *makemkv.DiscScan {
 	for i, sf := range sourceFiles {
 		titles[i] = makemkv.TitleInfo{
 			Index:      i,
-			Attributes: map[int]string{33: sf},
+			Attributes: map[int]string{16: sf},
 		}
 	}
 	return &makemkv.DiscScan{

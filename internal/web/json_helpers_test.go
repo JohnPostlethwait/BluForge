@@ -17,7 +17,7 @@ func makeWebScan(discName string, sourceFiles ...string) *makemkv.DiscScan {
 				2:  "Title " + sf,
 				9:  "1:00:00",
 				10: "10 GB",
-				33: sf,
+				16: sf,
 			},
 		}
 	}
