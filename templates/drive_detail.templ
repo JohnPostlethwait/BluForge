@@ -270,9 +270,10 @@ async function scanDisc(driveIndex) {
 							<thead>
 								<tr>
 									<th></th>
-									<th>#</th>
+									<th>Title</th>
 									@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
-									<th>Name</th>
+									<th>Source</th>
+									@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output</th></template>`)
 									<th>Duration</th>
 									<th>Size</th>
 								</tr>
@@ -283,7 +284,8 @@ async function scanDisc(driveIndex) {
 										<td><input type="checkbox" name="titles" :value="t.index" :checked="t.selected" x-on:change="t.selected = $el.checked"/></td>
 										<td class="text-muted" x-text="t.index"></td>
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
-										<td x-text="t.name"></td>
+										<td class="text-muted" x-text="t.sourceFile"></td>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
 										<td class="text-secondary" x-text="t.duration"></td>
 										<td class="text-secondary" x-text="t.size"></td>
 									</tr>

@@ -1,7 +1,7 @@
 package web
 
 import (
-	"log/slog"
+	"fmt"
 	"strconv"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
@@ -12,22 +12,6 @@ import (
 // enriched with match data from disc. Matched titles have Selected=true;
 // unmatched titles have Selected=false.
 func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJSON {
-	// Log what we're matching for debugging.
-	scanFiles := make([]string, 0, len(scan.Titles))
-	for _, t := range scan.Titles {
-		scanFiles = append(scanFiles, t.SourceFile())
-	}
-	discFiles := make([]string, 0, len(disc.Titles))
-	for _, dt := range disc.Titles {
-		discFiles = append(discFiles, dt.SourceFile)
-	}
-	slog.Info("enrichTitlesWithMatches: comparing source files",
-		"scan_title_count", len(scan.Titles),
-		"disc_title_count", len(disc.Titles),
-		"scan_source_files", scanFiles,
-		"disc_source_files", discFiles,
-	)
-
 	matches := discdb.MatchTitles(scan, disc)
 
 	// Build lookup by TitleIndex for fast access.
@@ -52,6 +36,7 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			tj.ContentType = m.ContentType
 			tj.Season = m.Season
 			tj.Episode = m.Episode
+			tj.OutputName = buildOutputName(m)
 		}
 		titles = append(titles, tj)
 	}
@@ -95,12 +80,33 @@ type TitleJSON struct {
 	Duration     string `json:"duration"`
 	Size         string `json:"size"`
 	SourceFile   string `json:"sourceFile"`
+	OutputName   string `json:"outputName,omitempty"`
 	Selected     bool   `json:"selected"`
 	Matched      bool   `json:"matched"`
 	ContentTitle string `json:"contentTitle,omitempty"`
 	ContentType  string `json:"contentType,omitempty"`
 	Season       string `json:"season,omitempty"`
 	Episode      string `json:"episode,omitempty"`
+}
+
+// buildOutputName returns a human-readable preview of the output filename
+// based on match data. Returns empty string if not matched.
+func buildOutputName(m discdb.ContentMatch) string {
+	if !m.Matched || m.ContentTitle == "" {
+		return ""
+	}
+	if m.Season != "" && m.Episode != "" {
+		return fmt.Sprintf("S%sE%s - %s.mkv", padLeft(m.Season, 2), padLeft(m.Episode, 2), m.ContentTitle)
+	}
+	return m.ContentTitle + ".mkv"
+}
+
+// padLeft zero-pads s to at least width characters.
+func padLeft(s string, width int) string {
+	for len(s) < width {
+		s = "0" + s
+	}
+	return s
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.

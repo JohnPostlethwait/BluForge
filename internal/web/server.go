@@ -87,20 +87,21 @@ func NewServer(deps ServerDeps) *Server {
 			"img-src 'self' data:;",
 	}))
 
-	// CSRF protection for state-changing endpoints. SSE and static are excluded.
+	// CSRF protection for state-changing endpoints. The middleware must run on
+	// GET requests to set the cookie and generate the token (it only validates
+	// on POST/PUT/DELETE/PATCH). Skip only for JSON API POSTs (Alpine fetch).
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSameSite: http.SameSiteStrictMode,
 		Skipper: func(c echo.Context) bool {
-			// Skip CSRF for SSE (GET), static files, and JSON API requests
-			// (Alpine fetch sends Accept: application/json).
-			if c.Request().Method == http.MethodGet {
-				return true
+			// JSON API requests (Alpine fetch) handle auth differently.
+			if c.Request().Method != http.MethodGet {
+				accept := c.Request().Header.Get("Accept")
+				return accept == "application/json"
 			}
-			accept := c.Request().Header.Get("Accept")
-			return accept == "application/json"
+			return false
 		},
 	}))
 
