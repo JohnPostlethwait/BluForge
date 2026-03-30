@@ -26,7 +26,12 @@ document.addEventListener('alpine:init', () => {
 			<h1>Drives</h1>
 		</div>
 
-		<div class="drive-grid" x-data>
+		<!-- Pre-Alpine fallback: visible immediately, hidden once Alpine initializes -->
+		<div id="pre-alpine-loading" class="empty-state">
+			<p>Scanning for drives…</p>
+		</div>
+
+		<div class="drive-grid" x-data x-init="document.getElementById('pre-alpine-loading').remove()" x-cloak>
 			<template x-if="!$store.drives.ready">
 				<div class="empty-state">
 					<p>Scanning for drives…</p>

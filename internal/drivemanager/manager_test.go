@@ -35,8 +35,9 @@ func TestManagerDetectsDiscInsert(t *testing.T) {
 
 	mgr.PollOnce(context.Background())
 
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
+	// First poll emits disc_inserted + state_change (ready).
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
 	}
 
 	ev := events[0]
@@ -48,6 +49,9 @@ func TestManagerDetectsDiscInsert(t *testing.T) {
 	}
 	if ev.DiscName != "MOVIE_DISC" {
 		t.Errorf("expected DiscName %q, got %q", "MOVIE_DISC", ev.DiscName)
+	}
+	if events[1].Type != EventStateChange {
+		t.Errorf("expected EventStateChange, got %q", events[1].Type)
 	}
 }
 
@@ -73,15 +77,16 @@ func TestManagerDetectsDiscEject(t *testing.T) {
 	}
 	mgr.PollOnce(context.Background())
 
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events (insert + eject), got %d", len(events))
+	// First poll: insert + state_change. Second poll: eject.
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (insert + state_change + eject), got %d", len(events))
 	}
 
 	if events[0].Type != EventDiscInserted {
 		t.Errorf("expected first event to be EventDiscInserted, got %q", events[0].Type)
 	}
 
-	eject := events[1]
+	eject := events[2]
 	if eject.Type != EventDiscEjected {
 		t.Errorf("expected EventDiscEjected, got %q", eject.Type)
 	}
@@ -109,14 +114,17 @@ func TestManagerMultipleDrives(t *testing.T) {
 
 	mgr.PollOnce(context.Background())
 
-	if len(events) != 2 {
-		t.Fatalf("expected 2 insert events, got %d", len(events))
+	// First poll: 2 inserts + 1 state_change.
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (2 inserts + state_change), got %d", len(events))
 	}
 
-	// Both should be inserts; collect by drive index for order-independent check.
+	// Collect insert events by drive index for order-independent check.
 	byIndex := make(map[int]DriveEvent)
 	for _, ev := range events {
-		byIndex[ev.DriveIndex] = ev
+		if ev.Type == EventDiscInserted {
+			byIndex[ev.DriveIndex] = ev
+		}
 	}
 
 	for _, idx := range []int{0, 1} {

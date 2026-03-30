@@ -81,7 +81,7 @@ func NewServer(deps ServerDeps) *Server {
 		XFrameOptions:      "DENY",
 		ReferrerPolicy:     "strict-origin-when-cross-origin",
 		ContentSecurityPolicy: "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; " +
+			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; " +
 			"style-src 'self' 'unsafe-inline'; " +
 			"connect-src 'self'; " +
 			"img-src 'self' data:;",

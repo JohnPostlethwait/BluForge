@@ -70,6 +70,10 @@ func discPresent(info makemkv.DriveInfo) bool {
 }
 
 // PollOnce lists drives, compares against previous state, and emits events.
+//
+// Events are collected while holding the lock and dispatched after the lock is
+// released. This prevents deadlocks when the onEvent callback reads drive
+// state via GetDrive/GetAllDrives (which acquire a read lock on the same mutex).
 func (m *Manager) PollOnce(ctx context.Context) {
 	m.mu.RLock()
 	isFirst := !m.ready
@@ -84,9 +88,13 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		slog.Error("drive poll failed", "error", err)
 		return
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
+	// Collect events under the lock; fire them after unlocking.
+	var pending []DriveEvent
+
+	m.mu.Lock()
+
+	wasReady := m.ready
 	m.ready = true
 
 	// Track which drive indices are present in this poll.
@@ -131,14 +139,12 @@ func (m *Manager) PollOnce(ctx context.Context) {
 				if dsm.State() == StateEmpty {
 					_ = dsm.TransitionTo(StateDetected)
 				}
-				if m.onEvent != nil {
-					m.onEvent(DriveEvent{
-						Type:       EventDiscInserted,
-						DriveIndex: info.Index,
-						DiscName:   info.DiscName,
-						State:      dsm.State(),
-					})
-				}
+				pending = append(pending, DriveEvent{
+					Type:       EventDiscInserted,
+					DriveIndex: info.Index,
+					DiscName:   info.DiscName,
+					State:      dsm.State(),
+				})
 			}
 		} else {
 			// No disc present now.
@@ -146,14 +152,12 @@ func (m *Manager) PollOnce(ctx context.Context) {
 				// Disc was ejected.
 				delete(m.known, info.Index)
 				dsm.ForceReset()
-				if m.onEvent != nil {
-					m.onEvent(DriveEvent{
-						Type:       EventDiscEjected,
-						DriveIndex: info.Index,
-						DiscName:   prev,
-						State:      dsm.State(),
-					})
-				}
+				pending = append(pending, DriveEvent{
+					Type:       EventDiscEjected,
+					DriveIndex: info.Index,
+					DiscName:   prev,
+					State:      dsm.State(),
+				})
 			}
 		}
 	}
@@ -165,14 +169,29 @@ func (m *Manager) PollOnce(ctx context.Context) {
 			prev := m.known[idx]
 			dsm.ForceReset()
 			delete(m.known, idx)
-			if m.onEvent != nil {
-				m.onEvent(DriveEvent{
-					Type:       EventDriveDisconnect,
-					DriveIndex: idx,
-					DiscName:   prev,
-					State:      dsm.State(),
-				})
-			}
+			pending = append(pending, DriveEvent{
+				Type:       EventDriveDisconnect,
+				DriveIndex: idx,
+				DiscName:   prev,
+				State:      dsm.State(),
+			})
+		}
+	}
+
+	// On the first completed poll, fire a state_change event so SSE clients
+	// (e.g. the dashboard) learn that ready=true and can render drives.
+	if !wasReady {
+		pending = append(pending, DriveEvent{
+			Type: EventStateChange,
+		})
+	}
+
+	m.mu.Unlock()
+
+	// Dispatch events outside the lock so callbacks can safely read drive state.
+	if m.onEvent != nil {
+		for _, ev := range pending {
+			m.onEvent(ev)
 		}
 	}
 }
