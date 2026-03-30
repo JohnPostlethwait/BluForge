@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -13,21 +14,26 @@ import (
 // errors for individual lines are silently skipped.
 func ParseAll(r io.Reader) ([]Event, error) {
 	var events []Event
+	var totalLines, skippedLines int
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
 		if line == "" {
 			continue
 		}
+		totalLines++
 		ev, err := ParseLine(line)
 		if err != nil {
-			// Skip unrecognised or malformed lines.
+			skippedLines++
 			continue
 		}
 		events = append(events, ev)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+	if skippedLines > 0 {
+		slog.Warn("parser: skipped unrecognized lines", "total_lines", totalLines, "parsed", totalLines-skippedLines, "skipped", skippedLines)
 	}
 	return events, nil
 }

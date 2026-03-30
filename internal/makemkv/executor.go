@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -53,8 +54,12 @@ func WithRunner(r CmdRunner) Option {
 }
 
 // Executor wraps makemkvcon and exposes high-level operations.
+// All commands are serialized via mu because makemkvcon does not support
+// concurrent execution — running multiple instances simultaneously produces
+// corrupted output.
 type Executor struct {
 	runner CmdRunner
+	mu     sync.Mutex
 }
 
 // NewExecutor creates an Executor. By default it uses the real makemkvcon
@@ -80,6 +85,9 @@ type DiscScan struct {
 // ListDrives runs `makemkvcon -r info disc:9999` and returns the list of
 // drives reported via DRV lines.
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	r, err := e.runner.Run(ctx, "-r", "info", "disc:9999")
 	if err != nil {
 		// makemkvcon returns non-zero when no disc is present; try to parse
@@ -118,6 +126,9 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // attached to their respective titles.
 func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
 	slog.Info("executor: starting disc scan", "drive_index", driveIndex)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	r, err := e.runner.Run(ctx, "-r", "info", target)
@@ -216,6 +227,9 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 // StartRip runs `makemkvcon -r mkv disc:N titleID outputDir` and calls
 // onEvent for each parsed Event line. onEvent may be nil.
 func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event)) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	titleStr := fmt.Sprintf("%d", titleID)
 
