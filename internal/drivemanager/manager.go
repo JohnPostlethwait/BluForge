@@ -76,7 +76,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	m.mu.RUnlock()
 
 	if isFirst {
-		slog.Info("polling drives via makemkvcon (this may take 2-4 minutes)…")
+		slog.Info("polling drives via makemkvcon…")
 	}
 
 	infos, err := m.exec.ListDrives(ctx)

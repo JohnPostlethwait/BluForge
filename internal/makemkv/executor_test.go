@@ -51,6 +51,28 @@ func TestExecutorListDrives(t *testing.T) {
 	}
 }
 
+// ---- TestExecutorListDrivesTargeted ----------------------------------------
+
+func TestExecutorListDrivesTargeted(t *testing.T) {
+	// Simulate a single optical device returning a DRV line.
+	mock := &mockCmdRunner{output: `DRV:0,2,999,1,"BD-RE PIONEER BD-RW  BDR-XD08U","SEINFELD_S1","/dev/sr0"` + "\n"}
+	ex := NewExecutor(WithRunner(mock))
+
+	drives, err := ex.listDrivesTargeted(context.Background(), []string{"/dev/sr0"})
+	if err != nil {
+		t.Fatalf("listDrivesTargeted returned unexpected error: %v", err)
+	}
+	if len(drives) != 1 {
+		t.Fatalf("expected 1 drive, got %d", len(drives))
+	}
+	if drives[0].DiscName != "SEINFELD_S1" {
+		t.Errorf("drive[0].DiscName: expected SEINFELD_S1, got %q", drives[0].DiscName)
+	}
+	if drives[0].DevicePath != "/dev/sr0" {
+		t.Errorf("drive[0].DevicePath: expected /dev/sr0, got %q", drives[0].DevicePath)
+	}
+}
+
 // ---- TestExecutorScanDisc --------------------------------------------------
 
 // Attribute IDs used by makemkvcon:
