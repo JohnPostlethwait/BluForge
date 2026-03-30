@@ -180,11 +180,19 @@ async function selectRelease(driveIndex, result) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</h1><a href=\"/\" class=\"btn btn-secondary btn-sm\">← Back</a></div><!-- Disc Info Card --> <div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"card-header\"><span class=\"card-title\">Disc Info</span> <span x-data :class=\"'badge badge-' + $store.drive.state\" x-text=\"$store.drive.state\"></span></div><p class=\"text-secondary\" x-data x-text=\"$store.drive.discName\"></p></div><!-- Search Card --> <div class=\"card\" style=\"margin-bottom: 1rem;\" x-data><div class=\"section-title\">Search TheDiscDB</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</h1><a href=\"/\" class=\"btn btn-secondary btn-sm\">← Back</a></div><!-- Disc Info Card --> <div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"card-header\"><span class=\"card-title\">Disc Info</span> <span x-data :class=\"'badge badge-' + $store.drive.state\" x-text=\"$store.drive.state\"></span></div><p class=\"text-secondary\" x-data x-text=\"$store.drive.discName\"></p></div><!-- Search Card --> <div class=\"card\" style=\"margin-bottom: 1rem;\" x-data><div class=\"section-title\">Search TheDiscDB</div><!-- Saved Mapping Banner (from previous rip) --><template x-if=\"$store.drive.hasMapping && !$store.drive.selectedRelease\"><div class=\"alert alert-success mt-3\" style=\"display:flex; justify-content:space-between; align-items:center;\"><span>Matched: <span x-text=\"$store.drive.matchedMedia\"></span></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)">
+			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex)).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></template><!-- Matched Release Banner (from current session selection) --><template x-if=\"$store.drive.selectedRelease\"><div class=\"alert alert-success mt-3\">Matched: <span x-text=\"$store.drive.selectedRelease.title\"></span> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) — <span x-text=\"$store.drive.selectedRelease.type\"></span></div></template>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="mt-3">
 				<div class="flex gap-2 items-center">
 					<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
 						x-init="$el.value = $store.drive.discName"
@@ -195,7 +203,7 @@ async function selectRelease(driveIndex, result) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<!-- Search Results --><div class=\"mt-3\"><template x-if=\"$store.drive.searchResults.length > 0\"><div style=\"overflow-x:auto;\"><table><thead><tr><th>Title</th><th>Year</th><th>Type</th><th>Release</th><th>UPC</th><th>Format</th><th></th></tr></thead> <tbody><template x-for=\"r in $store.drive.searchResults\" :key=\"r.releaseID\"><tr><td x-text=\"r.mediaTitle\"></td><td class=\"text-secondary\" x-text=\"r.mediaYear\"></td><td><span class=\"badge badge-identified\" x-text=\"r.mediaType\"></span></td><td class=\"text-secondary\" x-text=\"r.releaseTitle\"></td><td class=\"text-muted\" x-text=\"r.releaseUPC\"></td><td class=\"text-secondary\" x-text=\"r.format\"></td><td>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<!-- Search Results --><div class=\"mt-3\"><template x-if=\"$store.drive.searchResults.length > 0\"><div style=\"overflow-x:auto;\"><table><thead><tr><th>Title</th><th>Year</th><th>Type</th><th>Release</th><th>UPC</th><th>Format</th><th></th></tr></thead> <tbody><template x-for=\"r in $store.drive.searchResults\" :key=\"r.releaseID\"><tr><td x-text=\"r.mediaTitle\"></td><td class=\"text-secondary\" x-text=\"r.mediaYear\"></td><td><span class=\"badge badge-identified\" x-text=\"r.mediaType\"></span></td><td class=\"text-secondary\" x-text=\"r.releaseTitle\"></td><td class=\"text-muted\" x-text=\"r.releaseUPC\"></td><td class=\"text-secondary\" x-text=\"r.format\"></td><td>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -203,22 +211,14 @@ async function selectRelease(driveIndex, result) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</td></tr></template></tbody></table></div></template></div></div><!-- Saved Mapping Banner (from previous rip) --> <template x-data x-if=\"$store.drive.hasMapping && !$store.drive.selectedRelease\"><div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"alert alert-success\" style=\"display:flex; justify-content:space-between; align-items:center;\"><span>Matched: <span x-text=\"$store.drive.matchedMedia\"></span></span>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex)).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div></template><!-- Matched Release Banner (from current session selection) --> <template x-data x-if=\"$store.drive.selectedRelease\"><div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"alert alert-success\">Matched: <span x-text=\"$store.drive.selectedRelease.title\"></span> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) — <span x-text=\"$store.drive.selectedRelease.type\"></span></div></div></template><!-- Titles Card --> <div class=\"card\" x-data><div class=\"section-title\">Titles</div><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles found. Insert a disc or wait for scanning to complete.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</td></tr></template></tbody></table></div></template></div></div><!-- Titles Card --> <div class=\"card\" x-data><div class=\"section-title\">Titles</div><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles found. Insert a disc or wait for scanning to complete.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/drives/%d/rip", data.DriveIndex))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 213, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 210, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -231,7 +231,7 @@ async function selectRelease(driveIndex, result) {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 214, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 211, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {

@@ -126,7 +126,25 @@ async function selectRelease(driveIndex, result) {
 		<!-- Search Card -->
 		<div class="card" style="margin-bottom: 1rem;" x-data>
 			<div class="section-title">Search TheDiscDB</div>
-			@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)">
+
+			<!-- Saved Mapping Banner (from previous rip) -->
+			<template x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
+				<div class="alert alert-success mt-3" style="display:flex; justify-content:space-between; align-items:center;">
+					<span>Matched: <span x-text="$store.drive.matchedMedia"></span></span>
+					@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex))
+				</div>
+			</template>
+
+			<!-- Matched Release Banner (from current session selection) -->
+			<template x-if="$store.drive.selectedRelease">
+				<div class="alert alert-success mt-3">
+					Matched: <span x-text="$store.drive.selectedRelease.title"></span>
+					(<span x-text="$store.drive.selectedRelease.year"></span>)
+					— <span x-text="$store.drive.selectedRelease.type"></span>
+				</div>
+			</template>
+
+			@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="mt-3">
 				<div class="flex gap-2 items-center">
 					<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
 						x-init="$el.value = $store.drive.discName"
@@ -171,27 +189,6 @@ async function selectRelease(driveIndex, result) {
 				</template>
 			</div>
 		</div>
-
-		<!-- Saved Mapping Banner (from previous rip) -->
-		<template x-data x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
-			<div class="card" style="margin-bottom: 1rem;">
-				<div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
-					<span>Matched: <span x-text="$store.drive.matchedMedia"></span></span>
-					@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex))
-				</div>
-			</div>
-		</template>
-
-		<!-- Matched Release Banner (from current session selection) -->
-		<template x-data x-if="$store.drive.selectedRelease">
-			<div class="card" style="margin-bottom: 1rem;">
-				<div class="alert alert-success">
-					Matched: <span x-text="$store.drive.selectedRelease.title"></span>
-					(<span x-text="$store.drive.selectedRelease.year"></span>)
-					— <span x-text="$store.drive.selectedRelease.type"></span>
-				</div>
-			</div>
-		</template>
 
 		<!-- Titles Card -->
 		<div class="card" x-data>

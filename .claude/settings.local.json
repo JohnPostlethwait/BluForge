@@ -47,7 +47,6 @@
       "Bash(brew install:*)",
       "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
       "Bash(go version:*)",
-      "Bash(git:*)",
       "Bash(grep -r DiscScan /Users/johnpostlethwait/Documents/workspace/BluForge/ --include=*.go)",
       "Bash(cat /Users/johnpostlethwait/Documents/workspace/BluForge/internal/discdb/*.go)",
       "Bash(go install:*)",
@@ -68,7 +67,14 @@
       "Bash(grep -n \"GetDrive\\\\|DiscName\" /Users/johnpostlethwait/Documents/workspace/BluForge/internal/drivemanager/*.go)",
       "Bash(grep -n \"func.*DiscName\" /Users/johnpostlethwait/Documents/workspace/BluForge/internal/drivemanager/*.go)",
       "Bash(grep -rn \"templ.JSFuncCall\\\\|templ.Raw\\\\|templ.Component\" /Users/johnpostlethwait/go/pkg/mod/github.com/a-h/templ@v0.3.1001/*.go)",
-      "Bash(/Users/johnpostlethwait/go/bin/templ generate:*)"
+      "Bash(/Users/johnpostlethwait/go/bin/templ generate:*)",
+      "Bash(grep:*)",
+      "Bash(find /Users/johnpostlethwait/Documents/workspace/BluForge -name *drive_card*)",
+      "Bash(find /Users/johnpostlethwait/Documents/workspace/BluForge -name *drive_search*)",
+      "Bash(ls -la /Users/johnpostlethwait/Documents/workspace/BluForge/internal/web/*.go)",
+      "Bash(openssl dgst:*)",
+      "Bash(openssl enc:*)",
+      "Bash(xargs ls:*)"
     ]
   }
 }
