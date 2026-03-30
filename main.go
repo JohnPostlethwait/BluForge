@@ -245,6 +245,7 @@ func setupMakeMKVData(configDir string, minTitleLength int) {
 	// Build the settings we need to ensure are present.
 	required := map[string]string{
 		"app_DataDir":            persistDir,
+		"app_UpdateEnable":       "1",
 		"dvd_MinimumTitleLength": fmt.Sprintf("%d", minTitleLength),
 	}
 	if key := os.Getenv("MAKEMKV_KEY"); key != "" {

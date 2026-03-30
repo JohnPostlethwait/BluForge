@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config wget ca-certificates \
     libc6-dev libssl-dev libexpat1-dev zlib1g-dev \
     libavcodec-dev libavutil-dev libavformat-dev \
-    libgl1-mesa-dev qtbase5-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/makemkv
@@ -31,7 +30,7 @@ RUN wget -q "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar
 
 # Build and install the open-source library (libdriveio, libmakemkv)
 RUN cd "makemkv-oss-${MAKEMKV_VERSION}" && \
-    ./configure && make && make install
+    ./configure --disable-gui && make && make install
 
 # Accept EULA and install makemkvcon binary
 RUN mkdir -p "makemkv-bin-${MAKEMKV_VERSION}/tmp" && \
@@ -44,9 +43,14 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# libcurl4t64: makemkvcon loads libcurl via dlopen() at runtime for SDF/LibreDrive
+#              data downloads — it does NOT appear in ldd output.
+# zlib1g:      compression library needed by libcurl and makemkvcon.
+# lsscsi:      drive detection via SCSI bus scanning.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
     libssl3 libexpat1 \
+    libcurl4t64 zlib1g lsscsi \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -55,6 +59,7 @@ COPY --from=go-builder /build/static ./static
 COPY --from=makemkv-builder /usr/bin/makemkvcon /usr/bin/makemkvcon
 COPY --from=makemkv-builder /usr/lib/libdriveio.so.0 /usr/lib/libdriveio.so.0
 COPY --from=makemkv-builder /usr/lib/libmakemkv.so.1 /usr/lib/libmakemkv.so.1
+COPY --from=makemkv-builder /usr/lib/libmmbd.so.0 /usr/lib/libmmbd.so.0
 COPY --from=makemkv-builder /usr/share/MakeMKV /usr/share/MakeMKV
 
 RUN ldconfig && ldd /usr/bin/makemkvcon
