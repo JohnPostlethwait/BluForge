@@ -3,6 +3,7 @@ package drivemanager
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -186,7 +187,8 @@ func (m *Manager) GetDrive(index int) *DriveStateMachine {
 	return m.drives[index]
 }
 
-// GetAllDrives returns all known DriveStateMachines.
+// GetAllDrives returns all known DriveStateMachines sorted alphabetically by
+// device path for deterministic display order.
 func (m *Manager) GetAllDrives() []*DriveStateMachine {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -194,5 +196,14 @@ func (m *Manager) GetAllDrives() []*DriveStateMachine {
 	for _, dsm := range m.drives {
 		result = append(result, dsm)
 	}
+	slices.SortFunc(result, func(a, b *DriveStateMachine) int {
+		if a.DevicePath() < b.DevicePath() {
+			return -1
+		}
+		if a.DevicePath() > b.DevicePath() {
+			return 1
+		}
+		return 0
+	})
 	return result
 }
