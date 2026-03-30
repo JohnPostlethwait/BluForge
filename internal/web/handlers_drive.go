@@ -77,9 +77,13 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 			data.Scanning = true
 			go func() {
 				bgCtx := context.Background()
-				if _, err := s.orchestrator.ScanDisc(bgCtx, idx); err != nil {
-					slog.Error("background disc scan failed", "drive_index", idx, "error", err)
+				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
+				if scanErr != nil {
+					slog.Error("background disc scan failed", "drive_index", idx, "error", scanErr)
+					return
 				}
+				titles := scanToTitleJSON(result)
+				s.broadcastScanComplete(idx, titles)
 			}()
 		} else {
 			discKey := discdb.BuildDiscKey(scan)

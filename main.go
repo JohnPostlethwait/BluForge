@@ -104,10 +104,12 @@ func main() {
 	})
 
 	// 11. Create drive manager with onEvent callback.
-	// srv is declared here so the callback closure can read live config via
-	// srv.GetConfig() instead of the stale startup cfg value.
+	// srv and driveMgr are declared here so the callback closure can read live
+	// config via srv.GetConfig() and reference driveMgr.GetAllDrives() without
+	// a forward-reference error.
 	var srv *web.Server
-	driveMgr := drivemanager.NewManager(executor, func(ev drivemanager.DriveEvent) {
+	var driveMgr *drivemanager.Manager
+	driveMgr = drivemanager.NewManager(executor, func(ev drivemanager.DriveEvent) {
 		slog.Info("drive event", "type", ev.Type, "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 		data, err := json.Marshal(ev)
 		if err != nil {
@@ -120,6 +122,29 @@ func main() {
 		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {
 			orch.InvalidateScan(ev.DriveIndex)
 		}
+
+		// Clear drive session on eject so stale selection state doesn't persist.
+		if ev.Type == drivemanager.EventDiscEjected && srv != nil {
+			srv.ClearDriveSession(ev.DriveIndex)
+		}
+
+		// Broadcast drive-update with full drive list for dashboard Alpine store.
+		allDrives := driveMgr.GetAllDrives()
+		driveList := make([]web.DriveJSON, 0, len(allDrives))
+		for _, dsm := range allDrives {
+			driveList = append(driveList, web.DriveJSON{
+				Index:    dsm.Index(),
+				Name:     dsm.DriveName(),
+				DiscName: dsm.DiscName(),
+				State:    string(dsm.State()),
+			})
+		}
+		driveUpdatePayload := struct {
+			Ready bool           `json:"ready"`
+			List  []web.DriveJSON `json:"list"`
+		}{Ready: driveMgr.Ready(), List: driveList}
+		driveUpdateData, _ := json.Marshal(driveUpdatePayload)
+		sseHub.Broadcast(web.SSEEvent{Event: "drive-update", Data: string(driveUpdateData)})
 
 		// Auto-rip: trigger on disc insert when enabled.
 		if srv == nil {

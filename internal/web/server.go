@@ -129,6 +129,17 @@ func (s *Server) Stop() error {
 	return s.echo.Shutdown(context.Background())
 }
 
+// ClearDriveSession removes the drive session for the given index.
+// Called when a disc is ejected to clear stale selection state.
+func (s *Server) ClearDriveSession(driveIndex int) {
+	s.driveSessions.Clear(driveIndex)
+}
+
+// BroadcastScanComplete publishes a scan-complete SSE event.
+func (s *Server) BroadcastScanComplete(driveIndex int, titles []TitleJSON) {
+	s.broadcastScanComplete(driveIndex, titles)
+}
+
 // handleSSE streams Server-Sent Events to the connected client.
 func (s *Server) handleSSE(c echo.Context) error {
 	w := c.Response()
