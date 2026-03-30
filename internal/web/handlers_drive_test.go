@@ -190,7 +190,6 @@ func testServerWithDrive(t *testing.T, discName string) *Server {
 
 	// Register routes needed for tests.
 	s.echo.POST("/drives/:id/search", s.handleDriveSearch)
-	s.echo.GET("/drives-partial", s.handleDrivesPartial)
 
 	return s
 }
@@ -296,22 +295,21 @@ func TestHandleDriveSearch_EmptyQuery(t *testing.T) {
 	}
 }
 
-func TestHandleDrivesPartial(t *testing.T) {
-	mgr := drivemanager.NewManager(&driveWithDiscExecutor{
-		discName: "TestDisc",
-	}, nil)
+func TestHandleDashboard_JSONStore(t *testing.T) {
+	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TestDisc"}, nil)
 	mgr.PollOnce(context.Background())
 
 	cfg := config.AppConfig{OutputDir: "/tmp/test"}
 	srv := &Server{
-		echo:     echo.New(),
-		cfg:      &cfg,
-		driveMgr: mgr,
-		sseHub:   NewSSEHub(),
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
 	}
-	srv.echo.GET("/drives-partial", srv.handleDrivesPartial)
+	srv.echo.GET("/", srv.handleDashboard)
 
-	req := httptest.NewRequest(http.MethodGet, "/drives-partial", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	srv.echo.ServeHTTP(rec, req)
@@ -322,52 +320,15 @@ func TestHandleDrivesPartial(t *testing.T) {
 
 	body := rec.Body.String()
 
-	// Should contain the drive grid div.
-	if !strings.Contains(body, `id="drive-grid"`) {
-		t.Error("response should contain the drive-grid element")
+	// Should contain the Alpine store initialization with drive data.
+	if !strings.Contains(body, "Alpine.store") {
+		t.Error("response should contain Alpine.store initialization")
 	}
-
-	// Should NOT contain the full page layout (no <html>, no <head>).
-	if strings.Contains(body, "<html") {
-		t.Error("partial response should not contain full HTML layout")
+	if !strings.Contains(body, "TestDisc") {
+		t.Error("response should contain disc name in store JSON")
 	}
-
-	// Manager is ready after PollOnce, so no hx-get polling attribute.
-	if strings.Contains(body, "hx-get") {
-		t.Error("partial response should not have hx-get when drives are ready")
-	}
-}
-
-func TestHandleDrivesPartial_NotReady(t *testing.T) {
-	// Manager that hasn't polled yet — Ready() is false.
-	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
-
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
-	srv := &Server{
-		echo:     echo.New(),
-		cfg:      &cfg,
-		driveMgr: mgr,
-		sseHub:   NewSSEHub(),
-	}
-	srv.echo.GET("/drives-partial", srv.handleDrivesPartial)
-
-	req := httptest.NewRequest(http.MethodGet, "/drives-partial", nil)
-	rec := httptest.NewRecorder()
-
-	srv.echo.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	body := rec.Body.String()
-
-	// Should contain polling attributes since not ready.
-	if !strings.Contains(body, `hx-get="/drives-partial"`) {
-		t.Error("partial response should have hx-get polling when not ready")
-	}
-	if !strings.Contains(body, "Scanning for drives") {
-		t.Error("partial response should show scanning message when not ready")
+	if !strings.Contains(body, "drive-update") {
+		t.Error("response should contain SSE event listener for drive-update")
 	}
 }
 

@@ -1,19 +1,20 @@
 package web
 
 import (
+	"encoding/json"
+
 	"github.com/labstack/echo/v4"
 
 	"github.com/johnpostlethwait/bluforge/templates"
-	"github.com/johnpostlethwait/bluforge/templates/components"
 )
 
-// handleDashboard renders the dashboard with all known drive cards.
+// handleDashboard renders the dashboard with Alpine.js store data.
 func (s *Server) handleDashboard(c echo.Context) error {
 	drives := s.driveMgr.GetAllDrives()
 
-	cards := make([]components.DriveCardData, 0, len(drives))
+	driveList := make([]DriveJSON, 0, len(drives))
 	for _, dsm := range drives {
-		cards = append(cards, components.DriveCardData{
+		driveList = append(driveList, DriveJSON{
 			Index:    dsm.Index(),
 			Name:     dsm.DriveName(),
 			DiscName: dsm.DiscName(),
@@ -21,24 +22,12 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		})
 	}
 
-	data := templates.DashboardData{Drives: cards, Ready: s.driveMgr.Ready()}
+	storeData := DrivesStoreJSON{
+		Ready: s.driveMgr.Ready(),
+		List:  driveList,
+	}
+	storeBytes, _ := json.Marshal(storeData)
+
+	data := templates.DashboardData{StoreJSON: string(storeBytes)}
 	return templates.Dashboard(data).Render(c.Request().Context(), c.Response().Writer)
-}
-
-// handleDrivesPartial renders just the drive grid for HTMX polling.
-func (s *Server) handleDrivesPartial(c echo.Context) error {
-	drives := s.driveMgr.GetAllDrives()
-
-	cards := make([]components.DriveCardData, 0, len(drives))
-	for _, dsm := range drives {
-		cards = append(cards, components.DriveCardData{
-			Index:    dsm.Index(),
-			Name:     dsm.DriveName(),
-			DiscName: dsm.DiscName(),
-			State:    string(dsm.State()),
-		})
-	}
-
-	data := templates.DashboardData{Drives: cards, Ready: s.driveMgr.Ready()}
-	return templates.DriveGrid(data).Render(c.Request().Context(), c.Response().Writer)
 }
