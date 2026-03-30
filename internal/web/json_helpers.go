@@ -7,6 +7,62 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
+// enrichTitlesWithMatches builds TitleJSON entries for all titles in scan,
+// enriched with match data from disc. Matched titles have Selected=true;
+// unmatched titles have Selected=false.
+func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJSON {
+	matches := discdb.MatchTitles(scan, disc)
+
+	// Build lookup by TitleIndex for fast access.
+	matchByIndex := make(map[int]discdb.ContentMatch, len(matches))
+	for _, m := range matches {
+		matchByIndex[m.TitleIndex] = m
+	}
+
+	titles := make([]TitleJSON, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		tj := TitleJSON{
+			Index:      t.Index,
+			Name:       t.Name(),
+			Duration:   t.Duration(),
+			Size:       t.SizeHuman(),
+			SourceFile: t.SourceFile(),
+		}
+		if m, ok := matchByIndex[t.Index]; ok && m.Matched {
+			tj.Matched = true
+			tj.Selected = true
+			tj.ContentTitle = m.ContentTitle
+			tj.ContentType = m.ContentType
+			tj.Season = m.Season
+			tj.Episode = m.Episode
+		}
+		titles = append(titles, tj)
+	}
+	return titles
+}
+
+// findDiscForRelease finds the first disc of the release identified by releaseID
+// (as a decimal string) within items. Returns nil if not found or the release
+// has no discs.
+func findDiscForRelease(items []discdb.MediaItem, releaseID string) *discdb.Disc {
+	id, err := strconv.Atoi(releaseID)
+	if err != nil {
+		return nil
+	}
+	for _, item := range items {
+		for _, rel := range item.Releases {
+			if rel.ID == id {
+				if len(rel.Discs) == 0 {
+					return nil
+				}
+				disc := rel.Discs[0]
+				return &disc
+			}
+		}
+	}
+	return nil
+}
+
 // DriveJSON is the JSON representation of a drive for Alpine.js stores.
 type DriveJSON struct {
 	Index    int    `json:"index"`
@@ -17,12 +73,17 @@ type DriveJSON struct {
 
 // TitleJSON is the JSON representation of a disc title for Alpine.js stores.
 type TitleJSON struct {
-	Index      int    `json:"index"`
-	Name       string `json:"name"`
-	Duration   string `json:"duration"`
-	Size       string `json:"size"`
-	SourceFile string `json:"sourceFile"`
-	Selected   bool   `json:"selected"`
+	Index        int    `json:"index"`
+	Name         string `json:"name"`
+	Duration     string `json:"duration"`
+	Size         string `json:"size"`
+	SourceFile   string `json:"sourceFile"`
+	Selected     bool   `json:"selected"`
+	Matched      bool   `json:"matched"`
+	ContentTitle string `json:"contentTitle,omitempty"`
+	ContentType  string `json:"contentType,omitempty"`
+	Season       string `json:"season,omitempty"`
+	Episode      string `json:"episode,omitempty"`
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.
