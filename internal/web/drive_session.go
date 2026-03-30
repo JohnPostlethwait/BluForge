@@ -2,18 +2,21 @@ package web
 
 import (
 	"sync"
+
+	"github.com/johnpostlethwait/bluforge/internal/discdb"
 )
 
 // DriveSession holds transient per-drive workflow state: the user's selected
 // release from TheDiscDB and cached search results. This state persists across
 // browser refreshes but is cleared when the disc is ejected.
 type DriveSession struct {
-	MediaItemID   string
-	ReleaseID     string
-	MediaTitle    string
-	MediaYear     string
-	MediaType     string
-	SearchResults []SearchResultJSON
+	MediaItemID      string
+	ReleaseID        string
+	MediaTitle       string
+	MediaYear        string
+	MediaType        string
+	SearchResults    []SearchResultJSON
+	RawSearchResults []discdb.MediaItem
 }
 
 // DriveSessionStore is a thread-safe map of drive index to session state.
@@ -61,4 +64,17 @@ func (s *DriveSessionStore) SetSearchResults(driveIndex int, results []SearchRes
 		s.sessions[driveIndex] = session
 	}
 	session.SearchResults = results
+}
+
+// SetRawSearchResults stores raw MediaItem search results for the given drive index.
+// Creates a new session if one does not exist.
+func (s *DriveSessionStore) SetRawSearchResults(driveIndex int, items []discdb.MediaItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[driveIndex]
+	if !ok {
+		session = &DriveSession{}
+		s.sessions[driveIndex] = session
+	}
+	session.RawSearchResults = items
 }

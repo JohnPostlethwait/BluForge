@@ -111,6 +111,7 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 	}
 	jsonRows := mediaItemsToSearchJSON(items)
 	s.driveSessions.SetSearchResults(idx, jsonRows)
+	s.driveSessions.SetRawSearchResults(idx, items)
 	return c.JSON(http.StatusOK, jsonRows)
 }
 
