@@ -1,6 +1,7 @@
 package web
 
 import (
+	"log/slog"
 	"strconv"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
@@ -11,6 +12,22 @@ import (
 // enriched with match data from disc. Matched titles have Selected=true;
 // unmatched titles have Selected=false.
 func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJSON {
+	// Log what we're matching for debugging.
+	scanFiles := make([]string, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		scanFiles = append(scanFiles, t.SourceFile())
+	}
+	discFiles := make([]string, 0, len(disc.Titles))
+	for _, dt := range disc.Titles {
+		discFiles = append(discFiles, dt.SourceFile)
+	}
+	slog.Info("enrichTitlesWithMatches: comparing source files",
+		"scan_title_count", len(scan.Titles),
+		"disc_title_count", len(disc.Titles),
+		"scan_source_files", scanFiles,
+		"disc_source_files", discFiles,
+	)
+
 	matches := discdb.MatchTitles(scan, disc)
 
 	// Build lookup by TitleIndex for fast access.
