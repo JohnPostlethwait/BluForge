@@ -2,32 +2,14 @@ package templates
 
 import "fmt"
 
-// TitleRow holds display data for a single disc title in the drive detail view.
-type TitleRow struct {
-	Index       int
-	Name        string
-	Duration    string
-	Size        string
-	SourceFile  string
-	Matched     bool
-	ContentType string
-	ContentName string
-	Selected    bool
-}
-
 // DriveDetailData holds all data needed to render the drive detail page.
 type DriveDetailData struct {
-	DriveIndex     int
-	DriveName      string
-	DiscName       string
-	State          string
-	Titles         []TitleRow
-	MatchedMedia   string
-	MatchedRelease string
-	HasMapping     bool
-	Scanning       bool
-	Error          string
-	StoreJSON      string // JSON blob for Alpine.store('drive') hydration
+	DriveIndex int
+	DriveName  string
+	DiscName   string
+	State      string
+	Error      string
+	StoreJSON  string // JSON blob for Alpine.store('drive') hydration
 }
 
 templ DriveDetail(data DriveDetailData) {
@@ -189,7 +171,17 @@ async function selectRelease(driveIndex, result) {
 			</div>
 		</div>
 
-		<!-- Matched Release Banner -->
+		<!-- Saved Mapping Banner (from previous rip) -->
+		<template x-data x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
+			<div class="card" style="margin-bottom: 1rem;">
+				<div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
+					<span>Matched: <span x-text="$store.drive.matchedMedia"></span></span>
+					@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex))
+				</div>
+			</div>
+		</template>
+
+		<!-- Matched Release Banner (from current session selection) -->
 		<template x-data x-if="$store.drive.selectedRelease">
 			<div class="card" style="margin-bottom: 1rem;">
 				<div class="alert alert-success">

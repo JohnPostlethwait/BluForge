@@ -41,12 +41,22 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		State:      string(drv.State()),
 	}
 
+	// Build Alpine store hydration JSON.
+	driveStore := DriveStoreJSON{
+		DriveIndex:    idx,
+		DriveName:     drv.DriveName(),
+		DiscName:      drv.DiscName(),
+		State:         string(drv.State()),
+		Titles:        make([]TitleJSON, 0),
+		SearchResults: make([]SearchResultJSON, 0),
+	}
+
 	// Check for a remembered disc mapping.
 	if drv.DiscName() != "" && s.store != nil {
 		// Use cached scan if available; otherwise trigger a background scan.
 		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
 		if scan == nil {
-			data.Scanning = true
+			driveStore.Scanning = true
 			go func() {
 				bgCtx := context.Background()
 				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
@@ -64,45 +74,14 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 				slog.WarnContext(c.Request().Context(), "failed to load disc mapping", "disc_key", discKey, "error", mappingErr)
 			}
 			if mapping != nil {
-				data.HasMapping = true
-				data.MatchedMedia = mapping.MediaTitle + " (" + mapping.MediaYear + ")"
-				data.MatchedRelease = mapping.ReleaseID
+				driveStore.HasMapping = true
+				driveStore.MatchedMedia = mapping.MediaTitle + " (" + mapping.MediaYear + ")"
+				driveStore.MatchedRelease = mapping.ReleaseID
 			}
 
-			// Populate title rows from scan.
-			for _, t := range scan.Titles {
-				data.Titles = append(data.Titles, templates.TitleRow{
-					Index:      t.Index,
-					Name:       t.Name(),
-					Duration:   t.Duration(),
-					Size:       t.SizeHuman(),
-					SourceFile: t.SourceFile(),
-					Selected:   true,
-				})
-			}
+			// Populate titles directly from scan.
+			driveStore.Titles = scanToTitleJSON(scan)
 		}
-	}
-
-	// Build Alpine store hydration JSON.
-	driveStore := DriveStoreJSON{
-		DriveIndex:    idx,
-		DriveName:     drv.DriveName(),
-		DiscName:      drv.DiscName(),
-		State:         string(drv.State()),
-		Scanning:      data.Scanning,
-		Titles:        make([]TitleJSON, 0),
-		SearchResults: make([]SearchResultJSON, 0),
-	}
-
-	for _, t := range data.Titles {
-		driveStore.Titles = append(driveStore.Titles, TitleJSON{
-			Index:      t.Index,
-			Name:       t.Name,
-			Duration:   t.Duration,
-			Size:       t.Size,
-			SourceFile: t.SourceFile,
-			Selected:   t.Selected,
-		})
 	}
 
 	// Hydrate from drive session if available.
@@ -118,7 +97,6 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		if driveStore.SearchResults == nil {
 			driveStore.SearchResults = make([]SearchResultJSON, 0)
 		}
-
 	}
 
 	storeBytes, _ := json.Marshal(driveStore)

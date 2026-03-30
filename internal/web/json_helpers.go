@@ -3,18 +3,10 @@ package web
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
-
-	"github.com/labstack/echo/v4"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
-
-// wantsJSON returns true if the request's Accept header contains "application/json".
-func wantsJSON(c echo.Context) bool {
-	return strings.Contains(c.Request().Header.Get("Accept"), "application/json")
-}
 
 // DriveJSON is the JSON representation of a drive for Alpine.js stores.
 type DriveJSON struct {
@@ -65,6 +57,9 @@ type DriveStoreJSON struct {
 	DiscName        string               `json:"discName"`
 	State           string               `json:"state"`
 	Scanning        bool                 `json:"scanning"`
+	HasMapping      bool                 `json:"hasMapping"`
+	MatchedMedia    string               `json:"matchedMedia"`
+	MatchedRelease  string               `json:"matchedRelease"`
 	Titles          []TitleJSON          `json:"titles"`
 	SelectedRelease *SelectedReleaseJSON `json:"selectedRelease"`
 	SearchResults   []SearchResultJSON   `json:"searchResults"`

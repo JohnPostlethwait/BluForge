@@ -21,11 +21,13 @@ const (
 )
 
 // DriveEvent carries information about a change detected on a drive.
+// JSON tags use uppercase names to match the existing SSE contract consumed
+// by Alpine.js in drive_detail.templ.
 type DriveEvent struct {
-	Type       EventType
-	DriveIndex int
-	DiscName   string
-	State      DriveState
+	Type       EventType  `json:"Type"`
+	DriveIndex int        `json:"DriveIndex"`
+	DiscName   string     `json:"DiscName"`
+	State      DriveState `json:"State"`
 }
 
 // DriveExecutor is the interface for querying MakeMKV drive information.

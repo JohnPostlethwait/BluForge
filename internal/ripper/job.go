@@ -18,23 +18,25 @@ const (
 )
 
 // Job tracks the state of a single title rip operation.
+// JSON tags use uppercase names to match the existing SSE contract consumed
+// by Alpine.js in drive_detail.templ and HTMX in queue.templ.
 type Job struct {
-	mu         sync.Mutex
-	ID         int64
-	DriveIndex int
-	TitleIndex int
-	DiscName   string
-	TitleName  string
-	OutputDir  string
-	OutputPath string
-	Status     JobStatus
-	Progress   int
-	Error      string
-	StartedAt  time.Time
-	FinishedAt time.Time
+	mu         sync.Mutex `json:"-"`
+	ID         int64      `json:"ID"`
+	DriveIndex int        `json:"DriveIndex"`
+	TitleIndex int        `json:"TitleIndex"`
+	DiscName   string     `json:"DiscName"`
+	TitleName  string     `json:"TitleName"`
+	OutputDir  string     `json:"-"`
+	OutputPath string     `json:"-"`
+	Status     JobStatus  `json:"Status"`
+	Progress   int        `json:"Progress"`
+	Error      string     `json:"Error,omitempty"`
+	StartedAt  time.Time  `json:"StartedAt"`
+	FinishedAt time.Time  `json:"FinishedAt"`
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
-	OnComplete func(job *Job, err error)
+	OnComplete func(job *Job, err error) `json:"-"`
 }
 
 // NewJob creates a new Job in the Pending state.
