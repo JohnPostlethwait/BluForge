@@ -155,19 +155,20 @@ func (c *Client) query(ctx context.Context, gql string, vars map[string]any) (js
 	return gqlResp.Data, nil
 }
 
-// SearchByTitle searches for media items whose title contains the given string.
-func (c *Client) SearchByTitle(ctx context.Context, title string) ([]MediaItem, error) {
+// searchMediaItems executes a GraphQL query with the given where clause and
+// variable, returning the matching media items.
+func (c *Client) searchMediaItems(ctx context.Context, queryName, whereClause, varName, varValue string) ([]MediaItem, error) {
 	gql := fmt.Sprintf(`
-		query SearchByTitle($title: String!) {
-			mediaItems(where: { title: { contains: $title } }, first: 50) {
+		query %s($%s: String!) {
+			mediaItems(where: { %s }, first: 50) {
 				nodes {
 					%s
 				}
 			}
 		}
-	`, mediaItemFields)
+	`, queryName, varName, whereClause, mediaItemFields)
 
-	data, err := c.query(ctx, gql, map[string]any{"title": title})
+	data, err := c.query(ctx, gql, map[string]any{varName: varValue})
 	if err != nil {
 		return nil, err
 	}
@@ -178,63 +179,22 @@ func (c *Client) SearchByTitle(ctx context.Context, title string) ([]MediaItem, 
 		} `json:"mediaItems"`
 	}
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("discdb: unmarshal SearchByTitle: %w", err)
+		return nil, fmt.Errorf("discdb: unmarshal %s: %w", queryName, err)
 	}
 	return result.MediaItems.Nodes, nil
+}
+
+// SearchByTitle searches for media items whose title contains the given string.
+func (c *Client) SearchByTitle(ctx context.Context, title string) ([]MediaItem, error) {
+	return c.searchMediaItems(ctx, "SearchByTitle", "title: { contains: $title }", "title", title)
 }
 
 // SearchByUPC searches for media items that have a release matching the given UPC.
 func (c *Client) SearchByUPC(ctx context.Context, upc string) ([]MediaItem, error) {
-	gql := fmt.Sprintf(`
-		query SearchByUPC($upc: String!) {
-			mediaItems(where: { releases: { some: { upc: { eq: $upc } } } }, first: 50) {
-				nodes {
-					%s
-				}
-			}
-		}
-	`, mediaItemFields)
-
-	data, err := c.query(ctx, gql, map[string]any{"upc": upc})
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		MediaItems struct {
-			Nodes []MediaItem `json:"nodes"`
-		} `json:"mediaItems"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("discdb: unmarshal SearchByUPC: %w", err)
-	}
-	return result.MediaItems.Nodes, nil
+	return c.searchMediaItems(ctx, "SearchByUPC", "releases: { some: { upc: { eq: $upc } } }", "upc", upc)
 }
 
 // SearchByASIN searches for media items that have a release matching the given ASIN.
 func (c *Client) SearchByASIN(ctx context.Context, asin string) ([]MediaItem, error) {
-	gql := fmt.Sprintf(`
-		query SearchByASIN($asin: String!) {
-			mediaItems(where: { releases: { some: { asin: { eq: $asin } } } }, first: 50) {
-				nodes {
-					%s
-				}
-			}
-		}
-	`, mediaItemFields)
-
-	data, err := c.query(ctx, gql, map[string]any{"asin": asin})
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		MediaItems struct {
-			Nodes []MediaItem `json:"nodes"`
-		} `json:"mediaItems"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("discdb: unmarshal SearchByASIN: %w", err)
-	}
-	return result.MediaItems.Nodes, nil
+	return c.searchMediaItems(ctx, "SearchByASIN", "releases: { some: { asin: { eq: $asin } } }", "asin", asin)
 }

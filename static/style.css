@@ -132,19 +132,9 @@ nav {
   color: #60a5fa;
 }
 
-.badge-scanning {
-  background-color: #1e3a5f;
-  color: #93c5fd;
-}
-
 .badge-identified {
   background-color: #1e4620;
   color: #86efac;
-}
-
-.badge-ready {
-  background-color: #1e4620;
-  color: var(--success);
 }
 
 .badge-ripping {
@@ -152,7 +142,12 @@ nav {
   color: var(--warning);
 }
 
-.badge-complete {
+.badge-organizing {
+  background-color: #3b2300;
+  color: var(--warning);
+}
+
+.badge-completed {
   background-color: #052e16;
   color: var(--success);
 }
@@ -160,11 +155,6 @@ nav {
 .badge-failed {
   background-color: #3b0a0a;
   color: var(--error);
-}
-
-.badge-not_found {
-  background-color: var(--bg-tertiary);
-  color: var(--text-muted);
 }
 
 /* Progress Bar */

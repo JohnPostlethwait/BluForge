@@ -14,12 +14,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
-// noopBroadcaster satisfies workflow.Broadcaster for testing without pulling in
-// the web package.
-type noopBroadcaster struct{}
-
-func (noopBroadcaster) Broadcast(SSEMessage) {}
-
 // mockRipExecutor completes rips instantly by firing a 100% progress event.
 type mockRipExecutor struct{}
 
@@ -82,7 +76,7 @@ func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestra
 		Store:     store,
 		Engine:    engine,
 		Organizer: org,
-		SSEHub:    noopBroadcaster{},
+		OnBroadcast: func(string, string) {},
 		Scanner:   scanner,
 	})
 

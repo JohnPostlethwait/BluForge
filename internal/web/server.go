@@ -114,15 +114,6 @@ func NewServer(deps ServerDeps) *Server {
 		),
 	}))
 
-	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogMethod: true,
-		LogURI:    true,
-		LogStatus: true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-			return nil
-		},
-	}))
-
 	s := &Server{
 		echo:         e,
 		cfg:          deps.Config,

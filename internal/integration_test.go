@@ -17,11 +17,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/testutil"
 )
 
-// noopBroadcaster satisfies workflow.Broadcaster without doing anything.
-type noopBroadcaster struct{}
-
-func (noopBroadcaster) Broadcast(workflow.SSEMessage) {}
-
 // fullMockExecutor implements both drivemanager.DriveExecutor and ripper.RipExecutor
 // using the testutil fixture data.
 type fullMockExecutor struct{}
@@ -280,7 +275,7 @@ func TestFullPipeline_ManualRip(t *testing.T) {
 		Store:     store,
 		Engine:    engine,
 		Organizer: org,
-		SSEHub:    noopBroadcaster{},
+		OnBroadcast: func(string, string) {},
 		Scanner:   exec,
 	})
 
@@ -360,7 +355,7 @@ func TestFullPipeline_Rescan(t *testing.T) {
 		Store:     store,
 		Engine:    engine,
 		Organizer: org,
-		SSEHub:    noopBroadcaster{},
+		OnBroadcast: func(string, string) {},
 		Scanner:   exec,
 	})
 
@@ -429,7 +424,7 @@ func TestFullPipeline_AutoRip_Unmatched(t *testing.T) {
 		Store:     store,
 		Engine:    engine,
 		Organizer: org,
-		SSEHub:    noopBroadcaster{},
+		OnBroadcast: func(string, string) {},
 		Scanner:   exec,
 	})
 

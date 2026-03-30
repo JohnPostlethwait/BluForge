@@ -2,15 +2,11 @@ package web
 
 import (
 	"sync"
-	"time"
 )
-
-// sessionTTL is the maximum age of an idle drive session before it is expired.
-const sessionTTL = 4 * time.Hour
 
 // DriveSession holds transient per-drive workflow state: the user's selected
 // release from TheDiscDB and cached search results. This state persists across
-// browser refreshes but is cleared when the disc is ejected or the TTL expires.
+// browser refreshes but is cleared when the disc is ejected.
 type DriveSession struct {
 	MediaItemID   string
 	ReleaseID     string
@@ -18,7 +14,6 @@ type DriveSession struct {
 	MediaYear     string
 	MediaType     string
 	SearchResults []SearchResultJSON
-	lastAccess    time.Time
 }
 
 // DriveSessionStore is a thread-safe map of drive index to session state.
@@ -34,28 +29,17 @@ func NewDriveSessionStore() *DriveSessionStore {
 	}
 }
 
-// Get returns the session for the given drive index, or nil if none exists
-// or the session has expired.
+// Get returns the session for the given drive index, or nil if none exists.
 func (s *DriveSessionStore) Get(driveIndex int) *DriveSession {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.sessions[driveIndex]
-	if !ok {
-		return nil
-	}
-	if time.Since(sess.lastAccess) > sessionTTL {
-		delete(s.sessions, driveIndex)
-		return nil
-	}
-	sess.lastAccess = time.Now()
-	return sess
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessions[driveIndex]
 }
 
 // Set stores a session for the given drive index.
 func (s *DriveSessionStore) Set(driveIndex int, session *DriveSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	session.lastAccess = time.Now()
 	s.sessions[driveIndex] = session
 }
 
@@ -77,5 +61,4 @@ func (s *DriveSessionStore) SetSearchResults(driveIndex int, results []SearchRes
 		s.sessions[driveIndex] = session
 	}
 	session.SearchResults = results
-	session.lastAccess = time.Now()
 }

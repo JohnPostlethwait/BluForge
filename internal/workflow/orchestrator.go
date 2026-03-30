@@ -16,20 +16,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
-// SSEMessage represents a server-sent event with a named event type and JSON
-// data payload. It mirrors web.SSEEvent but is defined here to avoid an import
-// cycle between the workflow and web packages.
-type SSEMessage struct {
-	Event string // SSE event name
-	Data  string // JSON payload
-}
-
-// Broadcaster abstracts SSE broadcasting so the workflow package does not
-// depend directly on the web package.
-type Broadcaster interface {
-	Broadcast(msg SSEMessage)
-}
-
 // DiscScanner abstracts disc scanning for testability.
 type DiscScanner interface {
 	ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error)
@@ -37,26 +23,26 @@ type DiscScanner interface {
 
 // OrchestratorDeps holds the dependencies required to construct an Orchestrator.
 type OrchestratorDeps struct {
-	Store     *db.Store
-	Engine    *ripper.Engine
-	Organizer *organizer.Organizer
-	SSEHub    Broadcaster
-	Scanner   DiscScanner
-	DiscDB    *discdb.Client
-	Cache     *discdb.Cache
+	Store       *db.Store
+	Engine      *ripper.Engine
+	Organizer   *organizer.Organizer
+	OnBroadcast func(event, data string)
+	Scanner     DiscScanner
+	DiscDB      *discdb.Client
+	Cache       *discdb.Cache
 }
 
 // Orchestrator coordinates the end-to-end rip pipeline: disk space check,
 // destination path construction, duplicate detection, DB job creation,
 // engine submission, and completion handling.
 type Orchestrator struct {
-	store     *db.Store
-	engine    *ripper.Engine
-	organizer *organizer.Organizer
-	sseHub    Broadcaster
-	scanner   DiscScanner
-	discDB    *discdb.Client
-	cache     *discdb.Cache
+	store       *db.Store
+	engine      *ripper.Engine
+	organizer   *organizer.Organizer
+	onBroadcast func(event, data string)
+	scanner     DiscScanner
+	discDB      *discdb.Client
+	cache       *discdb.Cache
 
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
@@ -65,14 +51,14 @@ type Orchestrator struct {
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
 func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 	return &Orchestrator{
-		store:     deps.Store,
-		engine:    deps.Engine,
-		organizer: deps.Organizer,
-		sseHub:    deps.SSEHub,
-		scanner:   deps.Scanner,
-		discDB:    deps.DiscDB,
-		cache:     deps.Cache,
-		scanCache: make(map[string]*makemkv.DiscScan),
+		store:       deps.Store,
+		engine:      deps.Engine,
+		organizer:   deps.Organizer,
+		onBroadcast: deps.OnBroadcast,
+		scanner:     deps.Scanner,
+		discDB:      deps.DiscDB,
+		cache:       deps.Cache,
+		scanCache:   make(map[string]*makemkv.DiscScan),
 	}
 }
 
@@ -458,6 +444,9 @@ func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection 
 
 // broadcastJobUpdate sends a job status update over SSE.
 func (o *Orchestrator) broadcastJobUpdate(jobID int64, status string) {
+	if o.onBroadcast == nil {
+		return
+	}
 	data, err := json.Marshal(map[string]any{
 		"job_id": jobID,
 		"status": status,
@@ -466,8 +455,5 @@ func (o *Orchestrator) broadcastJobUpdate(jobID int64, status string) {
 		slog.Error("failed to marshal SSE data", "error", err)
 		return
 	}
-	o.sseHub.Broadcast(SSEMessage{
-		Event: "job_update",
-		Data:  string(data),
-	})
+	o.onBroadcast("job_update", string(data))
 }

@@ -4,75 +4,38 @@ import (
 	"testing"
 )
 
-func TestValidTransitions(t *testing.T) {
-	tests := []struct {
-		name  string
-		from  DriveState
-		to    DriveState
-		valid bool
-	}{
-		// Valid transitions
-		{name: "Empty->Detected", from: StateEmpty, to: StateDetected, valid: true},
-		{name: "Detected->Scanning", from: StateDetected, to: StateScanning, valid: true},
-		{name: "Scanning->Identified", from: StateScanning, to: StateIdentified, valid: true},
-		{name: "Scanning->NotFound", from: StateScanning, to: StateNotFound, valid: true},
-		{name: "Identified->Ready", from: StateIdentified, to: StateReady, valid: true},
-		{name: "Ready->Ripping", from: StateReady, to: StateRipping, valid: true},
-		{name: "NotFound->Ripping", from: StateNotFound, to: StateRipping, valid: true},
-		{name: "Ripping->Organizing", from: StateRipping, to: StateOrganizing, valid: true},
-		{name: "Organizing->Complete", from: StateOrganizing, to: StateComplete, valid: true},
-		{name: "Complete->Ejecting", from: StateComplete, to: StateEjecting, valid: true},
-		{name: "Ejecting->Empty", from: StateEjecting, to: StateEmpty, valid: true},
-		// Invalid transitions
-		{name: "Empty->Ripping", from: StateEmpty, to: StateRipping, valid: false},
-		{name: "Ripping->Empty", from: StateRipping, to: StateEmpty, valid: false},
-		{name: "Complete->Ripping", from: StateComplete, to: StateRipping, valid: false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := IsValidTransition(tc.from, tc.to)
-			if got != tc.valid {
-				t.Errorf("IsValidTransition(%q, %q) = %v, want %v", tc.from, tc.to, got, tc.valid)
-			}
-		})
-	}
-}
-
-func TestDriveStateTransition(t *testing.T) {
+func TestNewDriveStateStartsEmpty(t *testing.T) {
 	drive := NewDriveState(0, "/dev/sr0")
 
 	if drive.State() != StateEmpty {
 		t.Fatalf("expected initial state %q, got %q", StateEmpty, drive.State())
 	}
-
-	if err := drive.TransitionTo(StateDetected); err != nil {
-		t.Fatalf("expected valid transition Empty->Detected, got error: %v", err)
+	if drive.Index() != 0 {
+		t.Errorf("expected index 0, got %d", drive.Index())
 	}
+	if drive.DevicePath() != "/dev/sr0" {
+		t.Errorf("expected device path %q, got %q", "/dev/sr0", drive.DevicePath())
+	}
+}
 
+func TestSetState(t *testing.T) {
+	drive := NewDriveState(0, "/dev/sr0")
+
+	drive.SetState(StateDetected)
 	if drive.State() != StateDetected {
-		t.Fatalf("expected state %q after transition, got %q", StateDetected, drive.State())
+		t.Fatalf("expected state %q, got %q", StateDetected, drive.State())
 	}
 
-	if err := drive.TransitionTo(StateRipping); err == nil {
-		t.Fatal("expected error for invalid transition Detected->Ripping, got nil")
-	}
-
-	// State must remain Detected after the rejected transition.
-	if drive.State() != StateDetected {
-		t.Fatalf("state should remain %q after rejected transition, got %q", StateDetected, drive.State())
+	drive.SetState(StateEmpty)
+	if drive.State() != StateEmpty {
+		t.Fatalf("expected state %q, got %q", StateEmpty, drive.State())
 	}
 }
 
 func TestForceReset(t *testing.T) {
 	drive := NewDriveState(1, "/dev/sr1")
 
-	if err := drive.TransitionTo(StateDetected); err != nil {
-		t.Fatalf("transition to Detected failed: %v", err)
-	}
-	if err := drive.TransitionTo(StateScanning); err != nil {
-		t.Fatalf("transition to Scanning failed: %v", err)
-	}
+	drive.SetState(StateDetected)
 	drive.SetDiscName("Some Disc")
 
 	drive.ForceReset()
@@ -82,5 +45,19 @@ func TestForceReset(t *testing.T) {
 	}
 	if drive.DiscName() != "" {
 		t.Fatalf("expected empty disc name after ForceReset, got %q", drive.DiscName())
+	}
+}
+
+func TestDriveNameAccessors(t *testing.T) {
+	drive := NewDriveState(0, "/dev/sr0")
+
+	drive.SetDriveName("BD-RE ASUS BW-16D1HT")
+	if drive.DriveName() != "BD-RE ASUS BW-16D1HT" {
+		t.Errorf("expected drive name %q, got %q", "BD-RE ASUS BW-16D1HT", drive.DriveName())
+	}
+
+	drive.SetDiscName("MOVIE_DISC")
+	if drive.DiscName() != "MOVIE_DISC" {
+		t.Errorf("expected disc name %q, got %q", "MOVIE_DISC", drive.DiscName())
 	}
 }

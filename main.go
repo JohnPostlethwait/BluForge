@@ -22,16 +22,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
-// sseAdapter wraps web.SSEHub so it satisfies workflow.Broadcaster without
-// creating an import cycle between the web and workflow packages.
-type sseAdapter struct {
-	hub *web.SSEHub
-}
-
-func (a *sseAdapter) Broadcast(msg workflow.SSEMessage) {
-	a.hub.Broadcast(web.SSEEvent{Event: msg.Event, Data: msg.Data})
-}
-
 func main() {
 	// 1. Structured JSON logging to stdout.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -97,10 +87,12 @@ func main() {
 		Store:     store,
 		Engine:    ripEngine,
 		Organizer: org,
-		SSEHub:    &sseAdapter{hub: sseHub},
-		Scanner:   executor,
-		DiscDB:    discdbClient,
-		Cache:     discdbCache,
+		OnBroadcast: func(event, data string) {
+			sseHub.Broadcast(web.SSEEvent{Event: event, Data: data})
+		},
+		Scanner: executor,
+		DiscDB:  discdbClient,
+		Cache:   discdbCache,
 	})
 
 	// 11. Create drive manager with onEvent callback.

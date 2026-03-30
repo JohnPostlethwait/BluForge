@@ -135,10 +135,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 				// New disc inserted (or disc name changed — treat as new insert).
 				m.known[info.Index] = info.DiscName
 				dsm.SetDiscName(info.DiscName)
-				// Transition to Detected if currently empty.
-				if dsm.State() == StateEmpty {
-					_ = dsm.TransitionTo(StateDetected)
-				}
+				dsm.SetState(StateDetected)
 				pending = append(pending, DriveEvent{
 					Type:       EventDiscInserted,
 					DriveIndex: info.Index,
