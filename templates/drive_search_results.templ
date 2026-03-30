@@ -52,7 +52,7 @@ templ DriveSearchResults(driveIndex int, results []SearchResultRow, searchError 
 								<button
 									class="btn btn-primary btn-sm"
 									hx-post={ fmt.Sprintf("/drives/%d/search", driveIndex) }
-									hx-vals={ fmt.Sprintf(`{"release_id": "%s", "media_item_id": "%s"}`, r.ReleaseID, r.MediaItemID) }
+									hx-vals={ fmt.Sprintf(`{"release_id": "%s", "media_item_id": "%s", "media_title": "%s", "media_year": "%d", "media_type": "%s"}`, r.ReleaseID, r.MediaItemID, r.MediaTitle, r.MediaYear, r.MediaType) }
 									hx-target="body"
 									hx-swap="outerHTML"
 								>Select</button>

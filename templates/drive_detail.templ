@@ -27,6 +27,12 @@ type DriveDetailData struct {
 	HasMapping     bool
 	Scanning       bool // true when a background disc scan is in progress
 	Error          string
+	// Selected release metadata (populated after user clicks "Select" on a search result).
+	SelectedMediaItemID string
+	SelectedReleaseID   string
+	SelectedMediaTitle  string
+	SelectedMediaYear   string
+	SelectedMediaType   string
 }
 
 templ DriveDetail(data DriveDetailData) {
@@ -73,12 +79,19 @@ templ DriveDetail(data DriveDetailData) {
 				hx-swap="innerHTML"
 			>
 				<div class="flex gap-2 items-center">
-					<input type="search" name="query" placeholder="Search by title, UPC, ASIN…" style="flex:1;"/>
+					<input type="search" name="query" placeholder="Search by title, UPC, ASIN…" value={ data.DiscName } style="flex:1;"/>
 					<button type="submit" class="btn btn-primary btn-sm">Search</button>
 				</div>
 			</form>
 			<div id="search-results" class="mt-3"></div>
 		</div>
+		if data.SelectedMediaTitle != "" {
+			<div class="card" style="margin-bottom: 1rem;">
+				<div class="alert alert-success">
+					Matched: { data.SelectedMediaTitle } ({ data.SelectedMediaYear }) — { data.SelectedMediaType }
+				</div>
+			</div>
+		}
 		<div class="card"
 			if data.Scanning {
 				hx-get={ fmt.Sprintf("/drives/%d", data.DriveIndex) }
@@ -99,6 +112,12 @@ templ DriveDetail(data DriveDetailData) {
 				</div>
 			} else {
 				<form hx-post={ fmt.Sprintf("/drives/%d/rip", data.DriveIndex) } hx-target="body" hx-swap="outerHTML">
+					<input type="hidden" name="disc_name" value={ data.DiscName }/>
+					<input type="hidden" name="media_item_id" value={ data.SelectedMediaItemID }/>
+					<input type="hidden" name="release_id" value={ data.SelectedReleaseID }/>
+					<input type="hidden" name="content_title" value={ data.SelectedMediaTitle }/>
+					<input type="hidden" name="content_year" value={ data.SelectedMediaYear }/>
+					<input type="hidden" name="content_type" value={ data.SelectedMediaType }/>
 					<div style="overflow-x:auto;">
 						<table>
 							<thead>

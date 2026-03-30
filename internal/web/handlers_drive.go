@@ -116,10 +116,19 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 }
 
 // handleDriveSearch executes a TheDiscDB search and returns the results partial.
+// When called with release_id + media_item_id (from the "Select" button), it
+// re-renders the full drive detail page with the selected release metadata.
 func (s *Server) handleDriveSearch(c echo.Context) error {
 	idx, err := parseDriveIndex(c)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	// "Select" flow: release_id + media_item_id are present.
+	releaseID := c.FormValue("release_id")
+	mediaItemID := c.FormValue("media_item_id")
+	if releaseID != "" && mediaItemID != "" {
+		return s.handleDriveSelect(c, idx, mediaItemID, releaseID)
 	}
 
 	query := strings.TrimSpace(c.FormValue("query"))
@@ -129,49 +138,106 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 	var searchErr string
 
 	if query != "" {
-		ctx := c.Request().Context()
-		cacheKey := searchType + ":" + query
-
-		// Try cache first.
-		var items []discdb.MediaItem
-		if s.discdbCache != nil {
-			if cached, err := s.discdbCache.Get(cacheKey); err == nil && cached != nil {
-				if err := json.Unmarshal(cached, &items); err != nil {
-					slog.WarnContext(ctx, "discdb cache unmarshal failed", "key", cacheKey, "error", err)
-					items = nil // fall through to API
-				}
-			}
-		}
-
-		// Cache miss — call API.
+		items := s.searchDiscDB(c, searchType, query)
 		if items == nil {
-			var apiErr error
-
-			switch searchType {
-			case "upc":
-				items, apiErr = s.discdbClient.SearchByUPC(ctx, query)
-			case "asin":
-				items, apiErr = s.discdbClient.SearchByASIN(ctx, query)
-			default:
-				items, apiErr = s.discdbClient.SearchByTitle(ctx, query)
-			}
-
-			if apiErr != nil {
-				slog.ErrorContext(ctx, "discdb search failed", "type", searchType, "query", query, "error", apiErr)
-				searchErr = "Search failed — TheDiscDB may be unavailable. Please try again."
-			} else if s.discdbCache != nil {
-				if data, err := json.Marshal(items); err == nil {
-					_ = s.discdbCache.Set(cacheKey, data)
-				}
-			}
-		}
-
-		if items != nil {
+			searchErr = "Search failed — TheDiscDB may be unavailable. Please try again."
+		} else {
 			rows = mediaItemsToRows(items)
 		}
 	}
 
 	return templates.DriveSearchResults(idx, rows, searchErr).Render(c.Request().Context(), c.Response().Writer)
+}
+
+// searchDiscDB performs a cached search against TheDiscDB API.
+// Returns nil if the search fails or no client is configured.
+func (s *Server) searchDiscDB(c echo.Context, searchType, query string) []discdb.MediaItem {
+	ctx := c.Request().Context()
+	cacheKey := searchType + ":" + query
+
+	// Try cache first.
+	var items []discdb.MediaItem
+	if s.discdbCache != nil {
+		if cached, err := s.discdbCache.Get(cacheKey); err == nil && cached != nil {
+			if err := json.Unmarshal(cached, &items); err != nil {
+				slog.WarnContext(ctx, "discdb cache unmarshal failed", "key", cacheKey, "error", err)
+				items = nil
+			}
+		}
+	}
+
+	if items != nil {
+		return items
+	}
+
+	if s.discdbClient == nil {
+		return nil
+	}
+
+	// Cache miss — call API.
+	var apiErr error
+	switch searchType {
+	case "upc":
+		items, apiErr = s.discdbClient.SearchByUPC(ctx, query)
+	case "asin":
+		items, apiErr = s.discdbClient.SearchByASIN(ctx, query)
+	default:
+		items, apiErr = s.discdbClient.SearchByTitle(ctx, query)
+	}
+
+	if apiErr != nil {
+		slog.ErrorContext(ctx, "discdb search failed", "type", searchType, "query", query, "error", apiErr)
+		return nil
+	}
+
+	if s.discdbCache != nil {
+		if data, err := json.Marshal(items); err == nil {
+			_ = s.discdbCache.Set(cacheKey, data)
+		}
+	}
+
+	return items
+}
+
+// handleDriveSelect handles the "Select" button click from search results.
+// It re-renders the full drive detail page with the selected release metadata
+// pre-populated in the rip form.
+func (s *Server) handleDriveSelect(c echo.Context, idx int, mediaItemID, releaseID string) error {
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	data := templates.DriveDetailData{
+		DriveIndex:          idx,
+		DriveName:           drv.DriveName(),
+		DiscName:            drv.DiscName(),
+		State:               string(drv.State()),
+		SelectedMediaItemID: mediaItemID,
+		SelectedReleaseID:   releaseID,
+		SelectedMediaTitle:  c.FormValue("media_title"),
+		SelectedMediaYear:   c.FormValue("media_year"),
+		SelectedMediaType:   c.FormValue("media_type"),
+	}
+
+	// Populate titles from scan if available.
+	if drv.DiscName() != "" && s.orchestrator != nil {
+		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
+		if scan != nil {
+			for _, t := range scan.Titles {
+				data.Titles = append(data.Titles, templates.TitleRow{
+					Index:      t.Index,
+					Name:       t.Name(),
+					Duration:   t.Duration(),
+					Size:       t.SizeHuman(),
+					SourceFile: t.SourceFile(),
+					Selected:   true,
+				})
+			}
+		}
+	}
+
+	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
 }
 
 // handleDriveRip submits rip jobs for the selected titles and redirects to the queue.

@@ -24,3 +24,21 @@ func (s *Server) handleDashboard(c echo.Context) error {
 	data := templates.DashboardData{Drives: cards, Ready: s.driveMgr.Ready()}
 	return templates.Dashboard(data).Render(c.Request().Context(), c.Response().Writer)
 }
+
+// handleDrivesPartial renders just the drive grid for HTMX polling.
+func (s *Server) handleDrivesPartial(c echo.Context) error {
+	drives := s.driveMgr.GetAllDrives()
+
+	cards := make([]components.DriveCardData, 0, len(drives))
+	for _, dsm := range drives {
+		cards = append(cards, components.DriveCardData{
+			Index:    dsm.Index(),
+			Name:     dsm.DriveName(),
+			DiscName: dsm.DiscName(),
+			State:    string(dsm.State()),
+		})
+	}
+
+	data := templates.DashboardData{Drives: cards, Ready: s.driveMgr.Ready()}
+	return templates.DriveGrid(data).Render(c.Request().Context(), c.Response().Writer)
+}
