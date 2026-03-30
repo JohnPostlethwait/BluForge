@@ -260,6 +260,20 @@ func (o *Orchestrator) InvalidateScan(driveIndex int) {
 	}
 }
 
+// GetCachedScanByDrive returns the first cached scan for the given drive index,
+// regardless of disc name. Returns nil if no cached scan exists for this drive.
+func (o *Orchestrator) GetCachedScanByDrive(driveIndex int) *makemkv.DiscScan {
+	prefix := fmt.Sprintf("%d:", driveIndex)
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+	for key, scan := range o.scanCache {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			return scan
+		}
+	}
+	return nil
+}
+
 // AutoRip scans a disc, attempts to auto-match it against TheDiscDB, and
 // submits all titles for ripping. If a cached disc mapping exists, it is used
 // directly; otherwise the disc name is searched via the DiscDB client.
