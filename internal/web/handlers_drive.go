@@ -274,7 +274,17 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		}
 	}
 
-	titles := scanToTitleJSON(scan)
+	// If a release is selected, enrich titles with DiscDB match data.
+	var titles []TitleJSON
+	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && session.RawSearchResults != nil {
+		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID); disc != nil {
+			titles = enrichTitlesWithMatches(scan, *disc)
+			slog.Info("scan completed with match enrichment", "drive_index", idx, "title_count", len(titles))
+			return c.JSON(http.StatusOK, titles)
+		}
+	}
+
+	titles = scanToTitleJSON(scan)
 	slog.Info("scan completed", "drive_index", idx, "title_count", len(titles))
 	return c.JSON(http.StatusOK, titles)
 }
