@@ -237,19 +237,23 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
+	slog.Info("scan requested", "drive_index", idx)
+
 	drv := s.driveMgr.GetDrive(idx)
 	if drv == nil {
+		slog.Warn("scan requested for unknown drive", "drive_index", idx)
 		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
 	}
 
 	if s.orchestrator == nil {
+		slog.Error("scan requested but orchestrator not configured")
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "scanner not configured")
 	}
 
 	scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
 	if scanErr != nil {
 		slog.Error("disc scan failed", "drive_index", idx, "error", scanErr)
-		return echo.NewHTTPError(http.StatusInternalServerError, "disc scan failed")
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))
 	}
 
 	// Save disc mapping if a release was selected in the session.
@@ -270,6 +274,7 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	}
 
 	titles := scanToTitleJSON(scan)
+	slog.Info("scan completed", "drive_index", idx, "title_count", len(titles))
 	return c.JSON(http.StatusOK, titles)
 }
 

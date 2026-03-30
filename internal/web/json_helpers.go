@@ -56,6 +56,7 @@ type DriveStoreJSON struct {
 	DiscName        string               `json:"discName"`
 	State           string               `json:"state"`
 	Scanning        bool                 `json:"scanning"`
+	ScanError       string               `json:"scanError"`
 	HasMapping      bool                 `json:"hasMapping"`
 	MatchedMedia    string               `json:"matchedMedia"`
 	MatchedRelease  string               `json:"matchedRelease"`

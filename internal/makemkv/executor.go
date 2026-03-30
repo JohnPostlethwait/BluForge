@@ -3,6 +3,7 @@ package makemkv
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -26,12 +27,17 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
+	slog.Info("makemkvcon: executing", "args", args)
+
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		slog.Error("makemkvcon: command failed", "args", args, "error", err, "output_bytes", len(out))
 		// Return output even on error so callers can inspect messages.
 		return strings.NewReader(string(out)), err
 	}
+
+	slog.Info("makemkvcon: command completed", "args", args, "output_bytes", len(out))
 	return strings.NewReader(string(out)), nil
 }
 
@@ -111,14 +117,18 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // metadata, TINFO attributes are merged per title index, and SINFO streams are
 // attached to their respective titles.
 func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
+	slog.Info("executor: starting disc scan", "drive_index", driveIndex)
+
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	r, err := e.runner.Run(ctx, "-r", "info", target)
 	if err != nil {
+		slog.Error("executor: disc scan command failed", "drive_index", driveIndex, "error", err)
 		return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, err)
 	}
 
 	events, err := ParseAll(r)
 	if err != nil {
+		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", err)
 		return nil, fmt.Errorf("makemkv: scan disc %d parse: %w", driveIndex, err)
 	}
 
@@ -199,6 +209,7 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 		scan.Titles = append(scan.Titles, *ti)
 	}
 
+	slog.Info("executor: disc scan completed", "drive_index", driveIndex, "disc_name", scan.DiscName, "title_count", len(scan.Titles))
 	return scan, nil
 }
 

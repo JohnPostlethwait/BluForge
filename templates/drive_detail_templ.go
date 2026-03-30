@@ -127,17 +127,25 @@ async function selectRelease(driveIndex, result) {
 
 async function scanDisc(driveIndex) {
 	Alpine.store('drive').scanning = true
+	Alpine.store('drive').scanError = ''
 	Alpine.store('drive').titles = []
 
-	const resp = await fetch('/drives/' + driveIndex + '/scan', {
-		method: 'POST',
-		headers: { 'Accept': 'application/json' },
-	})
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/scan', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
 
-	Alpine.store('drive').scanning = false
-
-	if (resp.ok) {
-		Alpine.store('drive').titles = await resp.json()
+		if (resp.ok) {
+			Alpine.store('drive').titles = await resp.json()
+		} else {
+			const text = await resp.text()
+			Alpine.store('drive').scanError = text || 'Scan failed (HTTP ' + resp.status + ')'
+		}
+	} catch (err) {
+		Alpine.store('drive').scanError = 'Scan request failed: ' + err.message
+	} finally {
+		Alpine.store('drive').scanning = false
 	}
 }
 </script>`, data.StoreJSON)).Render(ctx, templ_7745c5c3_Buffer)
@@ -156,7 +164,7 @@ async function scanDisc(driveIndex) {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 108, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 116, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -174,7 +182,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.DriveName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 113, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 121, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -211,22 +219,22 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</td></tr></template></tbody></table></div></template></div></div><!-- Scan Button --> <div class=\"card\" style=\"margin-bottom: 1rem;\" x-data>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</td></tr></template></tbody></table></div></template></div></div><!-- Titles Card --> <div class=\"card\" x-data><div style=\"display:flex; justify-content:space-between; align-items:center;\"><div class=\"section-title\" style=\"margin-bottom:0;\">Titles</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<button class="btn btn-primary" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><!-- Titles Card --> <div class=\"card\" x-data><div class=\"section-title\">Titles</div><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><template x-if=\"$store.drive.scanError\"><div class=\"alert alert-error mt-3\"><strong>Scan failed:</strong> <span x-text=\"$store.drive.scanError\"></span></div></template><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/drives/%d/rip", data.DriveIndex))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 215, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 227, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -239,7 +247,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 216, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 228, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {

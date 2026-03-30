@@ -88,17 +88,25 @@ async function selectRelease(driveIndex, result) {
 
 async function scanDisc(driveIndex) {
 	Alpine.store('drive').scanning = true
+	Alpine.store('drive').scanError = ''
 	Alpine.store('drive').titles = []
 
-	const resp = await fetch('/drives/' + driveIndex + '/scan', {
-		method: 'POST',
-		headers: { 'Accept': 'application/json' },
-	})
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/scan', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
 
-	Alpine.store('drive').scanning = false
-
-	if (resp.ok) {
-		Alpine.store('drive').titles = await resp.json()
+		if (resp.ok) {
+			Alpine.store('drive').titles = await resp.json()
+		} else {
+			const text = await resp.text()
+			Alpine.store('drive').scanError = text || 'Scan failed (HTTP ' + resp.status + ')'
+		}
+	} catch (err) {
+		Alpine.store('drive').scanError = 'Scan request failed: ' + err.message
+	} finally {
+		Alpine.store('drive').scanning = false
 	}
 }
 </script>`, data.StoreJSON))
@@ -190,14 +198,18 @@ async function scanDisc(driveIndex) {
 			</div>
 		</div>
 
-		<!-- Scan Button -->
-		<div class="card" style="margin-bottom: 1rem;" x-data>
-			@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
-		</div>
-
 		<!-- Titles Card -->
 		<div class="card" x-data>
-			<div class="section-title">Titles</div>
+			<div style="display:flex; justify-content:space-between; align-items:center;">
+				<div class="section-title" style="margin-bottom:0;">Titles</div>
+				@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
+			</div>
+
+			<template x-if="$store.drive.scanError">
+				<div class="alert alert-error mt-3">
+					<strong>Scan failed:</strong> <span x-text="$store.drive.scanError"></span>
+				</div>
+			</template>
 
 			<template x-if="$store.drive.scanning">
 				<div class="empty-state">

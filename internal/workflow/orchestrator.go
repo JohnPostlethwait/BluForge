@@ -217,11 +217,15 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 // don't re-read the physical disc each time.
 func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
 	if o.scanner == nil {
+		slog.Error("orchestrator: scan requested but no scanner configured")
 		return nil, fmt.Errorf("no scanner configured")
 	}
 
+	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
+
 	scan, err := o.scanner.ScanDisc(ctx, driveIndex)
 	if err != nil {
+		slog.Error("orchestrator: disc scan failed", "drive_index", driveIndex, "error", err)
 		return nil, err
 	}
 
@@ -229,6 +233,8 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 	o.scanMu.Lock()
 	o.scanCache[key] = scan
 	o.scanMu.Unlock()
+
+	slog.Info("orchestrator: disc scan cached", "drive_index", driveIndex, "cache_key", key)
 
 	return scan, nil
 }
