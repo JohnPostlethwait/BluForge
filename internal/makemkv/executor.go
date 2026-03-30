@@ -3,7 +3,6 @@ package makemkv
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -72,68 +71,9 @@ type DiscScan struct {
 	Messages   []Message
 }
 
-// ListDrives detects optical drives and queries each one via makemkvcon.
-//
-// On Linux, optical devices are detected via sysfs (/sys/block/*/device/type)
-// and each is scanned individually with `makemkvcon -r info dev:/dev/srN`.
-// This is dramatically faster on systems with many non-optical drives (e.g.
-// Unraid with 35+ HDDs) because makemkvcon's `disc:9999` approach probes
-// every block device.
-//
-// On non-Linux systems (or when sysfs detection finds nothing), it falls back
-// to the original `disc:9999` full scan.
+// ListDrives runs `makemkvcon -r info disc:9999` and returns the list of
+// drives reported via DRV lines.
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
-	opticalDevices := DetectOpticalDevices()
-	if len(opticalDevices) > 0 {
-		slog.Info("detected optical devices via sysfs", "count", len(opticalDevices), "devices", opticalDevices)
-		return e.listDrivesTargeted(ctx, opticalDevices)
-	}
-	slog.Info("sysfs detection unavailable, falling back to disc:9999 scan")
-	return e.listDrivesFull(ctx)
-}
-
-// listDrivesTargeted scans specific device paths rather than all drives.
-func (e *Executor) listDrivesTargeted(ctx context.Context, devices []string) ([]DriveInfo, error) {
-	var allDrives []DriveInfo
-	for i, dev := range devices {
-		slog.Info("probing optical device", "device", dev, "index", i)
-		target := fmt.Sprintf("dev:%s", dev)
-		r, err := e.runner.Run(ctx, "-r", "info", target)
-		slog.Info("probe complete", "device", dev, "error", err)
-		events, parseErr := ParseAll(r)
-		if parseErr != nil {
-			if err != nil {
-				slog.Warn("failed to probe optical device", "device", dev, "error", err)
-			}
-			continue
-		}
-
-		drives := drivesFromEvents(events)
-		if len(drives) == 0 && err == nil {
-			// Device exists but makemkvcon didn't return DRV lines.
-			// Create a minimal DriveInfo so the device is still visible.
-			allDrives = append(allDrives, DriveInfo{
-				Index:      i,
-				DevicePath: dev,
-			})
-			continue
-		}
-
-		for idx := range drives {
-			// Ensure the DevicePath is set (makemkvcon may report it, but
-			// if not we know it from our sysfs scan).
-			if drives[idx].DevicePath == "" {
-				drives[idx].DevicePath = dev
-			}
-		}
-		allDrives = append(allDrives, drives...)
-	}
-	return allDrives, nil
-}
-
-// listDrivesFull runs `makemkvcon -r info disc:9999` and returns the list of
-// drives reported via DRV lines (original full-scan approach).
-func (e *Executor) listDrivesFull(ctx context.Context) ([]DriveInfo, error) {
 	r, err := e.runner.Run(ctx, "-r", "info", "disc:9999")
 	if err != nil {
 		// makemkvcon returns non-zero when no disc is present; try to parse
