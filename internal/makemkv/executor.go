@@ -3,6 +3,7 @@ package makemkv
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -138,9 +139,20 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	r, cmdErr := e.runner.Run(ctx, "-r", "--minlength=120", "info", target)
 
+	// Capture raw output so we can log it for diagnostics if 0 titles found.
+	rawBytes, readErr := io.ReadAll(r)
+	if readErr != nil {
+		slog.Error("executor: failed to read scan output", "drive_index", driveIndex, "error", readErr)
+		if cmdErr != nil {
+			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+		}
+		return nil, fmt.Errorf("makemkv: scan disc %d read: %w", driveIndex, readErr)
+	}
+	rawOutput := string(rawBytes)
+
 	// Always attempt to parse output — makemkvcon returns non-zero on AACS
 	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
-	events, parseErr := ParseAll(r)
+	events, parseErr := ParseAll(strings.NewReader(rawOutput))
 	if parseErr != nil {
 		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", parseErr)
 		if cmdErr != nil {
@@ -154,7 +166,41 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 			"drive_index", driveIndex, "error", cmdErr, "event_count", len(events))
 	}
 
+	// Log event type distribution for diagnostics.
+	typeCounts := make(map[string]int)
+	for _, ev := range events {
+		typeCounts[ev.Type]++
+	}
+	slog.Info("executor: disc scan event breakdown", "drive_index", driveIndex,
+		"event_counts", typeCounts, "total", len(events))
+
 	scan := buildDiscScan(driveIndex, events)
+
+	// If we got 0 titles, log diagnostics to help debug.
+	if len(scan.Titles) == 0 {
+		// Log MSG text samples.
+		if len(scan.Messages) > 0 {
+			var samples []string
+			for i, m := range scan.Messages {
+				if i >= 10 {
+					break
+				}
+				samples = append(samples, m.Text)
+			}
+			slog.Warn("executor: disc scan returned 0 titles, sample messages",
+				"drive_index", driveIndex, "msg_count", len(scan.Messages), "samples", samples)
+		}
+
+		// Log last 30 lines of raw output for debugging.
+		lines := strings.Split(strings.TrimRight(rawOutput, "\n"), "\n")
+		start := 0
+		if len(lines) > 30 {
+			start = len(lines) - 30
+		}
+		tail := lines[start:]
+		slog.Warn("executor: disc scan 0 titles — raw output tail",
+			"drive_index", driveIndex, "total_lines", len(lines), "tail", tail)
+	}
 
 	// If the command failed AND we got no useful data, return the original error.
 	if cmdErr != nil && len(scan.Titles) == 0 && scan.DiscName == "" {
