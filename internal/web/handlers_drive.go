@@ -302,3 +302,39 @@ func (s *Server) handleDriveRescan(c echo.Context) error {
 
 	return c.Redirect(http.StatusSeeOther, "/drives/"+strconv.Itoa(idx))
 }
+
+// handleDriveMatch runs title matching using the cached scan and selected
+// release. Returns enriched TitleJSON. Used as a fallback when both scan and
+// release exist but the inline trigger points didn't fire (e.g., page refresh).
+func (s *Server) handleDriveMatch(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	session := s.driveSessions.Get(idx)
+	if session == nil || session.ReleaseID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "no release selected")
+	}
+
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "orchestrator not configured")
+	}
+
+	scan := s.orchestrator.GetCachedScanByDrive(idx)
+	if scan == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "no cached scan — scan the disc first")
+	}
+
+	if session.RawSearchResults == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "no search results cached — search first")
+	}
+
+	disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID)
+	if disc == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "release disc not found in search results")
+	}
+
+	titles := enrichTitlesWithMatches(scan, *disc)
+	return c.JSON(http.StatusOK, titles)
+}
