@@ -210,9 +210,9 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape("No titles selected")))
 	}
 
-	// Build disc key if we have scan data.
+	// Build disc key from cached scan (avoid triggering a full rescan).
 	discKey := ""
-	if scan, err := s.orchestrator.ScanDisc(c.Request().Context(), idx); err == nil {
+	if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
 		discKey = discdb.BuildDiscKey(scan)
 	}
 

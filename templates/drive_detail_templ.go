@@ -254,20 +254,20 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div><template x-if=\"$store.drive.scanError\"><div class=\"alert alert-error mt-3\"><strong>Scan failed:</strong> <span x-text=\"$store.drive.scanError\"></span></div></template><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div><template x-if=\"$store.drive.scanError\"><div class=\"alert alert-error mt-3\"><strong>Scan failed:</strong> <span x-text=\"$store.drive.scanError\"></span></div></template><template x-if=\"$store.drive.scanning\"><div class=\"empty-state\"><p>Scanning disc…</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p></div></template><template x-if=\"!$store.drive.scanning && $store.drive.titles.length > 0\"><form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/drives/%d/rip", data.DriveIndex))
+			var templ_7745c5c3_Var5 templ.SafeURL
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 253, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 253, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" hx-target=\"body\" hx-swap=\"outerHTML\"><input type=\"hidden\" name=\"_csrf\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"><input type=\"hidden\" name=\"_csrf\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

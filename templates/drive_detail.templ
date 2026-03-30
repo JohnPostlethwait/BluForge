@@ -250,7 +250,7 @@ async function scanDisc(driveIndex) {
 			</template>
 
 			<template x-if="!$store.drive.scanning && $store.drive.titles.length > 0">
-				<form hx-post={ fmt.Sprintf("/drives/%d/rip", data.DriveIndex) } hx-target="body" hx-swap="outerHTML">
+				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)) }>
 					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 					<!-- Hidden fields populated from Alpine store -->
 					<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
