@@ -124,6 +124,11 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // returns an aggregated DiscScan. CINFO attributes are merged into disc
 // metadata, TINFO attributes are merged per title index, and SINFO streams are
 // attached to their respective titles.
+//
+// makemkvcon often exits with a non-zero status even when it successfully
+// enumerates titles (e.g. AACS warnings on Blu-ray discs). We always attempt
+// to parse the output regardless of exit code, returning an error only when no
+// useful disc data was produced.
 func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
 	slog.Info("executor: starting disc scan", "drive_index", driveIndex)
 
@@ -131,22 +136,45 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	defer e.mu.Unlock()
 
 	target := fmt.Sprintf("disc:%d", driveIndex)
-	r, err := e.runner.Run(ctx, "-r", "info", target)
-	if err != nil {
-		slog.Error("executor: disc scan command failed", "drive_index", driveIndex, "error", err)
-		return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, err)
+	r, cmdErr := e.runner.Run(ctx, "-r", "--minlength=120", "info", target)
+
+	// Always attempt to parse output — makemkvcon returns non-zero on AACS
+	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
+	events, parseErr := ParseAll(r)
+	if parseErr != nil {
+		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", parseErr)
+		if cmdErr != nil {
+			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+		}
+		return nil, fmt.Errorf("makemkv: scan disc %d parse: %w", driveIndex, parseErr)
 	}
 
-	events, err := ParseAll(r)
-	if err != nil {
-		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", err)
-		return nil, fmt.Errorf("makemkv: scan disc %d parse: %w", driveIndex, err)
+	if cmdErr != nil {
+		slog.Warn("executor: disc scan command exited non-zero, parsing output anyway",
+			"drive_index", driveIndex, "error", cmdErr, "event_count", len(events))
 	}
 
+	scan := buildDiscScan(driveIndex, events)
+
+	// If the command failed AND we got no useful data, return the original error.
+	if cmdErr != nil && len(scan.Titles) == 0 && scan.DiscName == "" {
+		slog.Error("executor: disc scan command failed with no usable output",
+			"drive_index", driveIndex, "error", cmdErr)
+		return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+	}
+
+	slog.Info("executor: disc scan completed", "drive_index", driveIndex,
+		"disc_name", scan.DiscName, "title_count", len(scan.Titles),
+		"cmd_error", cmdErr != nil)
+	return scan, nil
+}
+
+// buildDiscScan aggregates parsed events into a DiscScan result.
+func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 	scan := &DiscScan{DriveIndex: driveIndex}
 	discAttrs := make(map[int]string)
-	titleMap := make(map[int]*TitleInfo)      // title index -> merged TitleInfo
-	streamMap := make(map[int][]StreamInfo)   // title index -> accumulated streams
+	titleMap := make(map[int]*TitleInfo)    // title index -> merged TitleInfo
+	streamMap := make(map[int][]StreamInfo) // title index -> accumulated streams
 	// Track per-title, per-stream accumulated attributes.
 	type streamKey struct{ title, stream int }
 	streamAttrMap := make(map[streamKey]map[int]string)
@@ -220,8 +248,7 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 		scan.Titles = append(scan.Titles, *ti)
 	}
 
-	slog.Info("executor: disc scan completed", "drive_index", driveIndex, "disc_name", scan.DiscName, "title_count", len(scan.Titles))
-	return scan, nil
+	return scan
 }
 
 // StartRip runs `makemkvcon -r mkv disc:N titleID outputDir` and calls

@@ -2,6 +2,7 @@ package makemkv
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -147,5 +148,41 @@ func TestExecutorScanDisc(t *testing.T) {
 	// One message should be captured.
 	if len(scan.Messages) != 1 {
 		t.Errorf("Messages count: expected 1, got %d", len(scan.Messages))
+	}
+}
+
+// TestExecutorScanDiscNonZeroExit verifies that ScanDisc still returns titles
+// when makemkvcon exits non-zero (e.g. AACS warnings on Blu-ray discs).
+func TestExecutorScanDiscNonZeroExit(t *testing.T) {
+	mock := &mockCmdRunner{
+		output: scanDiscOutput,
+		err:    fmt.Errorf("exit status 1"),
+	}
+	ex := NewExecutor(WithRunner(mock))
+
+	scan, err := ex.ScanDisc(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ScanDisc should succeed when output contains titles despite non-zero exit: %v", err)
+	}
+	if len(scan.Titles) != 2 {
+		t.Errorf("expected 2 titles, got %d", len(scan.Titles))
+	}
+	if scan.DiscName != "DEADPOOL_2" {
+		t.Errorf("DiscName: expected DEADPOOL_2, got %q", scan.DiscName)
+	}
+}
+
+// TestExecutorScanDiscNonZeroExitNoData verifies that ScanDisc returns the
+// command error when there is no usable disc data in the output.
+func TestExecutorScanDiscNonZeroExitNoData(t *testing.T) {
+	mock := &mockCmdRunner{
+		output: `MSG:5010,0,1,"Failed to open disc","",""` + "\n",
+		err:    fmt.Errorf("exit status 1"),
+	}
+	ex := NewExecutor(WithRunner(mock))
+
+	_, err := ex.ScanDisc(context.Background(), 0)
+	if err == nil {
+		t.Fatal("ScanDisc should return error when command fails with no usable output")
 	}
 }
