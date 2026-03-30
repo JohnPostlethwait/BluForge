@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## HARD RULES — Never Violate These
+
+- **NEVER run `git push`** unless the user's CURRENT message explicitly contains the word "push". "Fix it", "commit this", "investigate" — none of these mean push.
+- **NEVER create or push a git tag** unless the user's CURRENT message explicitly asks for it (e.g. "tag as v0.1.3"). Tags trigger release workflows.
+- **NEVER run `rm`, `rm -f`, or `rm -rf`** without asking the user first, even on generated files.
+
 ## Build & Development Commands
 
 ```bash
@@ -40,7 +46,7 @@ BluForge is a self-hosted web app for orchestrating Blu-ray/DVD ripping via Make
 
 | Package | Role |
 |---------|------|
-| `internal/drivemanager` | Polls drives, maintains per-drive state machine (Empty→Detected→Scanning→Identified→Ready→Ripping→Organizing→Complete→Ejecting→Empty) |
+| `internal/drivemanager` | Polls drives, maintains per-drive state (Empty→Detected); rip progress tracked separately by ripper.Job |
 | `internal/makemkv` | Wraps `makemkvcon` CLI; parses robot-mode output (DRV, CINFO, TINFO, SINFO, PRGV, MSG lines) |
 | `internal/discdb` | TheDiscDB GraphQL client with SQLite-backed response cache (24h TTL); includes title matching and release scoring |
 | `internal/ripper` | Concurrent rip engine (one active rip per drive); Job FSM: Pending→Ripping→Organizing→Completed/Failed |
@@ -58,14 +64,14 @@ workflow → db, ripper, organizer, discdb
 web → config, db, drivemanager, ripper, discdb, workflow
 ```
 
-An SSE adapter pattern in `main.go` bridges `web.SSEHub` to `workflow.Broadcaster` to avoid import cycles.
+The orchestrator receives a simple `func(event, data string)` callback for SSE broadcasting, wired in `main.go`.
 
 ## Key Patterns
 
 - **Functional options** for testability: `NewExecutor(WithRunner(mockRunner))`, `NewClient(WithBaseURL(...))`
-- **Interface-based coupling**: `RipExecutor`, `DriveExecutor`, `DiscScanner`, `Broadcaster` — minimal interfaces enable mock injection
+- **Interface-based coupling**: `RipExecutor`, `DriveExecutor`, `DiscScanner` — minimal interfaces enable mock injection
 - **Dependency injection via structs**: `ServerDeps`, `OrchestratorDeps` collect all dependencies
-- **Thread-safe state machines**: `DriveStateMachine` and `Engine` use `sync.RWMutex`/`sync.Mutex`
+- **Thread-safe state**: `DriveStateMachine` and `Engine` use `sync.RWMutex`/`sync.Mutex`
 - **Templ templates**: `.templ` files compile to `_templ.go` — always run `templ generate` after editing `.templ` files
 
 ## Frontend
