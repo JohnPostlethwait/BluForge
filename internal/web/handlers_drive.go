@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
@@ -50,39 +50,6 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		State:         string(drv.State()),
 		Titles:        make([]TitleJSON, 0),
 		SearchResults: make([]SearchResultJSON, 0),
-	}
-
-	// Check for a remembered disc mapping.
-	if drv.DiscName() != "" && s.store != nil {
-		// Use cached scan if available; otherwise trigger a background scan.
-		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
-		if scan == nil {
-			driveStore.Scanning = true
-			go func() {
-				bgCtx := context.Background()
-				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
-				if scanErr != nil {
-					slog.Error("background disc scan failed", "drive_index", idx, "error", scanErr)
-					return
-				}
-				titles := scanToTitleJSON(result)
-				s.broadcastScanComplete(idx, titles)
-			}()
-		} else {
-			discKey := discdb.BuildDiscKey(scan)
-			mapping, mappingErr := s.store.GetMapping(discKey)
-			if mappingErr != nil {
-				slog.WarnContext(c.Request().Context(), "failed to load disc mapping", "disc_key", discKey, "error", mappingErr)
-			}
-			if mapping != nil {
-				driveStore.HasMapping = true
-				driveStore.MatchedMedia = mapping.MediaTitle + " (" + mapping.MediaYear + ")"
-				driveStore.MatchedRelease = mapping.ReleaseID
-			}
-
-			// Populate titles directly from scan.
-			driveStore.Titles = scanToTitleJSON(scan)
-		}
 	}
 
 	// Hydrate from drive session if available.
@@ -261,6 +228,49 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/queue")
+}
+
+// handleDriveScan runs a disc scan synchronously and returns the titles as JSON.
+func (s *Server) handleDriveScan(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "scanner not configured")
+	}
+
+	scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
+	if scanErr != nil {
+		slog.Error("disc scan failed", "drive_index", idx, "error", scanErr)
+		return echo.NewHTTPError(http.StatusInternalServerError, "disc scan failed")
+	}
+
+	// Save disc mapping if a release was selected in the session.
+	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {
+		discKey := discdb.BuildDiscKey(scan)
+		if discKey != "" {
+			if err := s.store.SaveMapping(db.DiscMapping{
+				DiscKey:     discKey,
+				MediaItemID: session.MediaItemID,
+				ReleaseID:   session.ReleaseID,
+				MediaTitle:  session.MediaTitle,
+				MediaYear:   session.MediaYear,
+				MediaType:   session.MediaType,
+			}); err != nil {
+				slog.Warn("failed to save disc mapping", "disc_key", discKey, "error", err)
+			}
+		}
+	}
+
+	titles := scanToTitleJSON(scan)
+	return c.JSON(http.StatusOK, titles)
 }
 
 // handleDriveRescan clears any existing mapping for a drive and redirects back to the detail page.

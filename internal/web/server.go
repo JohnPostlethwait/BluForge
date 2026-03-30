@@ -136,6 +136,7 @@ func NewServer(deps ServerDeps) *Server {
 e.GET("/drives/:id", s.handleDriveDetail)
 	e.POST("/drives/:id/search", s.handleDriveSearch)
 	e.POST("/drives/:id/select", s.handleDriveSelectAlpine)
+	e.POST("/drives/:id/scan", s.handleDriveScan)
 	e.POST("/drives/:id/rip", s.handleDriveRip)
 	e.POST("/drives/:id/rescan", s.handleDriveRescan)
 	e.GET("/queue", s.handleQueue)
@@ -184,11 +185,6 @@ func (s *Server) Stop() error {
 // Called when a disc is ejected to clear stale selection state.
 func (s *Server) ClearDriveSession(driveIndex int) {
 	s.driveSessions.Clear(driveIndex)
-}
-
-// BroadcastScanComplete publishes a scan-complete SSE event.
-func (s *Server) BroadcastScanComplete(driveIndex int, titles []TitleJSON) {
-	s.broadcastScanComplete(driveIndex, titles)
 }
 
 // handleSSE streams Server-Sent Events to the connected client.

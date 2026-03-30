@@ -1,8 +1,6 @@
 package web
 
 import (
-	"context"
-	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -17,16 +15,7 @@ type selectRequest struct {
 	Type        string `json:"type"`
 }
 
-// selectResponse is the JSON response for POST /drives/:id/select.
-type selectResponse struct {
-	Scanning bool        `json:"scanning"`
-	Titles   []TitleJSON `json:"titles"`
-}
-
-// handleDriveSelectAlpine persists the user's release selection in the drive session
-// and triggers a disc scan if no cached scan exists. This is the new Alpine.js
-// endpoint that returns JSON; the old handleDriveSelect in handlers_drive.go
-// will be removed in a later task.
+// handleDriveSelectAlpine persists the user's release selection in the drive session.
 func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	idx, err := parseDriveIndex(c)
 	if err != nil {
@@ -59,30 +48,5 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 		SearchResults: existingResults,
 	})
 
-	resp := selectResponse{
-		Titles: make([]TitleJSON, 0),
-	}
-
-	// Check for cached scan; trigger background scan if missing.
-	if drv.DiscName() != "" && s.orchestrator != nil {
-		scan := s.orchestrator.CachedScan(idx, drv.DiscName())
-		if scan == nil {
-			resp.Scanning = true
-			go func() {
-				bgCtx := context.Background()
-				result, scanErr := s.orchestrator.ScanDisc(bgCtx, idx)
-				if scanErr != nil {
-					slog.Error("background disc scan failed", "drive_index", idx, "error", scanErr)
-					return
-				}
-				// Publish scan-complete SSE event.
-				titles := scanToTitleJSON(result)
-				s.broadcastScanComplete(idx, titles)
-			}()
-		} else {
-			resp.Titles = scanToTitleJSON(scan)
-		}
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

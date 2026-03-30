@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"strconv"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
@@ -63,6 +62,7 @@ type DriveStoreJSON struct {
 	Titles          []TitleJSON          `json:"titles"`
 	SelectedRelease *SelectedReleaseJSON `json:"selectedRelease"`
 	SearchResults   []SearchResultJSON   `json:"searchResults"`
+	RipProgress     interface{}          `json:"ripProgress"`
 }
 
 // DrivesStoreJSON is the Alpine.store('drives') shape for the dashboard page.
@@ -117,18 +117,3 @@ func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
 	return titles
 }
 
-// broadcastScanComplete publishes a scan-complete SSE event with title data.
-func (s *Server) broadcastScanComplete(driveIndex int, titles []TitleJSON) {
-	payload := struct {
-		DriveIndex int         `json:"driveIndex"`
-		Titles     []TitleJSON `json:"titles"`
-	}{
-		DriveIndex: driveIndex,
-		Titles:     titles,
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	s.sseHub.Broadcast(SSEEvent{Event: "scan-complete", Data: string(data)})
-}

@@ -21,14 +21,6 @@ document.addEventListener('alpine:init', () => {
 
 	const evtSource = new EventSource('/events')
 
-	evtSource.addEventListener('scan-complete', (e) => {
-		const update = JSON.parse(e.data)
-		if (update.driveIndex === Alpine.store('drive').driveIndex) {
-			Alpine.store('drive').scanning = false
-			Alpine.store('drive').titles = update.titles
-		}
-	})
-
 	evtSource.addEventListener('drive-event', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
@@ -78,7 +70,7 @@ async function selectRelease(driveIndex, result) {
 		type: result.mediaType,
 	}
 
-	const resp = await fetch('/drives/' + driveIndex + '/select', {
+	await fetch('/drives/' + driveIndex + '/select', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -92,13 +84,21 @@ async function selectRelease(driveIndex, result) {
 			type: result.mediaType,
 		}),
 	})
+}
+
+async function scanDisc(driveIndex) {
+	Alpine.store('drive').scanning = true
+	Alpine.store('drive').titles = []
+
+	const resp = await fetch('/drives/' + driveIndex + '/scan', {
+		method: 'POST',
+		headers: { 'Accept': 'application/json' },
+	})
+
+	Alpine.store('drive').scanning = false
 
 	if (resp.ok) {
-		const data = await resp.json()
-		Alpine.store('drive').scanning = data.scanning
-		if (data.titles && data.titles.length > 0) {
-			Alpine.store('drive').titles = data.titles
-		}
+		Alpine.store('drive').titles = await resp.json()
 	}
 }
 </script>`, data.StoreJSON))
@@ -190,6 +190,11 @@ async function selectRelease(driveIndex, result) {
 			</div>
 		</div>
 
+		<!-- Scan Button -->
+		<div class="card" style="margin-bottom: 1rem;" x-data>
+			@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
+		</div>
+
 		<!-- Titles Card -->
 		<div class="card" x-data>
 			<div class="section-title">Titles</div>
@@ -202,7 +207,7 @@ async function selectRelease(driveIndex, result) {
 
 			<template x-if="!$store.drive.scanning && $store.drive.titles.length === 0">
 				<div class="empty-state">
-					<p>No titles found. Insert a disc or wait for scanning to complete.</p>
+					<p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p>
 				</div>
 			</template>
 
