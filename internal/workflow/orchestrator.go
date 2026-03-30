@@ -381,8 +381,8 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 				slog.Info("auto-rip: matched via discdb",
 					"title", best.MediaItem.Title, "score", score)
 				titles = o.titlesFromSearchResult(scan, best)
-				mediaItemID = best.MediaItem.ID
-				releaseID = best.Release.ID
+				mediaItemID = strconv.Itoa(best.MediaItem.ID)
+				releaseID = strconv.Itoa(best.Release.ID)
 				mediaTitle = best.MediaItem.Title
 				mediaYear = strconv.Itoa(best.MediaItem.Year)
 				mediaType = best.MediaItem.Type

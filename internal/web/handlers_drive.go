@@ -37,8 +37,8 @@ func mediaItemsToRows(items []discdb.MediaItem) []templates.SearchResultRow {
 				RegionCode:   rel.RegionCode,
 				Format:       format,
 				DiscCount:    len(rel.Discs),
-				ReleaseID:    rel.ID,
-				MediaItemID:  item.ID,
+				ReleaseID:    strconv.Itoa(rel.ID),
+				MediaItemID:  strconv.Itoa(item.ID),
 			})
 		}
 	}

@@ -17,7 +17,7 @@ type ContentItem struct {
 
 // DiscTitle represents a single title (playlist/track) on a disc.
 type DiscTitle struct {
-	ID          string       `json:"id"`
+	ID          int          `json:"id"`
 	Index       int          `json:"index"`
 	SourceFile  string       `json:"sourceFile"`
 	ItemType    string       `json:"itemType"`
@@ -32,7 +32,7 @@ type DiscTitle struct {
 
 // Disc represents a single physical disc within a release.
 type Disc struct {
-	ID     string      `json:"id"`
+	ID     int         `json:"id"`
 	Index  int         `json:"index"`
 	Name   string      `json:"name"`
 	Format string      `json:"format"`
@@ -42,7 +42,7 @@ type Disc struct {
 
 // Release represents a specific physical release (e.g. Blu-ray edition) of a media item.
 type Release struct {
-	ID         string `json:"id"`
+	ID         int    `json:"id"`
 	Title      string `json:"title"`
 	Slug       string `json:"slug"`
 	UPC        string `json:"upc"`
@@ -57,7 +57,7 @@ type Release struct {
 
 // MediaItem represents a movie or TV series in TheDiscDB.
 type MediaItem struct {
-	ID             string      `json:"id"`
+	ID             int         `json:"id"`
 	Title          string      `json:"title"`
 	Slug           string      `json:"slug"`
 	Year           int         `json:"year"`

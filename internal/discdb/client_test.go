@@ -15,7 +15,7 @@ type mockResponse struct {
 
 func makeDeadpool2Response() json.RawMessage {
 	item := MediaItem{
-		ID:             "item-1",
+		ID:             1,
 		Title:          "Deadpool 2",
 		Slug:           "deadpool-2",
 		Year:           2018,
@@ -29,7 +29,7 @@ func makeDeadpool2Response() json.RawMessage {
 		},
 		Releases: []Release{
 			{
-				ID:         "release-1",
+				ID:         100,
 				Title:      "Deadpool 2 (Blu-ray)",
 				Slug:       "deadpool-2-bluray",
 				UPC:        "024543547853",
@@ -41,14 +41,14 @@ func makeDeadpool2Response() json.RawMessage {
 				ImageURL:   "https://example.com/deadpool2-bluray.jpg",
 				Discs: []Disc{
 					{
-						ID:     "disc-1",
+						ID:     200,
 						Index:  0,
 						Name:   "Deadpool 2",
 						Format: "Blu-ray",
 						Slug:   "deadpool-2-disc-1",
 						Titles: []DiscTitle{
 							{
-								ID:         "title-1",
+								ID:         300,
 								Index:      0,
 								SourceFile: "00001.mpls",
 								ItemType:   "Movie",
@@ -114,8 +114,8 @@ func TestSearchByTitle(t *testing.T) {
 	}
 
 	item := items[0]
-	if item.ID != "item-1" {
-		t.Errorf("ID: got %q, want %q", item.ID, "item-1")
+	if item.ID != 1 {
+		t.Errorf("ID: got %d, want %d", item.ID, 1)
 	}
 	if item.Title != "Deadpool 2" {
 		t.Errorf("Title: got %q, want %q", item.Title, "Deadpool 2")
