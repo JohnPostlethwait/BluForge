@@ -107,8 +107,56 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		}
 	}
 
+	// Build Alpine store hydration JSON.
+	driveStore := DriveStoreJSON{
+		DriveIndex:    idx,
+		DriveName:     drv.DriveName(),
+		DiscName:      drv.DiscName(),
+		State:         string(drv.State()),
+		Scanning:      data.Scanning,
+		Titles:        make([]TitleJSON, 0),
+		SearchResults: make([]SearchResultJSON, 0),
+	}
+
+	for _, t := range data.Titles {
+		driveStore.Titles = append(driveStore.Titles, TitleJSON{
+			Index:      t.Index,
+			Name:       t.Name,
+			Duration:   t.Duration,
+			Size:       t.Size,
+			SourceFile: t.SourceFile,
+			Selected:   t.Selected,
+		})
+	}
+
+	// Hydrate from drive session if available.
+	if session := s.driveSessions.Get(idx); session != nil {
+		driveStore.SelectedRelease = &SelectedReleaseJSON{
+			MediaItemID: session.MediaItemID,
+			ReleaseID:   session.ReleaseID,
+			Title:       session.MediaTitle,
+			Year:        session.MediaYear,
+			Type:        session.MediaType,
+		}
+		driveStore.SearchResults = session.SearchResults
+		if driveStore.SearchResults == nil {
+			driveStore.SearchResults = make([]SearchResultJSON, 0)
+		}
+
+		// Also populate old template fields for backward compat during migration.
+		data.SelectedMediaItemID = session.MediaItemID
+		data.SelectedReleaseID = session.ReleaseID
+		data.SelectedMediaTitle = session.MediaTitle
+		data.SelectedMediaYear = session.MediaYear
+		data.SelectedMediaType = session.MediaType
+	}
+
+	storeBytes, _ := json.Marshal(driveStore)
+	data.StoreJSON = string(storeBytes)
+
 	// Carry forward selected release metadata from query params (used by
 	// auto-refresh during scanning to preserve the user's selection).
+	// This will be removed when the Alpine template replaces HTMX polling.
 	if mid := c.QueryParam("media_item_id"); mid != "" {
 		data.SelectedMediaItemID = mid
 		data.SelectedReleaseID = c.QueryParam("release_id")

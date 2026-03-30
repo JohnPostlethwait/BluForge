@@ -25,9 +25,11 @@ type DriveDetailData struct {
 	MatchedMedia   string
 	MatchedRelease string
 	HasMapping     bool
-	Scanning       bool // true when a background disc scan is in progress
+	Scanning       bool   // true when a background disc scan is in progress
 	Error          string
+	StoreJSON      string // JSON blob for Alpine.store('drive') hydration
 	// Selected release metadata (populated after user clicks "Select" on a search result).
+	// These fields are used by the old HTMX template and will be removed in Task 8.
 	SelectedMediaItemID string
 	SelectedReleaseID   string
 	SelectedMediaTitle  string
