@@ -10,6 +10,7 @@ type DriveDetailData struct {
 	State      string
 	Error      string
 	StoreJSON  string // JSON blob for Alpine.store('drive') hydration
+	CSRFToken  string
 }
 
 templ DriveDetail(data DriveDetailData) {
@@ -210,6 +211,7 @@ async function selectRelease(driveIndex, result) {
 
 			<template x-if="!$store.drive.scanning && $store.drive.titles.length > 0">
 				<form hx-post={ fmt.Sprintf("/drives/%d/rip", data.DriveIndex) } hx-target="body" hx-swap="outerHTML">
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 					<!-- Hidden fields populated from Alpine store -->
 					<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
 					<input type="hidden" name="media_item_id"

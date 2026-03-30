@@ -135,8 +135,12 @@ func AtomicMove(src, dst string) error {
 
 // FileExists reports whether path exists on disk.
 func FileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	// Reject symlinks to prevent symlink-based path attacks.
+	return info.Mode()&os.ModeSymlink == 0
 }
 
 // sanitizePath splits a forward-slash-delimited path, sanitizes each component,
@@ -155,17 +159,21 @@ func sanitizePath(p string) string {
 }
 
 // copyFile copies the content of src to dst, preserving permissions.
+// It refuses to follow symlinks to prevent symlink-based attacks.
 func copyFile(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to copy symlink: %s", src)
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-
-	info, err := in.Stat()
-	if err != nil {
-		return err
-	}
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
 	if err != nil {

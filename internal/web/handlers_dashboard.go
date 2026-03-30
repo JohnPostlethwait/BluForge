@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	"github.com/labstack/echo/v4"
 
@@ -26,7 +27,10 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		Ready: s.driveMgr.Ready(),
 		List:  driveList,
 	}
-	storeBytes, _ := json.Marshal(storeData)
+	storeBytes, err := json.Marshal(storeData)
+	if err != nil {
+		slog.Error("failed to marshal dashboard store", "error", err)
+	}
 
 	data := templates.DashboardData{StoreJSON: string(storeBytes)}
 	return templates.Dashboard(data).Render(c.Request().Context(), c.Response().Writer)

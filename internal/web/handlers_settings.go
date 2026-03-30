@@ -1,12 +1,14 @@
 package web
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/johnpostlethwait/bluforge/internal/config"
 	"github.com/johnpostlethwait/bluforge/templates"
-	"github.com/labstack/echo/v4"
 )
 
 func (s *Server) handleSettings(c echo.Context) error {
@@ -21,6 +23,7 @@ func (s *Server) handleSettings(c echo.Context) error {
 		SeriesTemplate:     cfg.SeriesTemplate,
 		GitHubClientID:     cfg.GitHubClientID,
 		GitHubClientSecret: cfg.GitHubClientSecret,
+		CSRFToken:          csrfToken(c),
 	}
 	return templates.Settings(data).Render(c.Request().Context(), c.Response().Writer)
 }
@@ -67,7 +70,8 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 			cfg.PollInterval = pollInterval
 		}
 	}); err != nil {
-		return err
+		slog.Error("failed to save settings", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save settings.")
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/settings")

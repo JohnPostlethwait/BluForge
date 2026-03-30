@@ -13,6 +13,7 @@ type SettingsData struct {
 	SeriesTemplate     string
 	GitHubClientID     string
 	GitHubClientSecret string
+	CSRFToken          string
 }
 
 templ Settings(data SettingsData) {
@@ -21,6 +22,7 @@ templ Settings(data SettingsData) {
 			<h1>Settings</h1>
 		</div>
 		<form method="POST" action="/settings">
+			<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 			<div class="card" style="margin-bottom: 1rem;">
 				<div class="section-title">General</div>
 				<div class="form-group">

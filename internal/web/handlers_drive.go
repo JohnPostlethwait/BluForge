@@ -39,6 +39,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		DriveName:  drv.DriveName(),
 		DiscName:   drv.DiscName(),
 		State:      string(drv.State()),
+		CSRFToken:  csrfToken(c),
 	}
 
 	// Build Alpine store hydration JSON.
@@ -99,11 +100,18 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		}
 	}
 
-	storeBytes, _ := json.Marshal(driveStore)
+	storeBytes, err := json.Marshal(driveStore)
+	if err != nil {
+		slog.Error("failed to marshal drive store", "error", err)
+	}
 	data.StoreJSON = string(storeBytes)
 
-	// Check for error flash.
+	// Check for error flash. Truncate to prevent abuse via crafted URLs.
+	// Templ auto-escapes the output, but limiting length reduces phishing surface.
 	if errMsg := c.QueryParam("error"); errMsg != "" {
+		if len(errMsg) > 200 {
+			errMsg = errMsg[:200]
+		}
 		data.Error = errMsg
 	}
 

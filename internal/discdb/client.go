@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const defaultBaseURL = "https://thediscdb.com/graphql/"
@@ -87,7 +88,7 @@ func WithBaseURL(url string) ClientOption {
 func NewClient(opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL:    defaultBaseURL,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 	for _, opt := range opts {
 		opt(c)

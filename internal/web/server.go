@@ -3,11 +3,14 @@ package web
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/time/rate"
 
 	"github.com/johnpostlethwait/bluforge/internal/config"
 	"github.com/johnpostlethwait/bluforge/internal/db"
@@ -52,7 +55,65 @@ func NewServer(deps ServerDeps) *Server {
 	e.HideBanner = true
 	e.HidePort = true
 
+	// Custom error handler: log full details but return generic messages to clients.
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return
+		}
+		he, ok := err.(*echo.HTTPError)
+		if ok {
+			if he.Internal != nil {
+				slog.Error("http error", "status", he.Code, "internal", he.Internal)
+			}
+			_ = c.String(he.Code, fmt.Sprintf("%v", he.Message))
+			return
+		}
+		slog.Error("unhandled error", "error", err, "uri", c.Request().RequestURI)
+		_ = c.String(http.StatusInternalServerError, "An internal error occurred.")
+	}
+
 	e.Use(middleware.Recover())
+
+	// Security headers.
+	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+		XSSProtection:      "1; mode=block",
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "DENY",
+		ReferrerPolicy:     "strict-origin-when-cross-origin",
+		ContentSecurityPolicy: "default-src 'self'; " +
+			"script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; " +
+			"style-src 'self' 'unsafe-inline'; " +
+			"connect-src 'self'; " +
+			"img-src 'self' data:;",
+	}))
+
+	// CSRF protection for state-changing endpoints. SSE and static are excluded.
+	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
+		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
+		CookiePath:     "/",
+		CookieHTTPOnly: true,
+		CookieSameSite: http.SameSiteStrictMode,
+		Skipper: func(c echo.Context) bool {
+			// Skip CSRF for SSE (GET), static files, and JSON API requests
+			// (Alpine fetch sends Accept: application/json).
+			if c.Request().Method == http.MethodGet {
+				return true
+			}
+			accept := c.Request().Header.Get("Accept")
+			return accept == "application/json"
+		},
+	}))
+
+	// Rate limiter: 20 requests/second with a burst of 40.
+	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Store: middleware.NewRateLimiterMemoryStoreWithConfig(
+			middleware.RateLimiterMemoryStoreConfig{
+				Rate:  rate.Limit(20),
+				Burst: 40,
+			},
+		),
+	}))
+
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogMethod: true,
 		LogURI:    true,
@@ -140,6 +201,9 @@ func (s *Server) BroadcastScanComplete(driveIndex int, titles []TitleJSON) {
 }
 
 // handleSSE streams Server-Sent Events to the connected client.
+// Clients that have received no events for 5 minutes receive a keepalive
+// comment to detect dead connections. If even the keepalive write fails the
+// connection is closed.
 func (s *Server) handleSSE(c echo.Context) error {
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -152,6 +216,9 @@ func (s *Server) handleSSE(c echo.Context) error {
 	defer s.sseHub.Unsubscribe(ch)
 
 	ctx := c.Request().Context()
+	keepalive := time.NewTicker(5 * time.Minute)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -161,6 +228,13 @@ func (s *Server) handleSSE(c echo.Context) error {
 				return nil
 			}
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, ev.Data)
+			w.Flush()
+			keepalive.Reset(5 * time.Minute)
+		case <-keepalive.C:
+			// Keepalive comment — detects dead connections.
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return nil
+			}
 			w.Flush()
 		}
 	}

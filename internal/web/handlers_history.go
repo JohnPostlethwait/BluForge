@@ -1,10 +1,13 @@
 package web
 
 import (
+	"log/slog"
+	"net/http"
 	"strconv"
 
-	"github.com/johnpostlethwait/bluforge/templates"
 	"github.com/labstack/echo/v4"
+
+	"github.com/johnpostlethwait/bluforge/templates"
 )
 
 const historyPageSize = 50
@@ -17,13 +20,16 @@ func (s *Server) handleHistory(c echo.Context) error {
 			page = n
 		}
 	}
+	if page > 1000 {
+		page = 1000
+	}
 
 	offset := (page - 1) * historyPageSize
 
-	// Fetch one extra row to detect whether there is a next page.
 	dbJobs, err := s.store.ListAllJobs(historyPageSize+1, offset)
 	if err != nil {
-		return err
+		slog.Error("failed to list history jobs", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load job history.")
 	}
 
 	hasMore := len(dbJobs) > historyPageSize

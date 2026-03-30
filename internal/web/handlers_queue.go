@@ -1,8 +1,12 @@
 package web
 
 import (
-	"github.com/johnpostlethwait/bluforge/templates"
+	"log/slog"
+	"net/http"
+
 	"github.com/labstack/echo/v4"
+
+	"github.com/johnpostlethwait/bluforge/templates"
 )
 
 func (s *Server) handleQueue(c echo.Context) error {
@@ -24,7 +28,8 @@ func (s *Server) handleQueue(c echo.Context) error {
 	// Get pending jobs from the store.
 	pendingJobs, err := s.store.ListJobsByStatus("pending")
 	if err != nil {
-		return err
+		slog.Error("failed to list pending jobs", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load pending jobs.")
 	}
 	pending := make([]templates.QueueJobRow, 0, len(pendingJobs))
 	for _, j := range pendingJobs {
@@ -43,11 +48,13 @@ func (s *Server) handleQueue(c echo.Context) error {
 	// Get completed and failed jobs from the store.
 	completedJobs, err := s.store.ListJobsByStatus("completed")
 	if err != nil {
-		return err
+		slog.Error("failed to list completed jobs", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load completed jobs.")
 	}
 	failedJobs, err := s.store.ListJobsByStatus("failed")
 	if err != nil {
-		return err
+		slog.Error("failed to list failed jobs", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load failed jobs.")
 	}
 	allDone := append(completedJobs, failedJobs...)
 	completed := make([]templates.QueueJobRow, 0, len(allDone))

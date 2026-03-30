@@ -18,6 +18,7 @@ type DriveDetailData struct {
 	State      string
 	Error      string
 	StoreJSON  string // JSON blob for Alpine.store('drive') hydration
+	CSRFToken  string
 }
 
 func DriveDetail(data DriveDetailData) templ.Component {
@@ -155,7 +156,7 @@ async function selectRelease(driveIndex, result) {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 107, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 108, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -173,7 +174,7 @@ async function selectRelease(driveIndex, result) {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.DriveName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 112, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 113, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -217,13 +218,26 @@ async function selectRelease(driveIndex, result) {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/drives/%d/rip", data.DriveIndex))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 212, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 213, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-target=\"body\" hx-swap=\"outerHTML\"><!-- Hidden fields populated from Alpine store --><input type=\"hidden\" name=\"disc_name\" x-bind:value=\"$store.drive.discName\"> <input type=\"hidden\" name=\"media_item_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''\"> <input type=\"hidden\" name=\"release_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''\"> <input type=\"hidden\" name=\"content_title\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''\"> <input type=\"hidden\" name=\"content_year\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''\"> <input type=\"hidden\" name=\"content_type\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''\"><div style=\"overflow-x:auto;\"><table><thead><tr><th></th><th>#</th><th>Name</th><th>Duration</th><th>Size</th></tr></thead> <tbody><template x-for=\"t in $store.drive.titles\" :key=\"t.index\"><tr><td><input type=\"checkbox\" name=\"titles\" :value=\"t.index\" :checked=\"t.selected\"></td><td class=\"text-muted\" x-text=\"t.index\"></td><td x-text=\"t.name\"></td><td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td></tr></template></tbody></table></div><div class=\"mt-3\"><button type=\"submit\" class=\"btn btn-primary\">Rip Selected</button></div></form></template></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-target=\"body\" hx-swap=\"outerHTML\"><input type=\"hidden\" name=\"_csrf\" value=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var6 string
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 214, Col: 61}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"><!-- Hidden fields populated from Alpine store --><input type=\"hidden\" name=\"disc_name\" x-bind:value=\"$store.drive.discName\"> <input type=\"hidden\" name=\"media_item_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''\"> <input type=\"hidden\" name=\"release_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''\"> <input type=\"hidden\" name=\"content_title\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''\"> <input type=\"hidden\" name=\"content_year\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''\"> <input type=\"hidden\" name=\"content_type\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''\"><div style=\"overflow-x:auto;\"><table><thead><tr><th></th><th>#</th><th>Name</th><th>Duration</th><th>Size</th></tr></thead> <tbody><template x-for=\"t in $store.drive.titles\" :key=\"t.index\"><tr><td><input type=\"checkbox\" name=\"titles\" :value=\"t.index\" :checked=\"t.selected\"></td><td class=\"text-muted\" x-text=\"t.index\"></td><td x-text=\"t.name\"></td><td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td></tr></template></tbody></table></div><div class=\"mt-3\"><button type=\"submit\" class=\"btn btn-primary\">Rip Selected</button></div></form></template></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

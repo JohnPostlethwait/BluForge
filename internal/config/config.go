@@ -109,5 +109,5 @@ func Save(cfg AppConfig, configPath string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, data, 0644)
+	return os.WriteFile(configPath, data, 0600)
 }
