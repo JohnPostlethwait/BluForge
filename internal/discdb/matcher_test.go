@@ -30,12 +30,12 @@ func TestMatchBySourceFile(t *testing.T) {
 			{
 				SourceFile: "00001.mpls",
 				ItemType:   "movie",
-				Item:       &ContentItem{Title: "MainMovie", Type: "movie"},
+				Item:       &DiscItemReference{Title: "MainMovie", Type: "movie"},
 			},
 			{
 				SourceFile: "00010.mpls",
 				ItemType:   "extra",
-				Item:       &ContentItem{Title: "Extra", Type: "extra"},
+				Item:       &DiscItemReference{Title: "Extra", Type: "extra"},
 			},
 		},
 	}
@@ -85,7 +85,7 @@ func TestMatchNoSourceFileMatch(t *testing.T) {
 			{
 				SourceFile: "00001.mpls",
 				ItemType:   "movie",
-				Item:       &ContentItem{Title: "SomeMovie", Type: "movie"},
+				Item:       &DiscItemReference{Title: "SomeMovie", Type: "movie"},
 			},
 		},
 	}

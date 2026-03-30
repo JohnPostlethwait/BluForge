@@ -174,7 +174,7 @@ func TestFullRipFlow(t *testing.T) {
 			{
 				SourceFile: "/dev/sr0",
 				ItemType:   "movie",
-				Item:       &discdb.ContentItem{Title: "Deadpool 2"},
+				Item:       &discdb.DiscItemReference{Title: "Deadpool 2"},
 			},
 		},
 	}

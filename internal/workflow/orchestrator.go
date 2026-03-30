@@ -427,8 +427,8 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 		if cm.Matched {
 			sel.ContentType = cm.ContentType
 			sel.ContentTitle = cm.ContentTitle
-			sel.Season = strconv.Itoa(cm.Season)
-			sel.Episode = strconv.Itoa(cm.Episode)
+			sel.Season = cm.Season
+			sel.Episode = cm.Episode
 		}
 
 		titles = append(titles, sel)

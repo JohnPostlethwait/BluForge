@@ -7,37 +7,40 @@ type ExternalIDs struct {
 	TVDB string `json:"tvdb"`
 }
 
-// ContentItem represents a piece of content (movie/episode) associated with a disc title.
-type ContentItem struct {
+// DiscItemReference represents a piece of content (movie/episode) associated with a disc title.
+type DiscItemReference struct {
+	ID      int    `json:"id"`
 	Title   string `json:"title"`
-	Season  int    `json:"season"`
-	Episode int    `json:"episode"`
+	Season  string `json:"season"`
+	Episode string `json:"episode"`
 	Type    string `json:"type"`
 }
 
 // DiscTitle represents a single title (playlist/track) on a disc.
 type DiscTitle struct {
-	ID          int          `json:"id"`
-	Index       int          `json:"index"`
-	SourceFile  string       `json:"sourceFile"`
-	ItemType    string       `json:"itemType"`
-	HasItem     bool         `json:"hasItem"`
-	Duration    string       `json:"duration"`
-	Size        string       `json:"size"`
-	SegmentMap  string       `json:"segmentMap"`
-	Season      int          `json:"season"`
-	Episode     int          `json:"episode"`
-	Item        *ContentItem `json:"item"`
+	ID          int                `json:"id"`
+	Index       int                `json:"index"`
+	SourceFile  string             `json:"sourceFile"`
+	ItemType    string             `json:"itemType"`
+	HasItem     bool               `json:"hasItem"`
+	Duration    string             `json:"duration"`
+	Size        int64              `json:"size"`
+	DisplaySize string             `json:"displaySize"`
+	SegmentMap  string             `json:"segmentMap"`
+	Season      string             `json:"season"`
+	Episode     string             `json:"episode"`
+	Item        *DiscItemReference `json:"item"`
 }
 
 // Disc represents a single physical disc within a release.
 type Disc struct {
-	ID     int         `json:"id"`
-	Index  int         `json:"index"`
-	Name   string      `json:"name"`
-	Format string      `json:"format"`
-	Slug   string      `json:"slug"`
-	Titles []DiscTitle `json:"titles"`
+	ID          int         `json:"id"`
+	Index       int         `json:"index"`
+	Name        string      `json:"name"`
+	Format      string      `json:"format"`
+	Slug        string      `json:"slug"`
+	ContentHash string      `json:"contentHash"`
+	Titles      []DiscTitle `json:"titles"`
 }
 
 // Release represents a specific physical release (e.g. Blu-ray edition) of a media item.

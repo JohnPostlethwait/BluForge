@@ -15,8 +15,8 @@ type ContentMatch struct {
 	Matched      bool
 	ContentType  string
 	ContentTitle string
-	Season       int
-	Episode      int
+	Season       string
+	Episode      string
 }
 
 // MatchTitles builds a lookup from DiscTitle.SourceFile and matches each scan

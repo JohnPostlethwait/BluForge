@@ -54,14 +54,14 @@ func makeDeadpool2Response() json.RawMessage {
 								ItemType:   "Movie",
 								HasItem:    true,
 								Duration:   "01:59:00",
-								Size:       "35000000000",
+								Size:       35000000000,
 								SegmentMap: "1,2,3",
-								Season:     0,
-								Episode:    0,
-								Item: &ContentItem{
+								Season:     "0",
+								Episode:    "0",
+								Item: &DiscItemReference{
 									Title:   "Deadpool 2",
-									Season:  0,
-									Episode: 0,
+									Season:  "0",
+									Episode: "0",
 									Type:    "Movie",
 								},
 							},
@@ -175,10 +175,10 @@ func TestSearchByTitle(t *testing.T) {
 		t.Fatal("DiscTitle.Item: expected non-nil")
 	}
 	if title.Item.Title != "Deadpool 2" {
-		t.Errorf("ContentItem.Title: got %q, want %q", title.Item.Title, "Deadpool 2")
+		t.Errorf("DiscItemReference.Title: got %q, want %q", title.Item.Title, "Deadpool 2")
 	}
 	if title.Item.Type != "Movie" {
-		t.Errorf("ContentItem.Type: got %q, want %q", title.Item.Type, "Movie")
+		t.Errorf("DiscItemReference.Type: got %q, want %q", title.Item.Type, "Movie")
 	}
 }
 

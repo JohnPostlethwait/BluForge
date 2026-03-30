@@ -42,6 +42,7 @@ const mediaItemFields = `
 			name
 			format
 			slug
+			contentHash
 			titles {
 				id
 				index
@@ -50,10 +51,12 @@ const mediaItemFields = `
 				hasItem
 				duration
 				size
+				displaySize
 				segmentMap
 				season
 				episode
 				item {
+					id
 					title
 					season
 					episode
