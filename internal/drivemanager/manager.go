@@ -69,6 +69,14 @@ func discPresent(info makemkv.DriveInfo) bool {
 
 // PollOnce lists drives, compares against previous state, and emits events.
 func (m *Manager) PollOnce(ctx context.Context) {
+	m.mu.RLock()
+	isFirst := !m.ready
+	m.mu.RUnlock()
+
+	if isFirst {
+		slog.Info("polling drives via makemkvcon (this may take 15-30 seconds)…")
+	}
+
 	infos, err := m.exec.ListDrives(ctx)
 	if err != nil {
 		slog.Error("drive poll failed", "error", err)
