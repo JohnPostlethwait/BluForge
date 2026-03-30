@@ -203,3 +203,65 @@ func (e *driveWithDiscExecutor) ListDrives(ctx context.Context) ([]makemkv.Drive
 func (e *driveWithDiscExecutor) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
 	return &makemkv.DiscScan{DriveIndex: driveIndex, DiscName: e.discName}, nil
 }
+
+func TestDriveSelectFlow_PersistsAcrossRefresh(t *testing.T) {
+	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld Season 1"}, nil)
+	mgr.PollOnce(context.Background())
+
+	cfg := config.AppConfig{OutputDir: "/tmp/test"}
+	srv := &Server{
+		echo:          echo.New(),
+		cfg:           &cfg,
+		driveMgr:      mgr,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+	}
+	srv.echo.POST("/drives/:id/select", srv.handleDriveSelectAlpine)
+	srv.echo.GET("/drives/:id", srv.handleDriveDetail)
+
+	// Step 1: Select a release.
+	selectBody := `{"mediaItemID":"1","releaseID":"10","title":"Seinfeld","year":"1989","type":"Series"}`
+	selectReq := httptest.NewRequest(http.MethodPost, "/drives/0/select", strings.NewReader(selectBody))
+	selectReq.Header.Set("Content-Type", "application/json")
+	selectReq.Header.Set("Accept", "application/json")
+	selectRec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(selectRec, selectReq)
+
+	if selectRec.Code != http.StatusOK {
+		t.Fatalf("select: expected 200, got %d", selectRec.Code)
+	}
+
+	// Step 2: "Refresh" — GET the drive detail page.
+	detailReq := httptest.NewRequest(http.MethodGet, "/drives/0", nil)
+	detailRec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(detailRec, detailReq)
+
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("detail: expected 200, got %d", detailRec.Code)
+	}
+
+	body := detailRec.Body.String()
+
+	// The store JSON should contain the persisted selection.
+	if !strings.Contains(body, "Seinfeld") {
+		t.Error("detail page should contain 'Seinfeld' in store JSON after select")
+	}
+	if !strings.Contains(body, `"mediaItemID":"1"`) || !strings.Contains(body, `"releaseID":"10"`) {
+		t.Error("detail page should contain selected release IDs in store JSON")
+	}
+}
+
+func TestDriveSessionClearedOnEject(t *testing.T) {
+	store := NewDriveSessionStore()
+	store.Set(0, &DriveSession{
+		MediaTitle: "Seinfeld",
+		ReleaseID:  "10",
+	})
+
+	// Simulate eject by clearing session.
+	store.Clear(0)
+
+	if session := store.Get(0); session != nil {
+		t.Error("expected session to be nil after clear (simulating eject)")
+	}
+}
