@@ -1,9 +1,12 @@
 package web
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
 // wantsJSON returns true if the request's Accept header contains "application/json".
@@ -69,4 +72,36 @@ type DriveStoreJSON struct {
 type DrivesStoreJSON struct {
 	Ready bool        `json:"ready"`
 	List  []DriveJSON `json:"list"`
+}
+
+// scanToTitleJSON converts a makemkv.DiscScan's titles into TitleJSON slices.
+func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
+	titles := make([]TitleJSON, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		titles = append(titles, TitleJSON{
+			Index:      t.Index,
+			Name:       t.Name(),
+			Duration:   t.Duration(),
+			Size:       t.SizeHuman(),
+			SourceFile: t.SourceFile(),
+			Selected:   true,
+		})
+	}
+	return titles
+}
+
+// broadcastScanComplete publishes a scan-complete SSE event with title data.
+func (s *Server) broadcastScanComplete(driveIndex int, titles []TitleJSON) {
+	payload := struct {
+		DriveIndex int         `json:"driveIndex"`
+		Titles     []TitleJSON `json:"titles"`
+	}{
+		DriveIndex: driveIndex,
+		Titles:     titles,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	s.sseHub.Broadcast(SSEEvent{Event: "scan-complete", Data: string(data)})
 }
