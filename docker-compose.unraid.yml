@@ -11,6 +11,9 @@ services:
       - /mnt/user/media:/output
     environment:
       - BLUFORGE_AUTO_RIP=false
+      - USER_ID=99
+      - GROUP_ID=100
+      - UMASK=0000
       # Override output subdirectory structure if needed:
       # - BLUFORGE_MOVIE_TEMPLATE=Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})
       # - BLUFORGE_SERIES_TEMPLATE=TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}

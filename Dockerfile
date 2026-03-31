@@ -51,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
     libssl3 libexpat1 \
     libcurl4t64 zlib1g lsscsi \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -64,15 +65,11 @@ COPY --from=makemkv-builder /usr/share/MakeMKV /usr/share/MakeMKV
 
 RUN ldconfig && ldd /usr/bin/makemkvcon
 
-# Modify the existing nobody user (UID 65534) to have a real home directory
-# so MakeMKV's ~/.MakeMKV symlink works. Add to disk group for /dev/sr* access.
-RUN usermod -d /home/bluforge -s /bin/sh -G disk nobody && \
-    mkdir -p /home/bluforge && chown 65534:65534 /home/bluforge
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 9160
 
 VOLUME ["/config", "/output"]
 
-USER nobody
-
-ENTRYPOINT ["/app/bluforge"]
+ENTRYPOINT ["/app/entrypoint.sh"]

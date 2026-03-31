@@ -11,3 +11,6 @@ services:
       - /dev/sg0:/dev/sg0
     environment:
       - BLUFORGE_AUTO_RIP=false
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - UMASK=0022
