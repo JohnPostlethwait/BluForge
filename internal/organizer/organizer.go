@@ -87,8 +87,14 @@ func (o *Organizer) BuildSeriesPath(meta SeriesMeta) (string, error) {
 }
 
 // BuildUnmatchedPath returns the path for a disc file that could not be matched.
+// The source filename (e.g. "00300.mpls") has its extension replaced with .mkv
+// since MakeMKV always produces MKV container output.
 func (o *Organizer) BuildUnmatchedPath(discName, filename string) string {
-	return filepath.Join("Unmatched", SanitizeFilename(discName), SanitizeFilename(filename))
+	base := strings.TrimSuffix(SanitizeFilename(filename), filepath.Ext(filename))
+	if base == "" {
+		base = "title"
+	}
+	return filepath.Join("Unmatched", SanitizeFilename(discName), base+".mkv")
 }
 
 // BuildExtrasPath returns the path for bonus/extra content.

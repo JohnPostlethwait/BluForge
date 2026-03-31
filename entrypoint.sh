@@ -69,9 +69,6 @@ if [ "$(id -u)" -eq 0 ]; then
     export HOME=/home/bluforge
 
     echo "[entrypoint] Starting BluForge as UID=$USER_ID GID=$GROUP_ID UMASK=$UMASK"
-    echo "[entrypoint] User groups: $(id "$USER_NAME")"
-    echo "[entrypoint] Device permissions:"
-    ls -la /dev/sr* /dev/sg* 2>/dev/null || echo "[entrypoint] No /dev/sr* or /dev/sg* devices found"
 
     # Drop privileges and exec the application. Use the username (not UID:GID)
     # so gosu resolves supplementary groups from /etc/group (e.g., disk group

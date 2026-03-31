@@ -36,13 +36,11 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("makemkvcon: command failed", "args", args, "error", err, "output_bytes", len(out))
-		slog.Info("makemkvcon: raw output (on error)", "output", string(out))
 		// Return output even on error so callers can inspect messages.
 		return strings.NewReader(string(out)), err
 	}
 
 	slog.Info("makemkvcon: command completed", "args", args, "output_bytes", len(out))
-	slog.Info("makemkvcon: raw output", "output", string(out))
 	return strings.NewReader(string(out)), nil
 }
 
@@ -298,7 +296,7 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 
 	slog.Info("makemkvcon: starting rip", "drive", driveIndex, "title", titleID, "output", outputDir)
 
-	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "mkv", target, titleStr, outputDir)
+	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -310,8 +308,6 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 		return fmt.Errorf("makemkv: start rip disc:%d title %d: %w", driveIndex, titleID, err)
 	}
 
-	slog.Info("makemkvcon: rip process started", "drive", driveIndex, "title", titleID, "pid", cmd.Process.Pid)
-
 	// Stream output line-by-line for real-time progress updates.
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -319,7 +315,6 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 		if line == "" {
 			continue
 		}
-		slog.Info("makemkvcon: rip output", "line", line)
 		if onEvent != nil {
 			if ev, err := ParseLine(line); err == nil {
 				onEvent(ev)
@@ -329,8 +324,6 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 	if scanErr := scanner.Err(); scanErr != nil {
 		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
 	}
-
-	slog.Info("makemkvcon: rip output stream closed, waiting for exit", "drive", driveIndex, "title", titleID)
 
 	if err := cmd.Wait(); err != nil {
 		slog.Error("makemkvcon: rip command failed", "drive", driveIndex, "title", titleID, "error", err)

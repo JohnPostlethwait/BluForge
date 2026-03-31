@@ -231,7 +231,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 
 // buildDestPath selects the appropriate organizer method based on content type.
 func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection) (string, error) {
-	switch sel.ContentType {
+	switch strings.ToLower(sel.ContentType) {
 	case "movie":
 		return o.organizer.BuildMoviePath(organizer.MovieMeta{
 			Title: sel.ContentTitle,
