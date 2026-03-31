@@ -30,8 +30,29 @@ if [ "$(id -u)" -eq 0 ]; then
         useradd -u "$USER_ID" -g "$GROUP_ID" -d /home/bluforge -s /bin/sh -M "$USER_NAME"
     fi
 
-    # Add user to disk group for /dev/sr* and /dev/sg* access
-    usermod -aG disk "$USER_NAME" 2>/dev/null || true
+    # Add user to groups that own optical drive devices (/dev/sr*, /dev/sg*).
+    # Different hosts use different groups (disk, cdrom, etc.) so we detect
+    # the actual group owners from the devices present in the container.
+    DRIVE_GROUPS=""
+    for dev in /dev/sr* /dev/sg*; do
+        [ -e "$dev" ] || continue
+        DEV_GID=$(stat -c '%g' "$dev")
+        # Skip root-owned devices (GID 0) — we'd need root for those anyway.
+        [ "$DEV_GID" = "0" ] && continue
+        # Ensure the group exists in the container.
+        if ! getent group "$DEV_GID" >/dev/null 2>&1; then
+            groupadd -g "$DEV_GID" "devgroup${DEV_GID}"
+        fi
+        GRP_NAME=$(getent group "$DEV_GID" | cut -d: -f1)
+        # Collect unique group names.
+        case ",$DRIVE_GROUPS," in
+            *",$GRP_NAME,"*) ;;
+            *) DRIVE_GROUPS="${DRIVE_GROUPS:+$DRIVE_GROUPS,}$GRP_NAME" ;;
+        esac
+    done
+    if [ -n "$DRIVE_GROUPS" ]; then
+        usermod -aG "$DRIVE_GROUPS" "$USER_NAME" 2>/dev/null || true
+    fi
 
     # Ensure home directory exists and is owned correctly
     mkdir -p /home/bluforge
