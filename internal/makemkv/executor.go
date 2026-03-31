@@ -36,11 +36,13 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("makemkvcon: command failed", "args", args, "error", err, "output_bytes", len(out))
+		slog.Info("makemkvcon: raw output (on error)", "output", string(out))
 		// Return output even on error so callers can inspect messages.
 		return strings.NewReader(string(out)), err
 	}
 
 	slog.Info("makemkvcon: command completed", "args", args, "output_bytes", len(out))
+	slog.Info("makemkvcon: raw output", "output", string(out))
 	return strings.NewReader(string(out)), nil
 }
 
