@@ -74,7 +74,7 @@ func main() {
 	sseHub := web.NewSSEHub()
 
 	// 8. Create organizer.
-	org := organizer.New(cfg.MovieTemplate, cfg.SeriesTemplate)
+	org := organizer.New()
 
 	// 9. Create rip engine with onUpdate callback.
 	ripEngine := ripper.NewEngine(executor)
@@ -154,8 +154,6 @@ func main() {
 				slog.Info("auto-rip triggered", "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 				autoErr := orch.AutoRip(context.Background(), ev.DriveIndex, workflow.AutoRipConfig{
 					OutputDir:       snapCfg.OutputDir,
-					MovieTemplate:   snapCfg.MovieTemplate,
-					SeriesTemplate:  snapCfg.SeriesTemplate,
 					DuplicateAction: snapCfg.DuplicateAction,
 				})
 				if autoErr != nil {

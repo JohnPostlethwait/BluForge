@@ -1,120 +1,35 @@
 package organizer
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 )
 
-// MovieMeta holds metadata for a movie title.
-type MovieMeta struct {
-	Title string
-	Year  string
-	Part  string
+// Organizer builds destination paths and moves files atomically.
+type Organizer struct{}
+
+// New returns a ready Organizer.
+func New() *Organizer {
+	return &Organizer{}
 }
 
-// SeriesMeta holds metadata for a TV series episode.
-type SeriesMeta struct {
-	Show         string
-	Season       string
-	Episode      string
-	EpisodeTitle string
-}
-
-// ExtraMeta holds metadata for bonus/extra content.
-type ExtraMeta struct {
-	Title       string
-	Year        string
-	Show        string
-	Season      string
-	ExtraTitle  string
-	ContentType string // "Movie" or "Series"
-}
-
-// Organizer renders destination paths from Go templates and moves files atomically.
-type Organizer struct {
-	movieTmpl  *template.Template
-	seriesTmpl *template.Template
-}
-
-// New parses movieTemplate and seriesTemplate and returns a ready Organizer.
-// Templates are text/template strings; they panic on parse failure.
-func New(movieTemplate, seriesTemplate string) *Organizer {
-	return &Organizer{
-		movieTmpl:  template.Must(template.New("movie").Parse(movieTemplate)),
-		seriesTmpl: template.Must(template.New("series").Parse(seriesTemplate)),
+// BuildPath returns a sanitized path: <dirName>/<fileName>.mkv
+// dirName is typically the matched media title or the disc name.
+// fileName is the title name (e.g. "S01E02 - Male Unbonding") or source file.
+// The .mkv extension is always appended; any existing extension on fileName is
+// stripped first.
+func (o *Organizer) BuildPath(dirName, fileName string) string {
+	dir := SanitizeFilename(dirName)
+	if dir == "" {
+		dir = "Unknown"
 	}
-}
-
-// BuildMoviePath renders the movie template with meta, sanitizes each path component,
-// and appends ".mkv". If meta.Part is non-empty, " - Part N" is inserted before the extension.
-func (o *Organizer) BuildMoviePath(meta MovieMeta) (string, error) {
-	var buf bytes.Buffer
-	if err := o.movieTmpl.Execute(&buf, meta); err != nil {
-		return "", fmt.Errorf("render movie template: %w", err)
-	}
-
-	raw := buf.String()
-	sanitized := sanitizePath(raw)
-
-	base := filepath.Base(sanitized)
-	dir := filepath.Dir(sanitized)
-
-	if meta.Part != "" {
-		base = base + " - Part " + meta.Part
-	}
-	base = SanitizeFilename(base) + ".mkv"
-
-	return filepath.Join(dir, base), nil
-}
-
-// BuildSeriesPath renders the series template with meta, sanitizes each path component,
-// and appends ".mkv".
-func (o *Organizer) BuildSeriesPath(meta SeriesMeta) (string, error) {
-	var buf bytes.Buffer
-	if err := o.seriesTmpl.Execute(&buf, meta); err != nil {
-		return "", fmt.Errorf("render series template: %w", err)
-	}
-
-	raw := buf.String()
-	sanitized := sanitizePath(raw)
-
-	return sanitized + ".mkv", nil
-}
-
-// BuildUnmatchedPath returns the path for a disc file that could not be matched.
-// The source filename (e.g. "00300.mpls") has its extension replaced with .mkv
-// since MakeMKV always produces MKV container output.
-func (o *Organizer) BuildUnmatchedPath(discName, filename string) string {
-	base := strings.TrimSuffix(SanitizeFilename(filename), filepath.Ext(filename))
+	base := SanitizeFilename(strings.TrimSuffix(fileName, filepath.Ext(fileName)))
 	if base == "" {
 		base = "title"
 	}
-	return filepath.Join("Unmatched", SanitizeFilename(discName), base+".mkv")
-}
-
-// BuildExtrasPath returns the path for bonus/extra content.
-func (o *Organizer) BuildExtrasPath(meta ExtraMeta) string {
-	extraFile := SanitizeFilename(meta.ExtraTitle) + ".mkv"
-	if strings.EqualFold(meta.ContentType, "Series") {
-		return filepath.Join(
-			"TV",
-			SanitizeFilename(meta.Show),
-			"Season "+SanitizeFilename(meta.Season),
-			"Extras",
-			extraFile,
-		)
-	}
-	return filepath.Join(
-		"Movies",
-		SanitizeFilename(meta.Title)+" ("+SanitizeFilename(meta.Year)+")",
-		"Extras",
-		extraFile,
-	)
+	return filepath.Join(dir, base+".mkv")
 }
 
 // AtomicMove moves src to dst, creating parent directories as needed.
@@ -122,7 +37,7 @@ func (o *Organizer) BuildExtrasPath(meta ExtraMeta) string {
 // a copy-then-delete for cross-device moves.
 func AtomicMove(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
+		return err
 	}
 
 	if err := os.Rename(src, dst); err == nil {
@@ -131,12 +46,9 @@ func AtomicMove(src, dst string) error {
 
 	// Cross-device fallback: copy then delete.
 	if err := copyFile(src, dst); err != nil {
-		return fmt.Errorf("cross-device copy: %w", err)
+		return err
 	}
-	if err := os.Remove(src); err != nil {
-		return fmt.Errorf("remove source after copy: %w", err)
-	}
-	return nil
+	return os.Remove(src)
 }
 
 // FileExists reports whether path exists on disk.
@@ -149,21 +61,6 @@ func FileExists(path string) bool {
 	return info.Mode()&os.ModeSymlink == 0
 }
 
-// sanitizePath splits a forward-slash-delimited path, sanitizes each component,
-// and re-joins with the OS path separator.
-func sanitizePath(p string) string {
-	// Normalize to forward slashes so template authors can use "/" regardless of OS.
-	parts := strings.Split(filepath.ToSlash(p), "/")
-	sanitized := make([]string, 0, len(parts))
-	for _, part := range parts {
-		s := SanitizeFilename(part)
-		if s != "" {
-			sanitized = append(sanitized, s)
-		}
-	}
-	return filepath.Join(sanitized...)
-}
-
 // copyFile copies the content of src to dst, preserving permissions.
 // It refuses to follow symlinks to prevent symlink-based attacks.
 func copyFile(src, dst string) error {
@@ -172,7 +69,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing to copy symlink: %s", src)
+		return os.ErrPermission
 	}
 
 	in, err := os.Open(src)

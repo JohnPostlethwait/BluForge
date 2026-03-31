@@ -14,8 +14,6 @@ type AppConfig struct {
 	AutoRip          bool   `yaml:"auto_rip"`
 	MinTitleLength   int    `yaml:"min_title_length"`
 	PollInterval     int    `yaml:"poll_interval"`
-	MovieTemplate    string `yaml:"movie_template"`
-	SeriesTemplate   string `yaml:"series_template"`
 	GitHubClientID   string `yaml:"github_client_id"`
 	GitHubClientSecret string `yaml:"github_client_secret"`
 	DuplicateAction  string `yaml:"duplicate_action"`
@@ -29,8 +27,6 @@ func defaults() AppConfig {
 		AutoRip:        false,
 		MinTitleLength: 120,
 		PollInterval:   5,
-		MovieTemplate:  "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		SeriesTemplate: "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
 		DuplicateAction: "skip",
 	}
 }
@@ -62,12 +58,6 @@ func LoadFromEnv() AppConfig {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.PollInterval = n
 		}
-	}
-	if v := os.Getenv("BLUFORGE_MOVIE_TEMPLATE"); v != "" {
-		cfg.MovieTemplate = v
-	}
-	if v := os.Getenv("BLUFORGE_SERIES_TEMPLATE"); v != "" {
-		cfg.SeriesTemplate = v
 	}
 	if v := os.Getenv("BLUFORGE_GITHUB_CLIENT_ID"); v != "" {
 		cfg.GitHubClientID = v

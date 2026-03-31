@@ -236,8 +236,6 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		DiscKey:         discKey,
 		Titles:          titles,
 		OutputDir:       cfg.OutputDir,
-		MovieTemplate:   cfg.MovieTemplate,
-		SeriesTemplate:  cfg.SeriesTemplate,
 		DuplicateAction: cfg.DuplicateAction,
 		MediaItemID:     c.FormValue("media_item_id"),
 		ReleaseID:       c.FormValue("release_id"),

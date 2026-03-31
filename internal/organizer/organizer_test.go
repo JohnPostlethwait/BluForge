@@ -6,75 +6,43 @@ import (
 	"testing"
 )
 
-// defaultOrganizer returns an Organizer with the standard production templates.
-func defaultOrganizer() *Organizer {
-	return New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
-	)
-}
-
-func TestBuildMoviePath(t *testing.T) {
-	o := defaultOrganizer()
-	meta := MovieMeta{Title: "Deadpool 2", Year: "2018"}
-	got, err := o.BuildMoviePath(meta)
-	if err != nil {
-		t.Fatalf("BuildMoviePath returned error: %v", err)
-	}
-	want := filepath.Join("Movies", "Deadpool 2 (2018)", "Deadpool 2 (2018).mkv")
+func TestBuildPath_Matched(t *testing.T) {
+	o := New()
+	got := o.BuildPath("Seinfeld", "S01E02 - Male Unbonding")
+	want := filepath.Join("Seinfeld", "S01E02 - Male Unbonding.mkv")
 	if got != want {
-		t.Errorf("BuildMoviePath = %q, want %q", got, want)
+		t.Errorf("BuildPath = %q, want %q", got, want)
 	}
 }
 
-func TestBuildMoviePathWithPart(t *testing.T) {
-	o := defaultOrganizer()
-	meta := MovieMeta{Title: "Kill Bill", Year: "2003", Part: "1"}
-	got, err := o.BuildMoviePath(meta)
-	if err != nil {
-		t.Fatalf("BuildMoviePath returned error: %v", err)
-	}
-	want := filepath.Join("Movies", "Kill Bill (2003)", "Kill Bill (2003) - Part 1.mkv")
+func TestBuildPath_Unmatched(t *testing.T) {
+	o := New()
+	got := o.BuildPath("Seinfeld Season 1", "00300.mpls")
+	want := filepath.Join("Seinfeld Season 1", "00300.mkv")
 	if got != want {
-		t.Errorf("BuildMoviePath = %q, want %q", got, want)
+		t.Errorf("BuildPath = %q, want %q", got, want)
 	}
 }
 
-func TestBuildSeriesPath(t *testing.T) {
-	o := defaultOrganizer()
-	meta := SeriesMeta{
-		Show:         "Breaking Bad",
-		Season:       "01",
-		Episode:      "01",
-		EpisodeTitle: "Pilot",
-	}
-	got, err := o.BuildSeriesPath(meta)
-	if err != nil {
-		t.Fatalf("BuildSeriesPath returned error: %v", err)
-	}
-	want := filepath.Join("TV", "Breaking Bad", "Season 01", "Breaking Bad - S01E01 - Pilot.mkv")
+func TestBuildPath_Sanitizes(t *testing.T) {
+	o := New()
+	got := o.BuildPath("What If...?", "The Movie?.mkv")
+	want := filepath.Join("What If...", "The Movie.mkv")
 	if got != want {
-		t.Errorf("BuildSeriesPath = %q, want %q", got, want)
+		t.Errorf("BuildPath = %q, want %q", got, want)
 	}
 }
 
-func TestBuildPathSanitizesOutput(t *testing.T) {
-	o := defaultOrganizer()
-	// "What If...?" — the "?" should be stripped by SanitizeFilename.
-	meta := MovieMeta{Title: "What If...?", Year: "2021"}
-	got, err := o.BuildMoviePath(meta)
-	if err != nil {
-		t.Fatalf("BuildMoviePath returned error: %v", err)
-	}
-	// "?" is invalid; sanitized title becomes "What If..."
-	want := filepath.Join("Movies", "What If... (2021)", "What If... (2021).mkv")
+func TestBuildPath_EmptyFallbacks(t *testing.T) {
+	o := New()
+	got := o.BuildPath("", "")
+	want := filepath.Join("Unknown", "title.mkv")
 	if got != want {
-		t.Errorf("BuildMoviePath = %q, want %q", got, want)
+		t.Errorf("BuildPath = %q, want %q", got, want)
 	}
 }
 
 func TestAtomicMove(t *testing.T) {
-	// Create a temp directory to work in.
 	dir := t.TempDir()
 
 	src := filepath.Join(dir, "source.mkv")
@@ -89,12 +57,10 @@ func TestAtomicMove(t *testing.T) {
 		t.Fatalf("AtomicMove returned error: %v", err)
 	}
 
-	// Source should be gone.
 	if _, err := os.Stat(src); err == nil {
 		t.Errorf("source file still exists after AtomicMove")
 	}
 
-	// Destination should have the original content.
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("failed to read destination file: %v", err)

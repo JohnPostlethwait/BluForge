@@ -96,16 +96,8 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 // processTitle handles a single title: build path, duplicate check, disk space,
 // DB creation, engine submission.
 func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) TitleResult {
-	// 1. Build destination path via organizer based on content type.
-	destPath, err := o.buildDestPath(params, sel)
-	if err != nil {
-		return TitleResult{
-			TitleIndex: sel.TitleIndex,
-			Status:     "failed",
-			Reason:     fmt.Sprintf("build destination path: %v", err),
-		}
-	}
-
+	// 1. Build destination path.
+	destPath := o.buildDestPath(params, sel)
 	fullDest := filepath.Join(params.OutputDir, destPath)
 
 	// 2. Check for duplicates.
@@ -229,43 +221,23 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 	}
 }
 
-// buildDestPath selects the appropriate organizer method based on content type.
-func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection) (string, error) {
-	switch strings.ToLower(sel.ContentType) {
-	case "movie":
-		return o.organizer.BuildMoviePath(organizer.MovieMeta{
-			Title: sel.ContentTitle,
-			Year:  sel.Year,
-		})
-	case "series", "episode":
-		// For "episode" itemType (the common case from TheDiscDB), ContentTitle
-		// is the episode name (e.g. "Male Unbonding") and the show name comes
-		// from the release-level MediaTitle (e.g. "Seinfeld").
-		show := params.MediaTitle
-		episodeTitle := sel.ContentTitle
-		if show == "" {
-			// Fallback: if no release-level title, use ContentTitle as show name.
-			show = sel.ContentTitle
-			episodeTitle = sel.EpisodeTitle
-		}
-		return o.organizer.BuildSeriesPath(organizer.SeriesMeta{
-			Show:         show,
-			Season:       sel.Season,
-			Episode:      sel.Episode,
-			EpisodeTitle: episodeTitle,
-		})
-	case "extra":
-		return o.organizer.BuildExtrasPath(organizer.ExtraMeta{
-			Title:       sel.ContentTitle,
-			Year:        sel.Year,
-			Show:        sel.ContentTitle,
-			Season:      sel.Season,
-			ExtraTitle:  sel.TitleName,
-			ContentType: params.MediaType,
-		}), nil
-	default:
-		return o.organizer.BuildUnmatchedPath(params.DiscName, sel.SourceFile), nil
+// buildDestPath builds the output path for a title.
+// Matched titles use: <MediaTitle>/<TitleName>.mkv
+// Unmatched titles use: <DiscName>/<SourceFile>.mkv
+func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection) string {
+	if sel.TitleName != "" && params.MediaTitle != "" {
+		return o.organizer.BuildPath(params.MediaTitle, sel.TitleName)
 	}
+	// Unmatched: use disc name as directory, source file as filename.
+	dirName := params.DiscName
+	if dirName == "" {
+		dirName = params.MediaTitle
+	}
+	fileName := sel.SourceFile
+	if fileName == "" {
+		fileName = sel.TitleName
+	}
+	return o.organizer.BuildPath(dirName, fileName)
 }
 
 // ScanDisc delegates disc scanning to the configured scanner. Results are cached
@@ -369,8 +341,6 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 		DiscKey:         discKey,
 		Titles:          titles,
 		OutputDir:       cfg.OutputDir,
-		MovieTemplate:   cfg.MovieTemplate,
-		SeriesTemplate:  cfg.SeriesTemplate,
 		DuplicateAction: cfg.DuplicateAction,
 		MediaItemID:     mediaItemID,
 		ReleaseID:       releaseID,

@@ -71,16 +71,13 @@ func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestra
 	t.Cleanup(func() { store.Close() })
 
 	engine := ripper.NewEngine(&mockRipExecutor{})
-	org := organizer.New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
-	)
+	org := organizer.New()
 	orch := NewOrchestrator(OrchestratorDeps{
-		Store:     store,
-		Engine:    engine,
-		Organizer: org,
+		Store:       store,
+		Engine:      engine,
+		Organizer:   org,
 		OnBroadcast: func(string, string) {},
-		Scanner:   scanner,
+		Scanner:     scanner,
 	})
 
 	// Create the output directory so disk space checks pass.
@@ -96,18 +93,16 @@ func TestManualRip_Success(t *testing.T) {
 	orch, store, outputDir := setupOrchestrator(t)
 
 	params := ManualRipParams{
-		DriveIndex:    0,
-		DiscName:      "MY_MOVIE_DISC",
-		DiscKey:       "abc123",
-		OutputDir:     outputDir,
-		MovieTemplate: "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		SeriesTemplate: "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
+		DriveIndex:      0,
+		DiscName:        "MY_MOVIE_DISC",
+		DiscKey:         "abc123",
+		OutputDir:       outputDir,
 		DuplicateAction: "overwrite",
-		MediaItemID:   "item-1",
-		ReleaseID:     "rel-1",
-		MediaTitle:    "Test Movie",
-		MediaYear:     "2024",
-		MediaType:     "movie",
+		MediaItemID:     "item-1",
+		ReleaseID:       "rel-1",
+		MediaTitle:      "Test Movie",
+		MediaYear:       "2024",
+		MediaType:       "movie",
 		Titles: []TitleSelection{
 			{
 				TitleIndex:   0,
@@ -189,7 +184,8 @@ func TestManualRip_DuplicateSkip(t *testing.T) {
 	orch, _, outputDir := setupOrchestrator(t)
 
 	// Pre-create the destination file so the duplicate check triggers.
-	destPath := filepath.Join(outputDir, "Movies", "Test Movie (2024)", "Test Movie (2024).mkv")
+	// New path: <MediaTitle>/<TitleName>.mkv
+	destPath := filepath.Join(outputDir, "Test Movie", "Main Feature.mkv")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -198,13 +194,12 @@ func TestManualRip_DuplicateSkip(t *testing.T) {
 	}
 
 	params := ManualRipParams{
-		DriveIndex:    0,
-		DiscName:      "MY_MOVIE_DISC",
-		DiscKey:       "abc123",
-		OutputDir:     outputDir,
-		MovieTemplate: "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		SeriesTemplate: "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
+		DriveIndex:      0,
+		DiscName:        "MY_MOVIE_DISC",
+		DiscKey:         "abc123",
+		OutputDir:       outputDir,
 		DuplicateAction: "skip",
+		MediaTitle:      "Test Movie",
 		Titles: []TitleSelection{
 			{
 				TitleIndex:   0,
@@ -235,8 +230,6 @@ func TestAutoRip_WithMapping(t *testing.T) {
 	scanner := &mockDriveExecutor{}
 	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
 
-	// Pre-save a disc mapping. We need the disc key that BuildDiscKey will
-	// produce for our mock scan. Compute it the same way.
 	scan, _ := scanner.ScanDisc(context.Background(), 0)
 	discKey := discdb.BuildDiscKey(scan)
 
@@ -255,8 +248,6 @@ func TestAutoRip_WithMapping(t *testing.T) {
 
 	cfg := AutoRipConfig{
 		OutputDir:       outputDir,
-		MovieTemplate:   "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		SeriesTemplate:  "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
 		DuplicateAction: "overwrite",
 	}
 
@@ -264,7 +255,6 @@ func TestAutoRip_WithMapping(t *testing.T) {
 		t.Fatalf("AutoRip: %v", err)
 	}
 
-	// Wait for the async rip to complete.
 	deadline := time.After(5 * time.Second)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
@@ -288,15 +278,13 @@ func TestAutoRip_WithMapping(t *testing.T) {
 	}
 }
 
-func TestAutoRip_NoMatch_UsesUnmatched(t *testing.T) {
+func TestAutoRip_NoMatch_UsesDiscName(t *testing.T) {
 	scanner := &mockDriveExecutor{}
 	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
 
-	// No mapping saved, no discdb client — should use unmatched titles.
+	// No mapping saved, no discdb client — should use disc name as directory.
 	cfg := AutoRipConfig{
 		OutputDir:       outputDir,
-		MovieTemplate:   "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		SeriesTemplate:  "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}",
 		DuplicateAction: "overwrite",
 	}
 
@@ -304,7 +292,6 @@ func TestAutoRip_NoMatch_UsesUnmatched(t *testing.T) {
 		t.Fatalf("AutoRip: %v", err)
 	}
 
-	// Wait for the async rip to complete.
 	deadline := time.After(5 * time.Second)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
@@ -322,7 +309,6 @@ func TestAutoRip_NoMatch_UsesUnmatched(t *testing.T) {
 				if jobs[0].DiscName != "DEADPOOL_2" {
 					t.Errorf("expected disc name 'DEADPOOL_2', got %q", jobs[0].DiscName)
 				}
-				// Unmatched path should contain the disc name.
 				if jobs[0].OutputPath == "" {
 					t.Error("expected output path to be set")
 				}
@@ -336,7 +322,6 @@ func TestRescan(t *testing.T) {
 	scanner := &mockDriveExecutor{}
 	orch, store, _ := setupOrchestratorWithScanner(t, scanner)
 
-	// Pre-save a disc mapping.
 	scan, _ := scanner.ScanDisc(context.Background(), 0)
 	discKey := discdb.BuildDiscKey(scan)
 
@@ -353,7 +338,6 @@ func TestRescan(t *testing.T) {
 		t.Fatalf("SaveMapping: %v", err)
 	}
 
-	// Verify mapping exists.
 	mapping, err := store.GetMapping(discKey)
 	if err != nil {
 		t.Fatalf("GetMapping: %v", err)
@@ -362,12 +346,10 @@ func TestRescan(t *testing.T) {
 		t.Fatal("expected mapping to exist before rescan")
 	}
 
-	// Rescan should delete the mapping.
 	if err := orch.Rescan(context.Background(), 0); err != nil {
 		t.Fatalf("Rescan: %v", err)
 	}
 
-	// Verify mapping is deleted.
 	mapping, err = store.GetMapping(discKey)
 	if err != nil {
 		t.Fatalf("GetMapping after rescan: %v", err)

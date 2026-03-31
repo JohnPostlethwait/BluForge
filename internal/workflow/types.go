@@ -23,8 +23,6 @@ type ManualRipParams struct {
 	DiscKey         string
 	Titles          []TitleSelection
 	OutputDir       string
-	MovieTemplate   string
-	SeriesTemplate  string
 	DuplicateAction string
 	// Mapping metadata — saved for future lookups.
 	MediaItemID string
@@ -37,8 +35,6 @@ type ManualRipParams struct {
 // AutoRipConfig holds config values snapshotted at event time.
 type AutoRipConfig struct {
 	OutputDir       string
-	MovieTemplate   string
-	SeriesTemplate  string
 	DuplicateAction string
 }
 

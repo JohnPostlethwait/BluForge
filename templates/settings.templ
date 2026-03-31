@@ -9,8 +9,6 @@ type SettingsData struct {
 	MinTitleLength     string
 	PollInterval       string
 	DuplicateAction    string
-	MovieTemplate      string
-	SeriesTemplate     string
 	GitHubClientID     string
 	GitHubClientSecret string
 	CSRFToken          string
@@ -50,19 +48,6 @@ templ Settings(data SettingsData) {
 						<option value="overwrite" selected?={ data.DuplicateAction == "overwrite" }>Overwrite</option>
 						<option value="rename" selected?={ data.DuplicateAction == "rename" }>Rename</option>
 					</select>
-				</div>
-			</div>
-			<div class="card" style="margin-bottom: 1rem;">
-				<div class="section-title">Naming Templates</div>
-				<div class="form-group">
-					<label for="movie_template">Movie Template</label>
-					<input type="text" id="movie_template" name="movie_template" value={ data.MovieTemplate }/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">Variables: &#123;&#123;.Title&#125;&#125;, &#123;&#123;.Year&#125;&#125;</p>
-				</div>
-				<div class="form-group">
-					<label for="series_template">Series Template</label>
-					<input type="text" id="series_template" name="series_template" value={ data.SeriesTemplate }/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">Variables: &#123;&#123;.Show&#125;&#125;, &#123;&#123;.Season&#125;&#125;, &#123;&#123;.Episode&#125;&#125;, &#123;&#123;.EpisodeTitle&#125;&#125;</p>
 				</div>
 			</div>
 			<div class="card" style="margin-bottom: 1rem;">

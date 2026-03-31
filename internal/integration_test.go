@@ -186,23 +186,14 @@ func TestFullRipFlow(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------------------
-	// Step (d): Build a movie path via organizer
+	// Step (d): Build an output path via organizer
 	// -------------------------------------------------------------------------
-	org := organizer.New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
-	)
-	moviePath, err := org.BuildMoviePath(organizer.MovieMeta{
-		Title: "Deadpool 2",
-		Year:  "2018",
-	})
-	if err != nil {
-		t.Fatalf("BuildMoviePath failed: %v", err)
+	org := organizer.New()
+	outputPath := org.BuildPath("Deadpool 2", "Main Feature")
+	if outputPath == "" {
+		t.Error("expected non-empty output path")
 	}
-	if moviePath == "" {
-		t.Error("expected non-empty movie path")
-	}
-	t.Logf("movie path: %s", moviePath)
+	t.Logf("output path: %s", outputPath)
 
 	// -------------------------------------------------------------------------
 	// Step (e): Submit a rip job, wait for completion, assert progress == 100
@@ -264,10 +255,7 @@ func TestFullPipeline_ManualRip(t *testing.T) {
 
 	exec := &fullMockExecutor{}
 	engine := ripper.NewEngine(exec)
-	org := organizer.New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
-	)
+	org := organizer.New()
 
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{
 		Store:     store,
@@ -344,10 +332,7 @@ func TestFullPipeline_Rescan(t *testing.T) {
 
 	exec := &fullMockExecutor{}
 	engine := ripper.NewEngine(exec)
-	org := organizer.New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
-	)
+	org := organizer.New()
 
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{
 		Store:     store,
@@ -412,10 +397,7 @@ func TestFullPipeline_AutoRip_Unmatched(t *testing.T) {
 
 	exec := &fullMockExecutor{}
 	engine := ripper.NewEngine(exec)
-	org := organizer.New(
-		"Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})",
-		"TV/{{.Show}}/Season {{.Season}}/{{.Show}} S{{.Season}}E{{.Episode}}",
-	)
+	org := organizer.New()
 
 	// No DiscDB client — forces the unmatched path.
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{

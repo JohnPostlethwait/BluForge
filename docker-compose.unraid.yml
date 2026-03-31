@@ -14,9 +14,6 @@ services:
       - USER_ID=99
       - GROUP_ID=100
       - UMASK=0000
-      # Override output subdirectory structure if needed:
-      # - BLUFORGE_MOVIE_TEMPLATE=Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})
-      # - BLUFORGE_SERIES_TEMPLATE=TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}
       # - BLUFORGE_DUPLICATE_ACTION=skip
       # - BLUFORGE_MIN_TITLE_LENGTH=120
       # GitHub OAuth (optional, for TheDiscDB authentication):

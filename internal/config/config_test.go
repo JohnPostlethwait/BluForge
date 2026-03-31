@@ -15,8 +15,6 @@ func clearEnv(t *testing.T) {
 		"BLUFORGE_AUTO_RIP",
 		"BLUFORGE_MIN_TITLE_LENGTH",
 		"BLUFORGE_POLL_INTERVAL",
-		"BLUFORGE_MOVIE_TEMPLATE",
-		"BLUFORGE_SERIES_TEMPLATE",
 		"BLUFORGE_GITHUB_CLIENT_ID",
 		"BLUFORGE_GITHUB_CLIENT_SECRET",
 		"BLUFORGE_DUPLICATE_ACTION",
@@ -52,14 +50,6 @@ func TestLoadReturnsDefaults(t *testing.T) {
 	}
 	if cfg.PollInterval != 5 {
 		t.Errorf("PollInterval: want 5, got %d", cfg.PollInterval)
-	}
-	want := "Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})"
-	if cfg.MovieTemplate != want {
-		t.Errorf("MovieTemplate: want %q, got %q", want, cfg.MovieTemplate)
-	}
-	wantSeries := "TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}"
-	if cfg.SeriesTemplate != wantSeries {
-		t.Errorf("SeriesTemplate: want %q, got %q", wantSeries, cfg.SeriesTemplate)
 	}
 	if cfg.GitHubClientID != "" {
 		t.Errorf("GitHubClientID: want empty, got %q", cfg.GitHubClientID)

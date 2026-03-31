@@ -19,8 +19,6 @@ func (s *Server) handleSettings(c echo.Context) error {
 		MinTitleLength:     strconv.Itoa(cfg.MinTitleLength),
 		PollInterval:       strconv.Itoa(cfg.PollInterval),
 		DuplicateAction:    cfg.DuplicateAction,
-		MovieTemplate:      cfg.MovieTemplate,
-		SeriesTemplate:     cfg.SeriesTemplate,
 		GitHubClientID:     cfg.GitHubClientID,
 		GitHubClientSecret: cfg.GitHubClientSecret,
 		CSRFToken:          csrfToken(c),
@@ -32,8 +30,6 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	outputDir := c.FormValue("output_dir")
 	autoRip := c.FormValue("auto_rip") == "true"
 	duplicateAction := c.FormValue("duplicate_action")
-	movieTemplate := c.FormValue("movie_template")
-	seriesTemplate := c.FormValue("series_template")
 	githubClientID := c.FormValue("github_client_id")
 	githubClientSecret := c.FormValue("github_client_secret")
 
@@ -54,8 +50,6 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 		cfg.OutputDir = outputDir
 		cfg.AutoRip = autoRip
 		cfg.DuplicateAction = duplicateAction
-		cfg.MovieTemplate = movieTemplate
-		cfg.SeriesTemplate = seriesTemplate
 		cfg.GitHubClientID = githubClientID
 
 		// Only update the secret if the user provided a non-masked value.
