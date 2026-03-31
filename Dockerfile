@@ -64,8 +64,15 @@ COPY --from=makemkv-builder /usr/share/MakeMKV /usr/share/MakeMKV
 
 RUN ldconfig && ldd /usr/bin/makemkvcon
 
+# Create bluforge user (nobody:users — 65534:100) with a real home directory
+# so MakeMKV's ~/.MakeMKV symlink works. Add to disk group for /dev/sr* access.
+RUN groupadd -g 100 users 2>/dev/null || true && \
+    useradd -u 65534 -g 100 -G disk -m -d /home/bluforge -s /bin/sh bluforge
+
 EXPOSE 9160
 
 VOLUME ["/config", "/output"]
+
+USER bluforge
 
 ENTRYPOINT ["/app/bluforge"]
