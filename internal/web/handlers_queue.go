@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -9,43 +10,60 @@ import (
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
+// queueJobJSON is the Alpine store shape for a single queue job.
+type queueJobJSON struct {
+	ID          int64  `json:"id"`
+	DiscName    string `json:"discName"`
+	TitleName   string `json:"titleName"`
+	ContentType string `json:"contentType"`
+	Status      string `json:"status"`
+	Progress    int    `json:"progress"`
+	Error       string `json:"error,omitempty"`
+	DriveIndex  int    `json:"driveIndex"`
+	FinishedAt  string `json:"finishedAt,omitempty"`
+}
+
+// queueStoreJSON is the Alpine.store('queue') shape.
+type queueStoreJSON struct {
+	Active    []queueJobJSON `json:"active"`
+	Pending   []queueJobJSON `json:"pending"`
+	Completed []queueJobJSON `json:"completed"`
+}
+
 func (s *Server) handleQueue(c echo.Context) error {
-	// Get active jobs from the rip engine.
-	activeJobs := s.ripEngine.ActiveJobs()
-	active := make([]templates.QueueJobRow, 0, len(activeJobs))
-	for _, j := range activeJobs {
-		active = append(active, templates.QueueJobRow{
-			ID:         j.ID,
-			DiscName:   j.DiscName,
-			TitleName:  j.TitleName,
-			Status:     string(j.Status),
-			Progress:   j.Progress,
-			Error:      j.Error,
-			DriveIndex: j.DriveIndex,
-		})
+	store := queueStoreJSON{
+		Active:    make([]queueJobJSON, 0),
+		Pending:   make([]queueJobJSON, 0),
+		Completed: make([]queueJobJSON, 0),
 	}
 
-	// Get pending jobs from the store.
-	pendingJobs, err := s.store.ListJobsByStatus("pending")
-	if err != nil {
-		slog.Error("failed to list pending jobs", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load pending jobs.")
-	}
-	pending := make([]templates.QueueJobRow, 0, len(pendingJobs))
-	for _, j := range pendingJobs {
-		pending = append(pending, templates.QueueJobRow{
+	// Active jobs from the rip engine.
+	for _, j := range s.ripEngine.ActiveJobs() {
+		store.Active = append(store.Active, queueJobJSON{
 			ID:          j.ID,
 			DiscName:    j.DiscName,
 			TitleName:   j.TitleName,
 			ContentType: j.ContentType,
-			Status:      j.Status,
+			Status:      string(j.Status),
 			Progress:    j.Progress,
-			Error:       j.ErrorMessage,
+			Error:       j.Error,
 			DriveIndex:  j.DriveIndex,
 		})
 	}
 
-	// Get completed and failed jobs from the store.
+	// Queued (pending) jobs from the engine's per-drive queues.
+	for _, j := range s.ripEngine.QueuedJobs() {
+		store.Pending = append(store.Pending, queueJobJSON{
+			ID:          j.ID,
+			DiscName:    j.DiscName,
+			TitleName:   j.TitleName,
+			ContentType: j.ContentType,
+			Status:      string(j.Status),
+			DriveIndex:  j.DriveIndex,
+		})
+	}
+
+	// Completed and failed jobs from the database.
 	completedJobs, err := s.store.ListJobsByStatus("completed")
 	if err != nil {
 		slog.Error("failed to list completed jobs", "error", err)
@@ -56,10 +74,9 @@ func (s *Server) handleQueue(c echo.Context) error {
 		slog.Error("failed to list failed jobs", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load failed jobs.")
 	}
-	allDone := append(completedJobs, failedJobs...)
-	completed := make([]templates.QueueJobRow, 0, len(allDone))
-	for _, j := range allDone {
-		completed = append(completed, templates.QueueJobRow{
+
+	for _, j := range append(completedJobs, failedJobs...) {
+		store.Completed = append(store.Completed, queueJobJSON{
 			ID:          j.ID,
 			DiscName:    j.DiscName,
 			TitleName:   j.TitleName,
@@ -68,8 +85,17 @@ func (s *Server) handleQueue(c echo.Context) error {
 			Progress:    j.Progress,
 			Error:       j.ErrorMessage,
 			DriveIndex:  j.DriveIndex,
+			FinishedAt:  j.UpdatedAt.Format("Jan 2 15:04"),
 		})
 	}
 
-	return templates.Queue(active, pending, completed).Render(c.Request().Context(), c.Response().Writer)
+	storeBytes, err := json.Marshal(store)
+	if err != nil {
+		slog.Error("failed to marshal queue store", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to build queue data.")
+	}
+
+	return templates.Queue(templates.QueuePageData{
+		StoreJSON: string(storeBytes),
+	}).Render(c.Request().Context(), c.Response().Writer)
 }

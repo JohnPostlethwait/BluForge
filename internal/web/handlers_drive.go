@@ -191,18 +191,32 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	discName := c.FormValue("disc_name")
 
 	// Build title selections from form.
+	// Per-title hidden inputs provide match-specific data (season, episode, etc.)
+	// while global hidden inputs provide the release-level defaults.
 	var titles []workflow.TitleSelection
 	for _, tv := range c.Request().Form["titles"] {
 		titleIdx, err := strconv.Atoi(tv)
 		if err != nil {
 			continue
 		}
+		// Per-title fields override global fields when present.
+		contentType := c.FormValue(fmt.Sprintf("title_content_type_%d", titleIdx))
+		if contentType == "" {
+			contentType = c.FormValue("content_type")
+		}
+		contentTitle := c.FormValue(fmt.Sprintf("title_content_title_%d", titleIdx))
+		if contentTitle == "" {
+			contentTitle = c.FormValue("content_title")
+		}
 		titles = append(titles, workflow.TitleSelection{
 			TitleIndex:   titleIdx,
 			TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
-			ContentType:  c.FormValue("content_type"),
-			ContentTitle: c.FormValue("content_title"),
+			ContentType:  contentType,
+			ContentTitle: contentTitle,
 			Year:         c.FormValue("content_year"),
+			Season:       c.FormValue(fmt.Sprintf("title_season_%d", titleIdx)),
+			Episode:      c.FormValue(fmt.Sprintf("title_episode_%d", titleIdx)),
+			SourceFile:   c.FormValue(fmt.Sprintf("title_source_file_%d", titleIdx)),
 		})
 	}
 

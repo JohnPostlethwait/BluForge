@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
@@ -143,18 +145,62 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 		}
 	}
 
-	// 5. Create ripper job with OnComplete hook.
-	ripJob := ripper.NewJob(params.DriveIndex, sel.TitleIndex, params.DiscName, params.OutputDir)
+	// 5. Create a temp subdirectory for the rip. MakeMKV writes files with
+	// its own naming scheme (e.g. "Seinfeld Season 1_t01.mkv"). We rip into
+	// a temp dir, then move the output to the desired path in the OnComplete
+	// callback.
+	ripDir, err := os.MkdirTemp(params.OutputDir, fmt.Sprintf(".rip-%d-t%d-", params.DriveIndex, sel.TitleIndex))
+	if err != nil {
+		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
+			slog.Error("failed to update job status", "job_id", jobID, "error", dbErr)
+		}
+		return TitleResult{
+			TitleIndex: sel.TitleIndex,
+			Status:     "failed",
+			Reason:     fmt.Sprintf("create temp rip dir: %v", err),
+		}
+	}
+
+	// 6. Create ripper job with OnComplete hook.
+	ripJob := ripper.NewJob(params.DriveIndex, sel.TitleIndex, params.DiscName, ripDir)
 	ripJob.ID = jobID
 	ripJob.TitleName = sel.TitleName
+	ripJob.ContentType = sel.ContentType
 	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
 		if ripErr != nil {
 			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", job.Progress, ripErr.Error()); dbErr != nil {
 				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
 			}
 			o.broadcastJobUpdate(job.ID, "failed")
+			// Clean up temp dir on failure.
+			os.RemoveAll(ripDir)
 			return
 		}
+
+		// Find the .mkv file MakeMKV wrote to the temp dir.
+		srcPath, findErr := findMKVFile(ripDir)
+		if findErr != nil {
+			slog.Error("could not find ripped file", "job_id", job.ID, "rip_dir", ripDir, "error", findErr)
+			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", 100, findErr.Error()); dbErr != nil {
+				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
+			}
+			o.broadcastJobUpdate(job.ID, "failed")
+			return
+		}
+
+		// Move the ripped file to its final organized destination.
+		slog.Info("organizing ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest)
+		if moveErr := organizer.AtomicMove(srcPath, fullDest); moveErr != nil {
+			slog.Error("failed to organize ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest, "error", moveErr)
+			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", 100, fmt.Sprintf("organize: %v", moveErr)); dbErr != nil {
+				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
+			}
+			o.broadcastJobUpdate(job.ID, "failed")
+			return
+		}
+
+		// Clean up temp dir.
+		os.RemoveAll(ripDir)
 
 		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest); dbErr != nil {
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)
@@ -165,7 +211,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 		o.broadcastJobUpdate(job.ID, "completed")
 	}
 
-	// 6. Submit to engine.
+	// 7. Submit to engine.
 	if err := o.engine.Submit(ripJob); err != nil {
 		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
 			slog.Error("failed to update job status on submit failure", "job_id", jobID, "error", dbErr)
@@ -468,6 +514,21 @@ func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) 
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
 	o.scanCache[key] = scan
+}
+
+// findMKVFile returns the path to the first .mkv file in dir.
+// MakeMKV writes exactly one .mkv per rip into the output directory.
+func findMKVFile(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("read rip dir: %w", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".mkv") {
+			return filepath.Join(dir, e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("no .mkv file found in %s", dir)
 }
 
 // broadcastJobUpdate sends a job status update over SSE.

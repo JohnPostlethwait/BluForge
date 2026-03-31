@@ -1,33 +1,69 @@
 package templates
 
-import (
-	"fmt"
-	"github.com/johnpostlethwait/bluforge/templates/components"
-)
+import "fmt"
 
-// QueueJobRow holds display data for a single rip job in the queue view.
-type QueueJobRow struct {
-	ID          int64
-	DiscName    string
-	TitleName   string
-	ContentType string
-	Status      string
-	Progress    int
-	Error       string
-	DriveIndex  int
+// QueuePageData holds all data needed to render the queue page.
+type QueuePageData struct {
+	StoreJSON string // JSON blob for Alpine.store('queue') hydration
 }
 
-templ Queue(active, pending, completed []QueueJobRow) {
+templ Queue(data QueuePageData) {
 	@Layout("Queue") {
+		@templ.Raw(fmt.Sprintf(`<script>
+document.addEventListener('alpine:init', () => {
+	Alpine.store('queue', %s)
+
+	const evtSource = new EventSource('/events')
+
+	evtSource.addEventListener('rip-update', (e) => {
+		const job = JSON.parse(e.data)
+		const store = Alpine.store('queue')
+
+		// Update active job progress.
+		const active = store.active.find(j => j.id === job.ID)
+		if (active) {
+			active.progress = job.Progress
+			active.status = job.Status
+
+			// Move to completed when done.
+			if (job.Status === 'completed' || job.Status === 'failed') {
+				store.active = store.active.filter(j => j.id !== job.ID)
+				store.completed.unshift({
+					id: job.ID,
+					discName: job.DiscName,
+					titleName: job.TitleName,
+					contentType: active.contentType,
+					status: job.Status,
+					progress: job.Progress,
+					error: job.Error || '',
+					finishedAt: new Date().toLocaleString(),
+				})
+
+				// Promote next queued job to active.
+				const nextIdx = store.pending.findIndex(j => j.driveIndex === active.driveIndex)
+				if (nextIdx !== -1) {
+					const next = store.pending.splice(nextIdx, 1)[0]
+					next.status = 'ripping'
+					next.progress = 0
+					store.active.push(next)
+				}
+			}
+		}
+	})
+})
+</script>`, data.StoreJSON))
+
 		<div class="page-header">
 			<h1>Queue</h1>
 		</div>
-		<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+		<div style="display: flex; flex-direction: column; gap: 1.5rem;" x-data>
+			<!-- Active Jobs -->
 			<div class="card">
 				<div class="section-title">Active</div>
-				if len(active) == 0 {
+				<template x-if="$store.queue.active.length === 0">
 					<div class="empty-state"><p>No active jobs.</p></div>
-				} else {
+				</template>
+				<template x-if="$store.queue.active.length > 0">
 					<table>
 						<thead>
 							<tr>
@@ -38,33 +74,33 @@ templ Queue(active, pending, completed []QueueJobRow) {
 							</tr>
 						</thead>
 						<tbody>
-							for _, j := range active {
-								<tr
-									hx-ext="sse"
-									sse-connect="/events"
-									sse-swap={ fmt.Sprintf("job-update-%d", j.ID) }
-									hx-target={ fmt.Sprintf("#job-row-%d", j.ID) }
-									hx-swap="outerHTML"
-									id={ fmt.Sprintf("job-row-%d", j.ID) }
-								>
-									<td>{ j.DiscName }</td>
-									<td>{ j.TitleName }</td>
-									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
+							<template x-for="j in $store.queue.active" :key="j.id">
+								<tr>
+									<td x-text="j.discName"></td>
+									<td x-text="j.titleName"></td>
+									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
 									<td style="min-width: 140px;">
-										<span class="text-secondary">{ fmt.Sprintf("%d%%", j.Progress) }</span>
-										@components.ProgressBar(fmt.Sprintf("job-%d", j.ID), j.Progress)
+										<div style="display: flex; align-items: center; gap: 0.5rem;">
+											<span class="text-secondary" x-text="j.progress + '%'"></span>
+											<div class="progress-bar" style="flex: 1;">
+												<div class="progress-fill" :style="'width: ' + j.progress + '%'"></div>
+											</div>
+										</div>
 									</td>
 								</tr>
-							}
+							</template>
 						</tbody>
 					</table>
-				}
+				</template>
 			</div>
+
+			<!-- Pending Jobs -->
 			<div class="card">
 				<div class="section-title">Pending</div>
-				if len(pending) == 0 {
+				<template x-if="$store.queue.pending.length === 0">
 					<div class="empty-state"><p>No pending jobs.</p></div>
-				} else {
+				</template>
+				<template x-if="$store.queue.pending.length > 0">
 					<table>
 						<thead>
 							<tr>
@@ -75,23 +111,26 @@ templ Queue(active, pending, completed []QueueJobRow) {
 							</tr>
 						</thead>
 						<tbody>
-							for _, j := range pending {
+							<template x-for="j in $store.queue.pending" :key="j.id">
 								<tr>
-									<td>{ j.DiscName }</td>
-									<td>{ j.TitleName }</td>
-									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
-									<td><span class={ fmt.Sprintf("badge badge-%s", j.Status) }>{ j.Status }</span></td>
+									<td x-text="j.discName"></td>
+									<td x-text="j.titleName"></td>
+									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
+									<td><span class="badge badge-pending">queued</span></td>
 								</tr>
-							}
+							</template>
 						</tbody>
 					</table>
-				}
+				</template>
 			</div>
+
+			<!-- Recently Completed -->
 			<div class="card">
 				<div class="section-title">Recently Completed</div>
-				if len(completed) == 0 {
+				<template x-if="$store.queue.completed.length === 0">
 					<div class="empty-state"><p>No completed jobs yet.</p></div>
-				} else {
+				</template>
+				<template x-if="$store.queue.completed.length > 0">
 					<table>
 						<thead>
 							<tr>
@@ -99,26 +138,29 @@ templ Queue(active, pending, completed []QueueJobRow) {
 								<th>Title</th>
 								<th>Type</th>
 								<th>Status</th>
+								<th>Finished</th>
 							</tr>
 						</thead>
 						<tbody>
-							for _, j := range completed {
+							<template x-for="j in $store.queue.completed" :key="j.id">
 								<tr>
-									<td>{ j.DiscName }</td>
-									<td>{ j.TitleName }</td>
-									<td><span class={ fmt.Sprintf("badge badge-%s", j.ContentType) }>{ j.ContentType }</span></td>
+									<td x-text="j.discName"></td>
+									<td x-text="j.titleName"></td>
+									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
 									<td>
-										if j.Status == "failed" && j.Error != "" {
-											<span class="text-error">{ j.Error }</span>
-										} else {
-											<span class={ fmt.Sprintf("badge badge-%s", j.Status) }>{ j.Status }</span>
-										}
+										<template x-if="j.status === 'failed' && j.error">
+											<span class="text-error" x-text="j.error"></span>
+										</template>
+										<template x-if="!(j.status === 'failed' && j.error)">
+											<span class="badge" :class="'badge-' + j.status" x-text="j.status"></span>
+										</template>
 									</td>
+									<td class="text-muted" x-text="j.finishedAt"></td>
 								</tr>
-							}
+							</template>
 						</tbody>
 					</table>
-				}
+				</template>
 			</div>
 		</div>
 	}

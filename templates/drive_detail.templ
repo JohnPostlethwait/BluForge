@@ -288,6 +288,12 @@ async function scanDisc(driveIndex) {
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
 										<td class="text-secondary" x-text="t.duration"></td>
 										<td class="text-secondary" x-text="t.size"></td>
+										@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
+										@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
+										@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
+										@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
+										@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
+										@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
 									</tr>
 								</template>
 							</tbody>

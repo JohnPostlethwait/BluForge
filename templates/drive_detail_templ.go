@@ -312,7 +312,35 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td></tr></template></tbody></table></div><div class=\"mt-3\"><button type=\"submit\" class=\"btn btn-primary\">Rip Selected</button></div></form></template></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</tr></template></tbody></table></div><div class=\"mt-3\"><button type=\"submit\" class=\"btn btn-primary\">Rip Selected</button></div></form></template></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

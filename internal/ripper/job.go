@@ -19,21 +19,22 @@ const (
 
 // Job tracks the state of a single title rip operation.
 // JSON tags use uppercase names to match the existing SSE contract consumed
-// by Alpine.js in drive_detail.templ and HTMX in queue.templ.
+// by Alpine.js in drive_detail.templ and queue.templ.
 type Job struct {
-	mu         sync.Mutex `json:"-"`
-	ID         int64      `json:"ID"`
-	DriveIndex int        `json:"DriveIndex"`
-	TitleIndex int        `json:"TitleIndex"`
-	DiscName   string     `json:"DiscName"`
-	TitleName  string     `json:"TitleName"`
-	OutputDir  string     `json:"-"`
-	OutputPath string     `json:"-"`
-	Status     JobStatus  `json:"Status"`
-	Progress   int        `json:"Progress"`
-	Error      string     `json:"Error,omitempty"`
-	StartedAt  time.Time  `json:"StartedAt"`
-	FinishedAt time.Time  `json:"FinishedAt"`
+	mu          sync.Mutex `json:"-"`
+	ID          int64      `json:"ID"`
+	DriveIndex  int        `json:"DriveIndex"`
+	TitleIndex  int        `json:"TitleIndex"`
+	DiscName    string     `json:"DiscName"`
+	TitleName   string     `json:"TitleName"`
+	ContentType string     `json:"ContentType,omitempty"`
+	OutputDir   string     `json:"-"`
+	OutputPath  string     `json:"-"`
+	Status      JobStatus  `json:"Status"`
+	Progress    int        `json:"Progress"`
+	Error       string     `json:"Error,omitempty"`
+	StartedAt   time.Time  `json:"StartedAt"`
+	FinishedAt  time.Time  `json:"FinishedAt"`
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
 	OnComplete func(job *Job, err error) `json:"-"`

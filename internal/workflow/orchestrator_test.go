@@ -14,10 +14,13 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
-// mockRipExecutor completes rips instantly by firing a 100% progress event.
+// mockRipExecutor completes rips instantly by firing a 100% progress event
+// and creating a dummy .mkv file in the output directory (simulating MakeMKV).
 type mockRipExecutor struct{}
 
-func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDir string, onEvent func(makemkv.Event)) error {
+	// Simulate MakeMKV writing a .mkv file.
+	_ = os.WriteFile(filepath.Join(outputDir, "title_t00.mkv"), []byte("fake"), 0o644)
 	if onEvent != nil {
 		onEvent(makemkv.Event{
 			Type:     "PRGV",

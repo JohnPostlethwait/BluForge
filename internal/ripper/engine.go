@@ -95,6 +95,17 @@ func (e *Engine) ActiveJobs() []*Job {
 	return jobs
 }
 
+// QueuedJobs returns a snapshot of all jobs waiting in per-drive queues.
+func (e *Engine) QueuedJobs() []*Job {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var jobs []*Job
+	for _, q := range e.queued {
+		jobs = append(jobs, q...)
+	}
+	return jobs
+}
+
 // notify calls the onUpdate callback if one has been registered.
 func (e *Engine) notify(job *Job) {
 	e.mu.Lock()

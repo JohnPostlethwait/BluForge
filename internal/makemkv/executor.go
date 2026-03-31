@@ -1,6 +1,7 @@
 package makemkv
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
@@ -281,26 +282,47 @@ func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 }
 
 // StartRip runs `makemkvcon -r mkv disc:N titleID outputDir` and calls
-// onEvent for each parsed Event line. onEvent may be nil.
+// onEvent for each parsed Event line in real time. onEvent may be nil.
+//
+// Unlike scan operations, rips use the caller's context directly — no
+// additional timeout is applied because disc rips can take 30+ minutes
+// depending on title size and drive speed.
 func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event)) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
-	defer cancel()
-
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	titleStr := fmt.Sprintf("%d", titleID)
 
-	r, err := e.runner.Run(ctx, "-r", "mkv", target, titleStr, outputDir)
-	// Parse output regardless of error so progress/messages are delivered.
-	events, parseErr := ParseAll(r)
-	if parseErr == nil && onEvent != nil {
-		for _, ev := range events {
-			onEvent(ev)
+	slog.Info("makemkvcon: starting rip", "drive", driveIndex, "title", titleID, "output", outputDir)
+
+	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "mkv", target, titleStr, outputDir)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("makemkv: stdout pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("makemkv: start rip disc:%d title %d: %w", driveIndex, titleID, err)
+	}
+
+	// Stream output line-by-line for real-time progress updates.
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\r")
+		if line == "" {
+			continue
+		}
+		if onEvent != nil {
+			if ev, err := ParseLine(line); err == nil {
+				onEvent(ev)
+			}
 		}
 	}
-	if err != nil {
+
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("makemkv: rip disc:%d title %d: %w", driveIndex, titleID, err)
 	}
 	return nil
