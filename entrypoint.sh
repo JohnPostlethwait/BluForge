@@ -37,10 +37,11 @@ if [ "$(id -u)" -eq 0 ]; then
     mkdir -p /home/bluforge
     chown "$USER_ID:$GROUP_ID" /home/bluforge
 
-    # Ensure /config and /output are writable by the configured user.
-    # Only chown the top-level directory, not recursively (volumes may contain
-    # thousands of files and the user may have set permissions intentionally).
-    chown "$USER_ID:$GROUP_ID" /config 2>/dev/null || true
+    # Ensure /config is writable by the configured user. Recursive chown is
+    # safe here — /config holds only small config/db files, not media.
+    chown -R "$USER_ID:$GROUP_ID" /config 2>/dev/null || true
+    # Only chown the top-level /output directory, not recursively — it may
+    # contain thousands of media files with intentional permissions.
     chown "$USER_ID:$GROUP_ID" /output 2>/dev/null || true
 
     # Set HOME so MakeMKV's setupMakeMKVData() finds ~/.MakeMKV correctly
@@ -48,8 +49,10 @@ if [ "$(id -u)" -eq 0 ]; then
 
     echo "[entrypoint] Starting BluForge as UID=$USER_ID GID=$GROUP_ID UMASK=$UMASK"
 
-    # Drop privileges and exec the application
-    exec gosu "$USER_ID:$GROUP_ID" /app/bluforge "$@"
+    # Drop privileges and exec the application. Use the username (not UID:GID)
+    # so gosu resolves supplementary groups from /etc/group (e.g., disk group
+    # for /dev/sr* access). Using UID:GID would clear supplementary groups.
+    exec gosu "$USER_NAME" /app/bluforge "$@"
 else
     # Already non-root (e.g., Kubernetes with runAsUser)
     echo "[entrypoint] Running as UID=$(id -u), skipping user setup"
