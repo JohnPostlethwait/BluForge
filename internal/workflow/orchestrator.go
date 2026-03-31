@@ -237,12 +237,22 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 			Title: sel.ContentTitle,
 			Year:  sel.Year,
 		})
-	case "series":
+	case "series", "episode":
+		// For "episode" itemType (the common case from TheDiscDB), ContentTitle
+		// is the episode name (e.g. "Male Unbonding") and the show name comes
+		// from the release-level MediaTitle (e.g. "Seinfeld").
+		show := params.MediaTitle
+		episodeTitle := sel.ContentTitle
+		if show == "" {
+			// Fallback: if no release-level title, use ContentTitle as show name.
+			show = sel.ContentTitle
+			episodeTitle = sel.EpisodeTitle
+		}
 		return o.organizer.BuildSeriesPath(organizer.SeriesMeta{
-			Show:         sel.ContentTitle,
+			Show:         show,
 			Season:       sel.Season,
 			Episode:      sel.Episode,
-			EpisodeTitle: sel.EpisodeTitle,
+			EpisodeTitle: episodeTitle,
 		})
 	case "extra":
 		return o.organizer.BuildExtrasPath(organizer.ExtraMeta{

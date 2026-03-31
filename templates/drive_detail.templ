@@ -103,7 +103,8 @@ function deselectAllTitles() {
 
 function matchDisplay(t) {
 	if (!t.matched) return ''
-	if (t.contentType === 'series' && t.season && t.episode) {
+	const ct = (t.contentType || '').toLowerCase()
+	if ((ct === 'series' || ct === 'episode') && t.season && t.episode) {
 		return 'S' + t.season.padStart(2, '0') + 'E' + t.episode.padStart(2, '0') + ' - ' + t.contentTitle
 	}
 	return t.contentTitle || ''
