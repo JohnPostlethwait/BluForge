@@ -310,6 +310,8 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 		return fmt.Errorf("makemkv: start rip disc:%d title %d: %w", driveIndex, titleID, err)
 	}
 
+	slog.Info("makemkvcon: rip process started", "drive", driveIndex, "title", titleID, "pid", cmd.Process.Pid)
+
 	// Stream output line-by-line for real-time progress updates.
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -317,15 +319,23 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 		if line == "" {
 			continue
 		}
+		slog.Info("makemkvcon: rip output", "line", line)
 		if onEvent != nil {
 			if ev, err := ParseLine(line); err == nil {
 				onEvent(ev)
 			}
 		}
 	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
+	}
+
+	slog.Info("makemkvcon: rip output stream closed, waiting for exit", "drive", driveIndex, "title", titleID)
 
 	if err := cmd.Wait(); err != nil {
+		slog.Error("makemkvcon: rip command failed", "drive", driveIndex, "title", titleID, "error", err)
 		return fmt.Errorf("makemkv: rip disc:%d title %d: %w", driveIndex, titleID, err)
 	}
+	slog.Info("makemkvcon: rip command completed successfully", "drive", driveIndex, "title", titleID)
 	return nil
 }
