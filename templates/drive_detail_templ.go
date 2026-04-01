@@ -570,7 +570,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success" role="status">All titles ripped successfully. You can eject the disc or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success" role="status">All titles ripped successfully. You can eject the disc or <a href="/activity?tab=history" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
