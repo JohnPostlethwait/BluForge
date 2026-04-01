@@ -201,6 +201,33 @@ function matchDisplay(t) {
 	return t.contentTitle || ''
 }
 
+function sortedTitles() {
+	const titles = Alpine.store('drive').titles
+	return [...titles].sort((a, b) => {
+		const aEp = (a.contentType || '').toLowerCase()
+		const bEp = (b.contentType || '').toLowerCase()
+		const aIsEp = aEp === 'episode' || aEp === 'series'
+		const bIsEp = bEp === 'episode' || bEp === 'series'
+		if (aIsEp && !bIsEp) return -1
+		if (!aIsEp && bIsEp) return 1
+		if (aIsEp && bIsEp) {
+			const aSeason = parseInt(a.season || '0', 10)
+			const bSeason = parseInt(b.season || '0', 10)
+			if (aSeason !== bSeason) return aSeason - bSeason
+			return parseInt(a.episode || '0', 10) - parseInt(b.episode || '0', 10)
+		}
+		return 0
+	})
+}
+
+function contentTypeBadgeClass(t) {
+	if (!t.matched || !t.contentType) return ''
+	const ct = t.contentType.toLowerCase()
+	if (ct === 'episode' || ct === 'series') return 'badge badge-episode'
+	if (ct === 'movie') return 'badge badge-movie'
+	return 'badge badge-extra'
+}
+
 function selectedTitleCount() {
 	return Alpine.store('drive').titles.filter(t => t.selected).length
 }
@@ -249,7 +276,7 @@ async function scanDisc(driveIndex) {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 201, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 228, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -267,7 +294,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.DriveName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 206, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 233, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -353,19 +380,27 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Type</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<th>Source</th>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output Filename</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<th>Duration</th><th>Size</th></tr></thead> <tbody><template x-for=\"t in $store.drive.titles\" :key=\"t.index\"><tr><td style=\"display:flex; align-items:center; gap:0.25rem;\"><input type=\"checkbox\" :checked=\"t.selected\" x-on:change=\"t.selected = $el.checked\"><span x-show=\"t.matched\" class=\"match-icon\" title=\"Matched to TheDiscDB\">&#x2714;</span></td><td class=\"text-muted\" x-text=\"t.index\"></td>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<th>Duration</th><th>Size</th></tr></thead> <tbody><template x-for=\"t in sortedTitles()\" :key=\"t.index\"><tr><td style=\"display:flex; align-items:center; gap:0.25rem;\"><input type=\"checkbox\" :checked=\"t.selected\" x-on:change=\"t.selected = $el.checked\"><span x-show=\"t.matched\" class=\"match-icon\" title=\"Matched to TheDiscDB\">&#x2714;</span></td><td class=\"text-muted\" x-text=\"t.index\"></td>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -400,7 +435,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var5 templ.SafeURL
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 496, Col: 96}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 525, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -413,7 +448,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 497, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 526, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
