@@ -1,0 +1,27 @@
+<svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Disc body: deep navy radial gradient -->
+  <circle cx="36" cy="36" r="30" fill="url(#discFill)"/>
+  <!-- Inner ring groove suggesting data tracks -->
+  <circle cx="36" cy="36" r="22" fill="none" stroke="#1e3a6e" stroke-width="1.5"/>
+  <!-- Center hole -->
+  <circle cx="36" cy="36" r="6" fill="#0f1419"/>
+  <!-- Ember ring: blue at top → amber → orange at bottom -->
+  <circle cx="36" cy="36" r="30" fill="none" stroke="url(#emberRing)" stroke-width="3.5"/>
+  <!-- Heat bloom below disc -->
+  <ellipse cx="36" cy="63" rx="16" ry="5" fill="url(#heatGlow)" opacity="0.6"/>
+  <defs>
+    <radialGradient id="discFill" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#172554"/>
+    </radialGradient>
+    <linearGradient id="emberRing" x1="36" y1="4" x2="36" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="55%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <radialGradient id="heatGlow" cx="50%" cy="0%" r="100%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>
