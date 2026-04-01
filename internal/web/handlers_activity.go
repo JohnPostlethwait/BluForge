@@ -185,3 +185,24 @@ func (s *Server) handleActivityCancel(c echo.Context) error {
 	return echo.NewHTTPError(http.StatusNotFound, "job not found in active or queued")
 }
 
+// handleActivityClearHistory deletes all rip jobs from the DB that are not
+// currently active or queued in the rip engine.
+func (s *Server) handleActivityClearHistory(c echo.Context) error {
+	var excludeIDs []int64
+	if s.ripEngine != nil {
+		for _, j := range s.ripEngine.ActiveJobs() {
+			excludeIDs = append(excludeIDs, j.ID)
+		}
+		for _, j := range s.ripEngine.QueuedJobs() {
+			excludeIDs = append(excludeIDs, j.ID)
+		}
+	}
+
+	if err := s.store.DeleteJobsExcept(excludeIDs); err != nil {
+		slog.Error("failed to clear job history", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to clear history.")
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
