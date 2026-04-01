@@ -62,6 +62,7 @@ document.addEventListener('alpine:init', () => {
 			} else {
 				jobs.push(update)
 			}
+			jobs.sort((a, b) => a.ID - b.ID)
 			Alpine.store('drive').ripJobs = jobs
 			if (Alpine.store('drive').currentStep !== 5) {
 				Alpine.store('drive').currentStep = 5

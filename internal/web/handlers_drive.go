@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -114,6 +115,9 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 				driveStore.RipJobs = append(driveStore.RipJobs, ripJobToJSON(j))
 			}
 		}
+		sort.Slice(driveStore.RipJobs, func(i, j int) bool {
+			return driveStore.RipJobs[i].ID < driveStore.RipJobs[j].ID
+		})
 	} else if len(driveStore.Titles) > 0 {
 		driveStore.CurrentStep = 4
 	} else if driveStore.SelectedRelease != nil && driveStore.SelectedRelease.ReleaseID != "" {
