@@ -247,12 +247,12 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 
 // buildDestPath builds the output path for a title.
 // Matched titles use: <MediaTitle>/<TitleName>.mkv
-// Unmatched titles use: <DiscName>/<SourceFile>.mkv
+// Unmatched titles use: <DiscName>/<DiscName> - <SourceFile>.mkv
 func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection) string {
 	if sel.TitleName != "" && params.MediaTitle != "" {
 		return o.organizer.BuildPath(params.MediaTitle, sel.TitleName)
 	}
-	// Unmatched: use disc name as directory, source file as filename.
+	// Unmatched: use disc name as directory, prepend disc name to source file.
 	dirName := params.DiscName
 	if dirName == "" {
 		dirName = params.MediaTitle
@@ -260,6 +260,9 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 	fileName := sel.SourceFile
 	if fileName == "" {
 		fileName = sel.TitleName
+	}
+	if dirName != "" {
+		fileName = dirName + " - " + fileName
 	}
 	return o.organizer.BuildPath(dirName, fileName)
 }
