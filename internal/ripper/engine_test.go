@@ -165,8 +165,8 @@ func (p *progressRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string
 			onEvent(makemkv.Event{
 				Type: "PRGV",
 				Progress: &makemkv.Progress{
-					Current: pct,
-					Total:   100,
+					Current: 0,
+					Total:   pct,
 					Max:     100,
 				},
 			})

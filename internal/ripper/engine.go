@@ -191,7 +191,7 @@ func (e *Engine) run(job *Job) {
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
 			if p.Max > 0 {
-				pct := int(float64(p.Current) / float64(p.Max) * 100)
+				pct := int(float64(p.Total) / float64(p.Max) * 100)
 				if pct > 100 {
 					pct = 100
 				}
