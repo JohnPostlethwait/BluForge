@@ -44,15 +44,25 @@ nav {
 }
 
 .logo {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--accent-blue);
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-decoration: none;
+  font-size: 1.1rem;
+  font-weight: 700;
   letter-spacing: -0.025em;
 }
 
-.logo:hover {
-  color: var(--accent-blue-hover);
+.logo-blu {
+  color: var(--text-primary);
+}
+
+.logo-forge {
+  color: #f59e0b;
+}
+
+.logo:hover .logo-forge {
+  color: #f97316;
 }
 
 .nav-links {
