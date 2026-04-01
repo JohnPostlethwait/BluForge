@@ -153,17 +153,17 @@ func (s *Store) DeleteJobsExcept(excludeIDs []int64) error {
 		return nil
 	}
 
-	placeholders := strings.Join(strings.Split(strings.Repeat("?", len(excludeIDs)), ""), ", ")
-	q := fmt.Sprintf(`DELETE FROM rip_jobs WHERE id NOT IN (%s)`, placeholders)
-
+	placeholders := make([]string, len(excludeIDs))
 	args := make([]any, len(excludeIDs))
 	for i, id := range excludeIDs {
+		placeholders[i] = "?"
 		args[i] = id
 	}
+	q := "DELETE FROM rip_jobs WHERE id NOT IN (" + strings.Join(placeholders, ",") + ")"
 
 	_, err := s.db.Exec(q, args...)
 	if err != nil {
-		return fmt.Errorf("delete jobs except: %w", err)
+		return fmt.Errorf("delete jobs except %v: %w", excludeIDs, err)
 	}
 	return nil
 }
