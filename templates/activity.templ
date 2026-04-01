@@ -13,6 +13,9 @@ templ Activity(data ActivityPageData) {
 document.addEventListener('alpine:init', () => {
 	Alpine.store('activity', %s)
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
+	window.addEventListener('popstate', () => {
+		Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
+	})
 
 	const evtSource = new EventSource('/events')
 
@@ -121,7 +124,7 @@ async function clearHistory(btn) {
 			<button
 				class="tab-btn"
 				:class="{'tab-active': $store.activityTab === 'active'}"
-				x-on:click="$store.activityTab = 'active'"
+				x-on:click="$store.activityTab = 'active'; const u = new URL(window.location); u.searchParams.set('tab', 'active'); history.pushState(null, '', u)"
 			>
 				Active &amp; Queued
 				<template x-if="$store.activity.active.length + $store.activity.pending.length > 0">
@@ -131,7 +134,7 @@ async function clearHistory(btn) {
 			<button
 				class="tab-btn"
 				:class="{'tab-active': $store.activityTab === 'history'}"
-				x-on:click="$store.activityTab = 'history'"
+				x-on:click="$store.activityTab = 'history'; const u = new URL(window.location); u.searchParams.set('tab', 'history'); history.pushState(null, '', u)"
 			>
 				History
 			</button>
