@@ -133,8 +133,10 @@ func TestHandleActivityCancel_RemovesQueued(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Job 1 will start running immediately (blocks).
+	job1Done := make(chan struct{})
 	job1 := ripper.NewJob(0, 0, "Disc1", filepath.Join(tmpDir, "out1"))
 	job1.ID = 1
+	job1.OnComplete = func(_ *ripper.Job, _ error) { close(job1Done) }
 	os.MkdirAll(job1.OutputDir, 0o755)
 	engine.Submit(job1)
 
@@ -183,8 +185,11 @@ func TestHandleActivityCancel_RemovesQueued(t *testing.T) {
 		t.Errorf("expected status=removed, got %q", body["status"])
 	}
 
-	// Release the blocker so the goroutine can finish.
+	// Release the blocker and wait for job1 to fully finish before the test
+	// exits, so t.TempDir() cleanup doesn't race with the engine goroutine
+	// writing title.mkv into out1.
 	close(blocker.block)
+	<-job1Done
 }
 
 func TestHandleActivityCancel_CancelsActive(t *testing.T) {
