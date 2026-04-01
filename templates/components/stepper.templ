@@ -20,17 +20,21 @@ templ Stepper(steps []StepperStep) {
 					x-bind:class={ "{'completed': $store.drive.currentStep > " + itoa(step.Number) + "}" }
 				></div>
 			}
-			<div
+			<button
+				type="button"
 				class="stepper-step"
 				x-bind:class={ "{'completed': $store.drive.currentStep > " + itoa(step.Number) + ", 'active': $store.drive.currentStep === " + itoa(step.Number) + ", 'clickable': $store.drive.currentStep > " + itoa(step.Number) + "}" }
 				x-on:click={ "if ($store.drive.currentStep > " + itoa(step.Number) + ") $store.drive.currentStep = " + itoa(step.Number) }
+				x-bind:aria-current={ "$store.drive.currentStep === " + itoa(step.Number) + " ? 'step' : null" }
+				x-bind:disabled={ "$store.drive.currentStep <= " + itoa(step.Number) }
+				aria-label={ "Step " + itoa(step.Number) + ": " + step.Label }
 			>
-				<div class="stepper-circle">
+				<div class="stepper-circle" aria-hidden="true">
 					<span x-show={ "$store.drive.currentStep <= " + itoa(step.Number) }>{ itoa(step.Number) }</span>
 					<span x-show={ "$store.drive.currentStep > " + itoa(step.Number) } x-cloak>&#10003;</span>
 				</div>
 				<span class="stepper-label">{ step.Label }</span>
-			</div>
+			</button>
 		}
 	</div>
 }

@@ -68,7 +68,7 @@ func Settings(data SettingsData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"section-title\">General</div><div class=\"form-group\"><label for=\"output_dir\">Output Directory</label> <input type=\"text\" id=\"output_dir\" name=\"output_dir\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><div class=\"card\" style=\"margin-bottom: 1rem;\"><h2 class=\"section-title\">General</h2><div class=\"form-group\"><label for=\"output_dir\">Output Directory</label> <input type=\"text\" id=\"output_dir\" name=\"output_dir\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -147,7 +147,7 @@ func Settings(data SettingsData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, ">Rename</option></select></div></div><div class=\"card\" style=\"margin-bottom: 1rem;\"><div class=\"section-title\">TheDiscDB Contribution (optional)</div><p class=\"text-muted\" style=\"font-size: 0.875rem; margin-bottom: 1rem;\">Configure GitHub OAuth to enable contributing disc data back to TheDiscDB.</p><div class=\"form-group\"><label for=\"github_client_id\">GitHub Client ID</label> <input type=\"text\" id=\"github_client_id\" name=\"github_client_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, ">Rename</option></select></div></div><div class=\"card\" style=\"margin-bottom: 1rem;\"><h2 class=\"section-title\">TheDiscDB Contribution (optional)</h2><p class=\"text-muted\" style=\"font-size: 0.875rem; margin-bottom: 1rem;\">Configure GitHub OAuth to enable contributing disc data back to TheDiscDB.</p><div class=\"form-group\"><label for=\"github_client_id\">GitHub Client ID</label> <input type=\"text\" id=\"github_client_id\" name=\"github_client_id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

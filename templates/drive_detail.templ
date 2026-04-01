@@ -275,7 +275,7 @@ async function scanDisc(driveIndex) {
 </script>`, data.StoreJSON))
 
 		if data.Error != "" {
-			<div class="alert alert-error">
+			<div class="alert alert-error" role="alert">
 				{ data.Error }
 			</div>
 		}
@@ -303,11 +303,11 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 1: Search TheDiscDB ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 1" x-cloak class="step-content">
 			<div class="card">
-				<div class="section-title">Search TheDiscDB</div>
+				<h2 class="section-title">Search TheDiscDB</h2>
 
 				<!-- Saved Mapping Banner (from previous rip) -->
 				<template x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
-					<div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 0.5rem;">
+					<div class="alert alert-success" role="status" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 0.5rem;">
 						<span>Previously matched: <strong x-text="$store.drive.matchedMedia"></strong></span>
 						<div class="flex gap-2">
 							@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`))
@@ -318,13 +318,14 @@ async function scanDisc(driveIndex) {
 
 				<!-- Search error -->
 				<template x-if="$store.drive.searchError">
-					<div class="alert alert-error mt-3">
+					<div class="alert alert-error mt-3" role="alert">
 						<span x-text="$store.drive.searchError"></span>
 					</div>
 				</template>
 
 				@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="mt-3">
 					<div class="flex gap-2 items-center">
+						<label for="search-query" class="sr-only">Search TheDiscDB</label>
 						<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
 							x-init="$el.value = $store.drive.discName"
 							style="flex:1;"
@@ -337,7 +338,7 @@ async function scanDisc(driveIndex) {
 				</form>`, data.DriveIndex))
 
 				<div class="mt-3">
-					<span class="skip-link" x-on:click="goToStep(3)">Skip search &mdash; rip without matching &rarr;</span>
+					<button type="button" class="skip-link" x-on:click="goToStep(3)">Skip search &mdash; rip without matching &rarr;</button>
 				</div>
 			</div>
 		</div>
@@ -347,16 +348,16 @@ async function scanDisc(driveIndex) {
 			<div class="card">
 				<!-- Select error -->
 				<template x-if="$store.drive.searchError">
-					<div class="alert alert-error mt-3">
+					<div class="alert alert-error mt-3" role="alert">
 						<span x-text="$store.drive.searchError"></span>
 					</div>
 				</template>
 
 				<!-- ── Step 2b: Disc Picker (shown when a multi-disc release is expanded) ── -->
 				<template x-if="$store.drive.discPickerRelease">
-					<div>
+					<div x-on:keydown.escape.window="backToReleases()">
 						<div style="display:flex; justify-content:space-between; align-items:center;">
-							<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Disc</div>
+							<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Disc</h2>
 							<button class="btn btn-secondary btn-sm" x-on:click="backToReleases()">&larr; Back to Releases</button>
 						</div>
 						<div class="mt-3" style="padding:0.75rem; background:var(--bg-secondary); border-radius:8px;">
@@ -378,7 +379,7 @@ async function scanDisc(driveIndex) {
 							</template>
 						</div>`, data.DriveIndex))
 						<div class="mt-3">
-							<span class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</span>
+							<button type="button" class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</button>
 						</div>
 					</div>
 				</template>
@@ -387,7 +388,7 @@ async function scanDisc(driveIndex) {
 				<template x-if="!$store.drive.discPickerRelease">
 					<div>
 						<div style="display:flex; justify-content:space-between; align-items:center;">
-							<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Release</div>
+							<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Release</h2>
 							<button class="btn btn-secondary btn-sm" x-on:click="goToStep(1)">&larr; Search Again</button>
 						</div>
 
@@ -396,13 +397,13 @@ async function scanDisc(driveIndex) {
 								<table>
 									<thead>
 										<tr>
-											<th>Title</th>
-											<th>Year</th>
-											<th>Type</th>
-											<th>Release</th>
-											<th>UPC</th>
-											<th>Format</th>
-											<th></th>
+											<th scope="col">Title</th>
+											<th scope="col">Year</th>
+											<th scope="col">Type</th>
+											<th scope="col">Release</th>
+											<th scope="col">UPC</th>
+											<th scope="col">Format</th>
+											<th scope="col"><span class="sr-only">Actions</span></th>
 										</tr>
 									</thead>
 									<tbody>
@@ -440,7 +441,7 @@ async function scanDisc(driveIndex) {
 							<a href="https://thediscdb.com/contribute" target="_blank" rel="noopener" class="skip-link">
 								Not finding it? Contribute to TheDiscDB &rarr;
 							</a>
-							<span class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</span>
+							<button type="button" class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</button>
 						</div>
 					</div>
 				</template>
@@ -451,13 +452,13 @@ async function scanDisc(driveIndex) {
 		<div x-data x-show="$store.drive.currentStep === 3" x-cloak class="step-content">
 			<div class="card">
 				<div style="display:flex; justify-content:space-between; align-items:center;">
-					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Scan Disc</div>
+					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Scan Disc</h2>
 					<button class="btn btn-secondary btn-sm" x-on:click="$store.drive.selectedRelease ? goToStep(2) : goToStep(1)">&larr; Back</button>
 				</div>
 
 				<!-- Show selected release confirmation -->
 				<template x-if="$store.drive.selectedRelease">
-					<div class="alert alert-success mt-3">
+					<div class="alert alert-success mt-3" role="status">
 						Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
@@ -471,7 +472,7 @@ async function scanDisc(driveIndex) {
 				</template>
 
 				<template x-if="$store.drive.scanError">
-					<div class="alert alert-error mt-3">
+					<div class="alert alert-error mt-3" role="alert">
 						<strong>Scan failed:</strong> <span x-text="$store.drive.scanError"></span>
 					</div>
 				</template>
@@ -492,9 +493,9 @@ async function scanDisc(driveIndex) {
 
 				<!-- Scanning state -->
 				<template x-if="$store.drive.scanning">
-					<div class="empty-state" style="padding: 2rem 1rem;">
+					<div class="empty-state" role="status" aria-live="polite" style="padding: 2rem 1rem;">
 						<div style="display:flex; align-items:center; justify-content:center; gap:0.5rem;">
-							<span class="spinner"></span>
+							<span class="spinner" aria-hidden="true"></span>
 							<span>Scanning disc&hellip; this may take a moment.</span>
 						</div>
 					</div>
@@ -513,7 +514,7 @@ async function scanDisc(driveIndex) {
 		<div x-data x-show="$store.drive.currentStep === 4" x-cloak class="step-content">
 			<div class="card">
 				<div style="display:flex; justify-content:space-between; align-items:center;">
-					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Review Titles</div>
+					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Review Titles</h2>
 					<div style="display:flex; gap:0.5rem; align-items:center;">
 						<button class="btn btn-secondary btn-sm" x-on:click="goToStep(3)">&larr; Back</button>
 					</div>
@@ -537,14 +538,14 @@ async function scanDisc(driveIndex) {
 							<table>
 								<thead>
 									<tr>
-										@templ.Raw(`<th style="width:2rem;"><input type="checkbox" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
-										<th>Title</th>
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Type</th></template>`)
-										<th>Source</th>
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output Filename</th></template>`)
-										<th>Duration</th>
-										<th>Size</th>
+										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
+										<th scope="col">Title</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Match</th></template>`)
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Type</th></template>`)
+										<th scope="col">Source</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Output Filename</th></template>`)
+										<th scope="col">Duration</th>
+										<th scope="col">Size</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -585,7 +586,7 @@ async function scanDisc(driveIndex) {
 				<!-- Pre-rip confirmation (no jobs submitted yet) -->
 				<template x-if="$store.drive.ripJobs.length === 0">
 					<div>
-						<div class="section-title">Confirm &amp; Rip</div>
+						<h2 class="section-title">Confirm &amp; Rip</h2>
 
 						<p class="text-secondary">
 							Ripping <strong x-text="selectedTitleCount()"></strong> title(s) from
@@ -658,12 +659,12 @@ async function scanDisc(driveIndex) {
 					</div>
 				</template>
 
-				<div x-show="$store.drive.ripJobs.length !== 0" x-cloak>
-					<div class="section-title">
+				<div x-show="$store.drive.ripJobs.length !== 0" x-cloak aria-live="polite">
+					<h2 class="section-title">
 						<span x-show="!allRipJobsDone()">Ripping in Progress</span>
 						<span x-show="allRipJobsDone() && !ripHasErrors()" x-cloak>Rip Complete</span>
 						<span x-show="allRipJobsDone() && ripHasErrors()" x-cloak>Rip Complete (with errors)</span>
-					</div>
+					</h2>
 
 					<div style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;">
 						<template x-for="job in $store.drive.ripJobs" :key="job.ID">
@@ -672,13 +673,13 @@ async function scanDisc(driveIndex) {
 									<span class="text-secondary" x-text="job.TitleName || job.DiscName"></span>
 									<span :class="ripStatusBadgeClass(job.Status)" x-text="job.Status"></span>
 								</div>
-								@templ.Raw(`<template x-if="job.Status === 'ripping' || job.Status === 'organizing'"><div style="margin-top:0.5rem;"><div class="progress-bar" style="height:6px;"><div class="progress-fill" :style="'width:' + (job.Progress || 0) + '%'"></div></div><div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div></div></template>`)
+								@templ.Raw(`<template x-if="job.Status === 'ripping' || job.Status === 'organizing'"><div style="margin-top:0.5rem;"><div class="progress-bar" style="height:6px;" role="progressbar" :aria-valuenow="job.Progress || 0" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress"><div class="progress-fill" :style="'width:' + (job.Progress || 0) + '%'"></div></div><div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div></div></template>`)
 								@templ.Raw(`<template x-if="job.Status === 'failed' && job.Error"><div class="text-muted mt-1" style="font-size:0.78rem;" x-text="job.Error"></div></template>`)
 							</div>
 						</template>
 					</div>
-					@templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success">All titles ripped successfully. You can eject the disc or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`)
-					@templ.Raw(`<div x-show="allRipJobsDone() && ripHasErrors()" x-cloak><div class="alert alert-error">One or more titles failed. Check the errors above or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a> for details.</div><div class="mt-3" style="display:flex;gap:0.75rem;justify-content:flex-end;"><button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button></div></div>`)
+					@templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success" role="status">All titles ripped successfully. You can eject the disc or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`)
+					@templ.Raw(`<div x-show="allRipJobsDone() && ripHasErrors()" x-cloak><div class="alert alert-error" role="alert">One or more titles failed. Check the errors above or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a> for details.</div><div class="mt-3" style="display:flex;gap:0.75rem;justify-content:flex-end;"><button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button></div></div>`)
 				</div>
 			</div>
 		</div>

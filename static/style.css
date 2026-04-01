@@ -7,7 +7,7 @@
   --accent-blue-dim: #1e40af;
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #8494a7;
   --border: #334155;
   --success: #22c55e;
   --warning: #eab308;
@@ -129,7 +129,7 @@ nav {
 
 .badge-detected {
   background-color: #1e3a5f;
-  color: #60a5fa;
+  color: #7db8fc;
 }
 
 .badge-identified {
@@ -154,7 +154,7 @@ nav {
 
 .badge-failed {
   background-color: #3b0a0a;
-  color: var(--error);
+  color: #f87171;
 }
 
 /* Progress Bar */
@@ -214,13 +214,13 @@ nav {
 }
 
 .btn-danger {
-  background-color: transparent;
-  color: var(--error);
+  background-color: #3b0a0a;
+  color: #fca5a5;
   border-color: var(--error);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #3b0a0a;
+  background-color: #4a0f0f;
 }
 
 .btn-sm {
@@ -366,6 +366,68 @@ tbody td {
   margin-bottom: 1rem;
 }
 
+/* ── Accessibility ── */
+
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip to main content link */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 200;
+  background: var(--accent-blue);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 6px 0;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skip-to-main:focus {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+
+/* Enhanced focus-visible styles */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible,
+.tab-btn:focus-visible,
+.nav-links a:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   nav {
@@ -397,7 +459,7 @@ tbody td {
 .alert-error {
   background-color: rgba(239, 68, 68, 0.15);
   border: 1px solid var(--accent-red, #ef4444);
-  color: #fca5a5;
+  color: #fecaca;
 }
 
 .info-box {
@@ -437,6 +499,14 @@ tbody td {
   cursor: pointer;
 }
 
+/* Reset button styles when stepper-step is a button */
+button.stepper-step {
+  background: none;
+  border: none;
+  font-family: inherit;
+  padding: 0;
+}
+
 .stepper-circle {
   width: 36px;
   height: 36px;
@@ -449,7 +519,7 @@ tbody td {
   transition: all 0.3s ease;
   border: 2px solid var(--border);
   background-color: var(--bg-tertiary);
-  color: var(--text-muted);
+  color: #a3b1c6;
 }
 
 .stepper-step.completed .stepper-circle {
@@ -540,18 +610,24 @@ tbody td {
   to { transform: rotate(360deg); }
 }
 
-/* Skip link */
+/* Skip link (styled as inline button) */
 .skip-link {
   display: inline-block;
   color: var(--text-muted);
   font-size: 0.8rem;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   margin-top: 1rem;
   cursor: pointer;
   transition: color 0.15s;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
 }
 
-.skip-link:hover {
+.skip-link:hover,
+.skip-link:focus-visible {
   color: var(--text-secondary);
 }
 
@@ -605,6 +681,13 @@ tbody td {
   letter-spacing: 0.05em;
   color: var(--text-muted);
   margin-top: 0.25rem;
+}
+
+/* In-content links should be distinguishable from text */
+main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
 }
 
 /* ── Drive Card Link ── */
@@ -683,6 +766,12 @@ tbody td {
   background-color: rgba(239, 68, 68, 0.1);
 }
 
+/* Failure text marker for row-failed status badge (non-color indicator) */
+.row-failed .badge-failed::before {
+  content: "\26A0\00a0";
+  font-size: 0.65rem;
+}
+
 /* Pending badge */
 .badge-pending {
   background-color: var(--bg-tertiary);
@@ -692,12 +781,12 @@ tbody td {
 /* Content type badges */
 .badge-movie {
   background-color: #1e3a5f;
-  color: #60a5fa;
+  color: #7db8fc;
 }
 
 .badge-series {
   background-color: #2d1b69;
-  color: #a78bfa;
+  color: #bfa4fb;
 }
 
 .badge-episode {

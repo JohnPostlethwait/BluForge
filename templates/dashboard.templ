@@ -48,7 +48,7 @@ function stepLabel(n) { return stepLabels[n] || '' }
 		</div>
 
 		<!-- Status Bar -->
-		<div class="status-bar" x-data>
+		<div class="status-bar" x-data role="status" aria-label="Drive status summary">
 			<div class="status-item">
 				<span class="status-value" x-text="$store.drives.list.length">0</span>
 				<span class="status-label">Drives</span>
@@ -111,7 +111,7 @@ function stepLabel(n) { return stepLabels[n] || '' }
 											<span class="text-muted" style="font-size:0.8rem;">Ripping</span>
 											<span class="text-secondary" style="font-size:0.8rem;" x-text="drive.ripProgress + '%'"></span>
 										</div>
-										<div class="progress-bar">
+										<div class="progress-bar" role="progressbar" :aria-valuenow="drive.ripProgress" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress">
 											<div class="progress-fill" :style="'width: ' + drive.ripProgress + '%'"></div>
 										</div>
 									</div>
@@ -138,6 +138,14 @@ function stepLabel(n) { return stepLabels[n] || '' }
 					</div>
 					<div class="card" style="padding: 0;">
 						<table>
+							<thead>
+								<tr>
+									<th scope="col">Disc</th>
+									<th scope="col">Title</th>
+									<th scope="col">Status</th>
+									<th scope="col">Finished</th>
+								</tr>
+							</thead>
 							<tbody>
 								<template x-for="j in $store.drives.recentJobs" :key="j.id">
 									<tr :class="{'row-failed': j.status === 'failed'}">

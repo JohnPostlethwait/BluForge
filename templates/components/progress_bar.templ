@@ -3,7 +3,15 @@ package components
 import "fmt"
 
 templ ProgressBar(jobID string, percent int) {
-	<div class="progress-bar" id={ fmt.Sprintf("progress-%s", jobID) }>
+	<div
+		class="progress-bar"
+		id={ fmt.Sprintf("progress-%s", jobID) }
+		role="progressbar"
+		aria-valuenow={ fmt.Sprintf("%d", percent) }
+		aria-valuemin="0"
+		aria-valuemax="100"
+		aria-label="Rip progress"
+	>
 		<div class="progress-fill" style={ fmt.Sprintf("width: %d%%", percent) }></div>
 	</div>
 }

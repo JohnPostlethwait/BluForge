@@ -120,10 +120,17 @@ async function clearHistory(btn) {
 		</div>
 
 		<!-- Tab Bar -->
-		<div class="tab-bar" x-data>
+		<div class="tab-bar" x-data role="tablist" aria-label="Activity views"
+			x-on:keydown.arrow-right.prevent="$el.querySelector('[role=tab]:not(.tab-active)')?.focus()?.click()"
+			x-on:keydown.arrow-left.prevent="$el.querySelector('[role=tab]:not(.tab-active)')?.focus()?.click()"
+		>
 			<button
 				class="tab-btn"
+				role="tab"
 				:class="{'tab-active': $store.activityTab === 'active'}"
+				:aria-selected="$store.activityTab === 'active'"
+				:tabindex="$store.activityTab === 'active' ? '0' : '-1'"
+				aria-controls="tab-panel-active"
 				x-on:click="$store.activityTab = 'active'; const u = new URL(window.location); u.searchParams.set('tab', 'active'); history.pushState(null, '', u)"
 			>
 				Active &amp; Queued
@@ -133,7 +140,11 @@ async function clearHistory(btn) {
 			</button>
 			<button
 				class="tab-btn"
+				role="tab"
 				:class="{'tab-active': $store.activityTab === 'history'}"
+				:aria-selected="$store.activityTab === 'history'"
+				:tabindex="$store.activityTab === 'history' ? '0' : '-1'"
+				aria-controls="tab-panel-history"
 				x-on:click="$store.activityTab = 'history'; const u = new URL(window.location); u.searchParams.set('tab', 'history'); history.pushState(null, '', u)"
 			>
 				History
@@ -141,10 +152,10 @@ async function clearHistory(btn) {
 		</div>
 
 		<!-- ═══════════ Active & Queued Tab ═══════════ -->
-		<div x-data x-show="$store.activityTab === 'active'" x-cloak style="display:flex; flex-direction:column; gap:1.5rem;">
+		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak style="display:flex; flex-direction:column; gap:1.5rem;">
 			<!-- Active Jobs -->
 			<div class="card" style="margin-bottom: 1rem;">
-				<div class="section-title">Active</div>
+				<h2 class="section-title">Active</h2>
 				<template x-if="$store.activity.active.length === 0">
 					<div class="empty-state"><p>No active jobs.</p></div>
 				</template>
@@ -152,11 +163,11 @@ async function clearHistory(btn) {
 					<div style="overflow-x:auto;"><table>
 						<thead>
 							<tr>
-								<th>Disc</th>
-								<th>Title</th>
-								<th>Type</th>
-								<th>Progress</th>
-								<th></th>
+								<th scope="col">Disc</th>
+								<th scope="col">Title</th>
+								<th scope="col">Type</th>
+								<th scope="col">Progress</th>
+								<th scope="col"><span class="sr-only">Actions</span></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -170,7 +181,7 @@ async function clearHistory(btn) {
 									<td style="min-width: 140px;">
 										<div style="display:flex; align-items:center; gap:0.5rem;">
 											<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
-											<div class="progress-bar" style="flex:1;">
+											<div class="progress-bar" style="flex:1;" role="progressbar" :aria-valuenow="j.progress" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress">
 												<div class="progress-fill" :style="'width: ' + j.progress + '%'"></div>
 											</div>
 										</div>
@@ -187,7 +198,7 @@ async function clearHistory(btn) {
 
 			<!-- Pending Jobs -->
 			<div class="card">
-				<div class="section-title">Queued</div>
+				<h2 class="section-title">Queued</h2>
 				<template x-if="$store.activity.pending.length === 0">
 					<div class="empty-state"><p>No pending jobs.</p></div>
 				</template>
@@ -195,11 +206,11 @@ async function clearHistory(btn) {
 					<div style="overflow-x:auto;"><table>
 						<thead>
 							<tr>
-								<th>Disc</th>
-								<th>Title</th>
-								<th>Type</th>
-								<th>Status</th>
-								<th></th>
+								<th scope="col">Disc</th>
+								<th scope="col">Title</th>
+								<th scope="col">Type</th>
+								<th scope="col">Status</th>
+								<th scope="col"><span class="sr-only">Actions</span></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -229,12 +240,14 @@ async function clearHistory(btn) {
 		</div>
 
 		<!-- ═══════════ History Tab ═══════════ -->
-		<div x-data="{ filter: '', statusFilter: 'all' }" x-show="$store.activityTab === 'history'" x-cloak>
+		<div id="tab-panel-history" role="tabpanel" aria-label="Rip history" x-data="{ filter: '', statusFilter: 'all' }" x-show="$store.activityTab === 'history'" x-cloak>
 			<div class="card">
 				<!-- Filters -->
 				<div class="flex gap-2 items-center" style="margin-bottom: 1rem;">
-					<input type="search" x-model="filter" placeholder="Filter by disc or title name…" style="flex:1;"/>
-					<select x-model="statusFilter" style="width: auto; min-width: 120px;">
+					<label for="history-filter" class="sr-only">Filter by disc or title name</label>
+					<input type="search" id="history-filter" x-model="filter" placeholder="Filter by disc or title name…" style="flex:1;"/>
+					<label for="history-status-filter" class="sr-only">Filter by status</label>
+					<select id="history-status-filter" x-model="statusFilter" style="width: auto; min-width: 120px;">
 						<option value="all">All Status</option>
 						<option value="completed">Completed</option>
 						<option value="failed">Failed</option>
@@ -251,13 +264,13 @@ async function clearHistory(btn) {
 						<table>
 							<thead>
 								<tr>
-									<th>Date</th>
-									<th>Disc</th>
-									<th>Title</th>
-									<th>Type</th>
-									<th>Status</th>
-									<th>Duration</th>
-									<th>Output</th>
+									<th scope="col">Date</th>
+									<th scope="col">Disc</th>
+									<th scope="col">Title</th>
+									<th scope="col">Type</th>
+									<th scope="col">Status</th>
+									<th scope="col">Duration</th>
+									<th scope="col">Output</th>
 								</tr>
 							</thead>
 							<tbody>
