@@ -113,6 +113,49 @@ func TestEnrichTitlesWithMatches(t *testing.T) {
 	}
 }
 
+func TestBuildOutputName(t *testing.T) {
+	tests := []struct {
+		name string
+		m    discdb.ContentMatch
+		want string
+	}{
+		{
+			name: "episode with season and episode",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Male Unbonding", ContentType: "series", Season: "1", Episode: "2"},
+			want: "S01E02 - Male Unbonding.mkv",
+		},
+		{
+			name: "extra with season and episode gets no prefix",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Inside Look: Male Unbonding", ContentType: "extra", Season: "1", Episode: "2"},
+			want: "Inside Look: Male Unbonding.mkv",
+		},
+		{
+			name: "movie with no season or episode",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "The Matrix", ContentType: "movie"},
+			want: "The Matrix.mkv",
+		},
+		{
+			name: "unmatched returns empty",
+			m:    discdb.ContentMatch{Matched: false},
+			want: "",
+		},
+		{
+			name: "matched but no content title returns empty",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "", ContentType: "series", Season: "1", Episode: "1"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildOutputName(tt.m)
+			if got != tt.want {
+				t.Errorf("buildOutputName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFindDiscForRelease(t *testing.T) {
 	disc1 := discdb.Disc{ID: 10, Name: "Disc One"}
 	disc2 := discdb.Disc{ID: 20, Name: "Disc Two"}

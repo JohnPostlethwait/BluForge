@@ -106,6 +106,26 @@ func (e *Engine) QueuedJobs() []*Job {
 	return jobs
 }
 
+// RemoveQueued removes a pending job from the per-drive queue by job ID.
+// Returns true if the job was found and removed.
+func (e *Engine) RemoveQueued(jobID int64) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for driveIdx, q := range e.queued {
+		for i, j := range q {
+			if j.ID == jobID {
+				e.queued[driveIdx] = append(q[:i], q[i+1:]...)
+				if len(e.queued[driveIdx]) == 0 {
+					delete(e.queued, driveIdx)
+				}
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // notify calls the onUpdate callback if one has been registered.
 func (e *Engine) notify(job *Job) {
 	e.mu.Lock()
@@ -116,12 +136,38 @@ func (e *Engine) notify(job *Job) {
 	}
 }
 
+// CancelActive cancels the active rip job with the given ID.
+// Returns true if the job was found and cancelled.
+func (e *Engine) CancelActive(jobID int64) bool {
+	e.mu.Lock()
+	var target *Job
+	for _, j := range e.active {
+		if j.ID == jobID {
+			target = j
+			break
+		}
+	}
+	e.mu.Unlock()
+
+	if target == nil {
+		return false
+	}
+	target.Cancel()
+	return true
+}
+
 // run executes the rip job, updating status and progress along the way.
 func (e *Engine) run(job *Job) {
+	ctx, cancel := context.WithCancel(context.Background())
+	job.mu.Lock()
+	job.cancel = cancel
+	job.mu.Unlock()
+	defer cancel()
+
 	job.Start()
 	e.notify(job)
 
-	err := e.executor.StartRip(context.Background(), job.DriveIndex, job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
+	err := e.executor.StartRip(ctx, job.DriveIndex, job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
 			if p.Max > 0 {

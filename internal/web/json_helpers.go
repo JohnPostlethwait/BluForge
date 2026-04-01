@@ -67,10 +67,12 @@ func findDiscForRelease(items []discdb.MediaItem, releaseID string) *discdb.Disc
 
 // DriveJSON is the JSON representation of a drive for Alpine.js stores.
 type DriveJSON struct {
-	Index    int    `json:"index"`
-	Name     string `json:"name"`
-	DiscName string `json:"discName"`
-	State    string `json:"state"`
+	Index        int    `json:"index"`
+	Name         string `json:"name"`
+	DiscName     string `json:"discName"`
+	State        string `json:"state"`
+	WorkflowStep int    `json:"workflowStep"` // 0=no disc, 1-5=wizard step
+	RipProgress  int    `json:"ripProgress"`  // -1=not ripping, 0-100=progress
 }
 
 // TitleJSON is the JSON representation of a disc title for Alpine.js stores.
@@ -95,7 +97,7 @@ func buildOutputName(m discdb.ContentMatch) string {
 	if !m.Matched || m.ContentTitle == "" {
 		return ""
 	}
-	if m.Season != "" && m.Episode != "" {
+	if m.Season != "" && m.Episode != "" && m.ContentType != "extra" {
 		return fmt.Sprintf("S%sE%s - %s.mkv", padLeft(m.Season, 2), padLeft(m.Episode, 2), m.ContentTitle)
 	}
 	return m.ContentTitle + ".mkv"
@@ -139,6 +141,7 @@ type DriveStoreJSON struct {
 	DriveName       string               `json:"driveName"`
 	DiscName        string               `json:"discName"`
 	State           string               `json:"state"`
+	CurrentStep     int                  `json:"currentStep"`
 	Scanning        bool                 `json:"scanning"`
 	ScanError       string               `json:"scanError"`
 	HasMapping      bool                 `json:"hasMapping"`
@@ -150,10 +153,23 @@ type DriveStoreJSON struct {
 	RipProgress     interface{}          `json:"ripProgress"`
 }
 
+// DashboardJobJSON is a compact job representation for the dashboard.
+type DashboardJobJSON struct {
+	ID          int64  `json:"id"`
+	DiscName    string `json:"discName"`
+	TitleName   string `json:"titleName"`
+	Status      string `json:"status"`
+	FinishedAt  string `json:"finishedAt,omitempty"`
+}
+
 // DrivesStoreJSON is the Alpine.store('drives') shape for the dashboard page.
 type DrivesStoreJSON struct {
-	Ready bool        `json:"ready"`
-	List  []DriveJSON `json:"list"`
+	Ready          bool               `json:"ready"`
+	List           []DriveJSON        `json:"list"`
+	ActiveCount    int                `json:"activeCount"`
+	QueuedCount    int                `json:"queuedCount"`
+	CompletedToday int                `json:"completedToday"`
+	RecentJobs     []DashboardJobJSON `json:"recentJobs"`
 }
 
 // mediaItemsToSearchJSON converts MediaItems to SearchResultJSON rows.

@@ -130,6 +130,17 @@ func (s *Store) ListAllJobs(limit, offset int) ([]RipJob, error) {
 	return s.queryJobs(q, limit, offset)
 }
 
+// CountJobsCompletedToday returns the number of jobs completed today.
+func (s *Store) CountJobsCompletedToday() (int, error) {
+	const q = `SELECT COUNT(*) FROM rip_jobs WHERE status = 'completed' AND date(updated_at) = date('now')`
+	var count int
+	err := s.db.QueryRow(q).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count completed today: %w", err)
+	}
+	return count, nil
+}
+
 func (s *Store) queryJobs(query string, args ...any) ([]RipJob, error) {
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

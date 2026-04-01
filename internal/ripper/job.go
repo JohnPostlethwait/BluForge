@@ -1,6 +1,7 @@
 package ripper
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -38,6 +39,8 @@ type Job struct {
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
 	OnComplete func(job *Job, err error) `json:"-"`
+	// cancel stops the rip in progress. Set by the engine when the job starts.
+	cancel context.CancelFunc `json:"-"`
 }
 
 // NewJob creates a new Job in the Pending state.
@@ -92,4 +95,14 @@ func (j *Job) Skip() {
 	defer j.mu.Unlock()
 	j.Status = StatusSkipped
 	j.FinishedAt = time.Now()
+}
+
+// Cancel stops a running job by cancelling its context.
+func (j *Job) Cancel() {
+	j.mu.Lock()
+	fn := j.cancel
+	j.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }

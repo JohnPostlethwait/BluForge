@@ -48,8 +48,26 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		DriveName:     drv.DriveName(),
 		DiscName:      drv.DiscName(),
 		State:         string(drv.State()),
+		CurrentStep:   1,
 		Titles:        make([]TitleJSON, 0),
 		SearchResults: make([]SearchResultJSON, 0),
+	}
+
+	// Check for an existing disc mapping (from a previous rip of this disc).
+	if s.orchestrator != nil && s.store != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			discKey := discdb.BuildDiscKey(scan)
+			if discKey != "" {
+				if mapping, err := s.store.GetMapping(discKey); err == nil && mapping != nil {
+					driveStore.HasMapping = true
+					driveStore.MatchedMedia = mapping.MediaTitle
+					if mapping.MediaYear != "" {
+						driveStore.MatchedMedia += " (" + mapping.MediaYear + ")"
+					}
+					driveStore.MatchedRelease = mapping.ReleaseID
+				}
+			}
+		}
 	}
 
 	// Hydrate from drive session if available.
@@ -75,6 +93,20 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 				}
 			}
 		}
+	}
+
+	// Compute the wizard step based on current state.
+	// Step 1: Search, Step 2: Select Release, Step 3: Scan, Step 4: Review Titles, Step 5: Rip
+	if s.ripEngine != nil && s.ripEngine.IsActive(idx) {
+		driveStore.CurrentStep = 5
+	} else if len(driveStore.Titles) > 0 {
+		driveStore.CurrentStep = 4
+	} else if driveStore.SelectedRelease != nil && driveStore.SelectedRelease.ReleaseID != "" {
+		driveStore.CurrentStep = 3
+	} else if len(driveStore.SearchResults) > 0 {
+		driveStore.CurrentStep = 2
+	} else {
+		driveStore.CurrentStep = 1
 	}
 
 	storeBytes, err := json.Marshal(driveStore)
@@ -250,7 +282,7 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape(result.ErrorSummary())))
 	}
 
-	return c.Redirect(http.StatusSeeOther, "/queue")
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d", idx))
 }
 
 // handleDriveScan runs a disc scan synchronously and returns the titles as JSON.

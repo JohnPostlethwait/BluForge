@@ -1,6 +1,9 @@
 package templates
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/johnpostlethwait/bluforge/templates/components"
+)
 
 // DriveDetailData holds all data needed to render the drive detail page.
 type DriveDetailData struct {
@@ -17,7 +20,11 @@ templ DriveDetail(data DriveDetailData) {
 	@Layout(data.DiscName) {
 		@templ.Raw(fmt.Sprintf(`<script>
 document.addEventListener('alpine:init', () => {
-	Alpine.store('drive', %s)
+	const store = %s
+	store.searching = false
+	store.searchError = ''
+	store.selecting = false
+	Alpine.store('drive', store)
 
 	const evtSource = new EventSource('/events')
 
@@ -31,6 +38,13 @@ document.addEventListener('alpine:init', () => {
 				Alpine.store('drive').selectedRelease = null
 				Alpine.store('drive').searchResults = []
 				Alpine.store('drive').scanning = false
+				Alpine.store('drive').searching = false
+				Alpine.store('drive').selecting = false
+				Alpine.store('drive').scanError = ''
+				Alpine.store('drive').searchError = ''
+				Alpine.store('drive').ripProgress = null
+				Alpine.store('drive').hasMapping = false
+				Alpine.store('drive').currentStep = 1
 			}
 		}
 	})
@@ -39,36 +53,60 @@ document.addEventListener('alpine:init', () => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
 			Alpine.store('drive').ripProgress = update
+			if (update.Status === 'completed' || update.Status === 'failed') {
+				// Stay on step 5 to show completion state
+			} else if (Alpine.store('drive').currentStep !== 5) {
+				Alpine.store('drive').currentStep = 5
+			}
 		}
 	})
 })
+
+function goToStep(step) {
+	Alpine.store('drive').currentStep = step
+}
 
 async function searchDiscDB(driveIndex) {
 	const query = document.getElementById('search-query').value.trim()
 	if (!query) return
 
+	const store = Alpine.store('drive')
+	store.searching = true
+	store.searchError = ''
+
 	const form = new FormData()
 	form.append('query', query)
 
-	const resp = await fetch('/drives/' + driveIndex + '/search', {
-		method: 'POST',
-		headers: { 'Accept': 'application/json' },
-		body: form,
-	})
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/search', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+			body: form,
+		})
 
-	if (resp.ok) {
-		Alpine.store('drive').searchResults = await resp.json()
+		if (resp.ok) {
+			const results = await resp.json()
+			store.searchResults = results
+			store.currentStep = 2
+		} else {
+			const text = await resp.text()
+			try {
+				const data = JSON.parse(text)
+				store.searchError = data.error || 'Search failed'
+			} catch {
+				store.searchError = text || 'Search failed (HTTP ' + resp.status + ')'
+			}
+		}
+	} catch (err) {
+		store.searchError = 'Search request failed: ' + err.message
+	} finally {
+		store.searching = false
 	}
 }
 
 async function selectRelease(driveIndex, result) {
-	Alpine.store('drive').selectedRelease = {
-		mediaItemID: result.mediaItemID,
-		releaseID: result.releaseID,
-		title: result.mediaTitle,
-		year: String(result.mediaYear),
-		type: result.mediaType,
-	}
+	const store = Alpine.store('drive')
+	store.selecting = true
 
 	const resp = await fetch('/drives/' + driveIndex + '/select', {
 		method: 'POST',
@@ -86,11 +124,25 @@ async function selectRelease(driveIndex, result) {
 	})
 
 	if (resp.ok) {
-		const data = await resp.json()
-		if (data.titles) {
-			Alpine.store('drive').titles = data.titles
+		store.selectedRelease = {
+			mediaItemID: result.mediaItemID,
+			releaseID: result.releaseID,
+			title: result.mediaTitle,
+			year: String(result.mediaYear),
+			type: result.mediaType,
 		}
+		const data = await resp.json()
+		if (data.titles && data.titles.length > 0) {
+			store.titles = data.titles
+			store.currentStep = 4
+		} else {
+			store.currentStep = 3
+		}
+	} else {
+		store.searchError = 'Failed to select release. Please try again.'
+		store.currentStep = 2
 	}
+	store.selecting = false
 }
 
 function selectAllTitles() {
@@ -110,6 +162,10 @@ function matchDisplay(t) {
 	return t.contentTitle || ''
 }
 
+function selectedTitleCount() {
+	return Alpine.store('drive').titles.filter(t => t.selected).length
+}
+
 async function scanDisc(driveIndex) {
 	Alpine.store('drive').scanning = true
 	Alpine.store('drive').scanError = ''
@@ -122,7 +178,12 @@ async function scanDisc(driveIndex) {
 		})
 
 		if (resp.ok) {
-			Alpine.store('drive').titles = await resp.json()
+			const titles = await resp.json()
+			Alpine.store('drive').titles = titles
+			if (titles.length > 0) {
+				Alpine.store('drive').currentStep = 4
+			}
+			// If 0 titles, stay on step 3 to show error-like message
 		} else {
 			const text = await resp.text()
 			Alpine.store('drive').scanError = text || 'Scan failed (HTTP ' + resp.status + ')'
@@ -142,53 +203,84 @@ async function scanDisc(driveIndex) {
 		}
 
 		<div class="page-header">
-			<h1>{ data.DriveName }</h1>
-			<a href="/" class="btn btn-secondary btn-sm">← Back</a>
-		</div>
-
-		<!-- Disc Info Card -->
-		<div class="card" style="margin-bottom: 1rem;">
-			<div class="card-header">
-				<span class="card-title">Disc Info</span>
+			<h1 x-data x-text="$store.drive.driveName">{ data.DriveName }</h1>
+			<div class="flex gap-2 items-center">
 				<span x-data :class="'badge badge-' + $store.drive.state" x-text="$store.drive.state"></span>
+				<a href="/" class="btn btn-secondary btn-sm">&larr; Back</a>
 			</div>
-			<p class="text-secondary" x-data x-text="$store.drive.discName"></p>
 		</div>
 
-		<!-- Search Card -->
-		<div class="card" style="margin-bottom: 1rem;" x-data>
-			<div class="section-title">Search TheDiscDB</div>
+		<!-- Disc name subtitle -->
+		<p class="text-secondary" style="margin-top: -1rem; margin-bottom: 1.5rem;" x-data x-text="$store.drive.discName"></p>
 
-			<!-- Saved Mapping Banner (from previous rip) -->
-			<template x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
-				<div class="alert alert-success mt-3" style="display:flex; justify-content:space-between; align-items:center;">
-					<span>Matched: <span x-text="$store.drive.matchedMedia"></span></span>
-					@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Re-scan</a>`, data.DriveIndex))
+		<!-- Stepper -->
+		@components.Stepper([]components.StepperStep{
+			{Number: 1, Label: "Search"},
+			{Number: 2, Label: "Select Release"},
+			{Number: 3, Label: "Scan Disc"},
+			{Number: 4, Label: "Review Titles"},
+			{Number: 5, Label: "Rip"},
+		})
+
+		<!-- ═══════════════ Step 1: Search TheDiscDB ═══════════════ -->
+		<div x-data x-show="$store.drive.currentStep === 1" x-cloak class="step-content">
+			<div class="card">
+				<div class="section-title">Search TheDiscDB</div>
+
+				<!-- Saved Mapping Banner (from previous rip) -->
+				<template x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
+					<div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 0.5rem;">
+						<span>Previously matched: <strong x-text="$store.drive.matchedMedia"></strong></span>
+						<div class="flex gap-2">
+							@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`))
+							@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Clear &amp; Re-scan</a>`, data.DriveIndex))
+						</div>
+					</div>
+				</template>
+
+				<!-- Search error -->
+				<template x-if="$store.drive.searchError">
+					<div class="alert alert-error mt-3">
+						<span x-text="$store.drive.searchError"></span>
+					</div>
+				</template>
+
+				@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="mt-3">
+					<div class="flex gap-2 items-center">
+						<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
+							x-init="$el.value = $store.drive.discName"
+							style="flex:1;"
+							x-bind:disabled="$store.drive.searching"/>
+						<button type="submit" class="btn btn-primary btn-sm" x-bind:disabled="$store.drive.searching">
+							<span x-show="!$store.drive.searching">Search</span>
+							<span x-show="$store.drive.searching" x-cloak>Searching…</span>
+						</button>
+					</div>
+				</form>`, data.DriveIndex))
+
+				<div class="mt-3">
+					<span class="skip-link" x-on:click="goToStep(3)">Skip search &mdash; rip without matching &rarr;</span>
 				</div>
-			</template>
+			</div>
+		</div>
 
-			<!-- Matched Release Banner (from current session selection) -->
-			<template x-if="$store.drive.selectedRelease">
-				<div class="alert alert-success mt-3">
-					Matched: <span x-text="$store.drive.selectedRelease.title"></span>
-					(<span x-text="$store.drive.selectedRelease.year"></span>)
-					— <span x-text="$store.drive.selectedRelease.type"></span>
+		<!-- ═══════════════ Step 2: Select Release ═══════════════ -->
+		<div x-data x-show="$store.drive.currentStep === 2" x-cloak class="step-content">
+			<div class="card">
+				<div style="display:flex; justify-content:space-between; align-items:center;">
+					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Release</div>
+					<button class="btn btn-secondary btn-sm" x-on:click="goToStep(1)">&larr; Search Again</button>
 				</div>
-			</template>
 
-			@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="mt-3">
-				<div class="flex gap-2 items-center">
-					<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
-						x-init="$el.value = $store.drive.discName"
-						style="flex:1;"/>
-					<button type="submit" class="btn btn-primary btn-sm">Search</button>
-				</div>
-			</form>`, data.DriveIndex))
+				<!-- Select error -->
+				<template x-if="$store.drive.searchError">
+					<div class="alert alert-error mt-3">
+						<span x-text="$store.drive.searchError"></span>
+					</div>
+				</template>
 
-			<!-- Search Results -->
-			<div class="mt-3">
 				<template x-if="$store.drive.searchResults.length > 0">
-					<div style="overflow-x:auto;">
+					<div style="overflow-x:auto;" class="mt-3">
 						<table>
 							<thead>
 								<tr>
@@ -211,7 +303,10 @@ async function scanDisc(driveIndex) {
 										<td class="text-muted" x-text="r.releaseUPC"></td>
 										<td class="text-secondary" x-text="r.format"></td>
 										<td>
-											@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="selectRelease(%d, r)">Select</button>`, data.DriveIndex))
+											@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="selectRelease(%d, r)" x-bind:disabled="$store.drive.selecting">
+												<span x-show="!$store.drive.selecting">Select</span>
+												<span x-show="$store.drive.selecting" x-cloak>…</span>
+											</button>`, data.DriveIndex))
 										</td>
 									</tr>
 								</template>
@@ -219,92 +314,268 @@ async function scanDisc(driveIndex) {
 						</table>
 					</div>
 				</template>
+
+				<template x-if="$store.drive.searchResults.length === 0">
+					<div class="empty-state">
+						<p>No results found. Try a different search term.</p>
+					</div>
+				</template>
+
+				<div class="mt-3" style="display:flex; justify-content:space-between; align-items:center;">
+					<a href="https://thediscdb.com/contribute" target="_blank" rel="noopener" class="skip-link">
+						Not finding it? Contribute to TheDiscDB &rarr;
+					</a>
+					<span class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</span>
+				</div>
 			</div>
 		</div>
 
-		<!-- Titles Card -->
-		<div class="card" x-data>
-			<div style="display:flex; justify-content:space-between; align-items:center;">
-				<div class="section-title" style="margin-bottom:0;">Titles</div>
-				<div style="display:flex; gap:0.5rem; align-items:center;">
-					@templ.Raw(`<template x-if="$store.drive.titles.length > 0"><span style="display:flex; gap:0.5rem;"><button class="btn btn-secondary btn-sm" x-on:click="selectAllTitles()">Select All</button><button class="btn btn-secondary btn-sm" x-on:click="deselectAllTitles()">Deselect All</button></span></template>`)
-					@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.scanning || $store.drive.state === 'empty'"><span x-show="!$store.drive.scanning">Scan Disc</span><span x-show="$store.drive.scanning">Scanning…</span></button>`, data.DriveIndex))
+		<!-- ═══════════════ Step 3: Scan Disc ═══════════════ -->
+		<div x-data x-show="$store.drive.currentStep === 3" x-cloak class="step-content">
+			<div class="card">
+				<div style="display:flex; justify-content:space-between; align-items:center;">
+					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Scan Disc</div>
+					<button class="btn btn-secondary btn-sm" x-on:click="$store.drive.selectedRelease ? goToStep(2) : goToStep(1)">&larr; Back</button>
+				</div>
+
+				<!-- Show selected release confirmation -->
+				<template x-if="$store.drive.selectedRelease">
+					<div class="alert alert-success mt-3">
+						Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
+						(<span x-text="$store.drive.selectedRelease.year"></span>)
+						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+					</div>
+				</template>
+
+				<template x-if="!$store.drive.selectedRelease">
+					<div class="info-box mt-3">
+						Ripping without metadata matching. Titles will be named using their source filenames.
+					</div>
+				</template>
+
+				<template x-if="$store.drive.scanError">
+					<div class="alert alert-error mt-3">
+						<strong>Scan failed:</strong> <span x-text="$store.drive.scanError"></span>
+					</div>
+				</template>
+
+				<!-- 0 titles result -->
+				<template x-if="!$store.drive.scanning && !$store.drive.scanError && $store.drive.titles.length === 0 && $store.drive.state !== 'empty'">
+					<div style="text-align: center; padding: 2rem 0;">
+						<template x-if="!$store.drive.scanning">
+							<div>
+								<p class="text-secondary" style="margin-bottom: 1rem;">
+									Read the disc to discover its titles and content.
+								</p>
+								@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary" style="padding: 0.6rem 2rem; font-size: 1rem;" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.state === 'empty'">Scan Disc</button>`, data.DriveIndex))
+							</div>
+						</template>
+					</div>
+				</template>
+
+				<!-- Scanning state -->
+				<template x-if="$store.drive.scanning">
+					<div class="empty-state" style="padding: 2rem 1rem;">
+						<p>Scanning disc&hellip; this may take a moment.</p>
+					</div>
+				</template>
+
+				<!-- Drive empty state -->
+				<template x-if="$store.drive.state === 'empty' && !$store.drive.scanning">
+					<div class="empty-state" style="padding: 2rem 1rem;">
+						<p>No disc detected. Insert a disc to scan.</p>
+					</div>
+				</template>
+			</div>
+		</div>
+
+		<!-- ═══════════════ Step 4: Review & Select Titles ═══════════════ -->
+		<div x-data x-show="$store.drive.currentStep === 4" x-cloak class="step-content">
+			<div class="card">
+				<div style="display:flex; justify-content:space-between; align-items:center;">
+					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Review Titles</div>
+					<div style="display:flex; gap:0.5rem; align-items:center;">
+						<button class="btn btn-secondary btn-sm" x-on:click="goToStep(3)">&larr; Back</button>
+						@templ.Raw(`<template x-if="$store.drive.titles.length > 0"><span style="display:flex; gap:0.5rem;"><button class="btn btn-secondary btn-sm" x-on:click="selectAllTitles()">Select All</button><button class="btn btn-secondary btn-sm" x-on:click="deselectAllTitles()">Deselect All</button></span></template>`)
+					</div>
+				</div>
+
+				<!-- Selected release reminder -->
+				<template x-if="$store.drive.selectedRelease">
+					<p class="text-secondary mt-3" style="font-size: 0.85rem;">
+						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
+						(<span x-text="$store.drive.selectedRelease.year"></span>)
+					</p>
+				</template>
+
+				<template x-if="$store.drive.titles.length > 0">
+					<div>
+						<!-- Selection count -->
+						<p class="text-muted mt-3" style="font-size: 0.8rem;">
+							<span x-text="selectedTitleCount()"></span> of <span x-text="$store.drive.titles.length"></span> titles selected
+						</p>
+						<div style="overflow-x:auto;" class="mt-2">
+							<table>
+								<thead>
+									<tr>
+										<th style="width:2rem;"></th>
+										<th>Title</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
+										<th>Source</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output</th></template>`)
+										<th>Duration</th>
+										<th>Size</th>
+									</tr>
+								</thead>
+								<tbody>
+									<template x-for="t in $store.drive.titles" :key="t.index">
+										<tr x-bind:class="{'title-row-matched': t.matched}">
+											<td><input type="checkbox" :checked="t.selected" x-on:change="t.selected = $el.checked"/></td>
+											<td class="text-muted" x-text="t.index"></td>
+											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
+											<td class="text-muted" x-text="t.sourceFile"></td>
+											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
+											<td class="text-secondary" x-text="t.duration"></td>
+											<td class="text-secondary" x-text="t.size"></td>
+										</tr>
+									</template>
+								</tbody>
+							</table>
+						</div>
+					</div>
+				</template>
+
+				<template x-if="$store.drive.titles.length === 0">
+					<div class="empty-state">
+						<p>No titles found on this disc.</p>
+						@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm mt-3" x-on:click="scanDisc(%d)">Try Scanning Again</button>`, data.DriveIndex))
+					</div>
+				</template>
+
+				<div class="mt-3" style="display:flex; justify-content:flex-end;">
+					@templ.Raw(`<button class="btn btn-primary" x-on:click="goToStep(5)" x-bind:disabled="!$store.drive.titles.some(t => t.selected)">Continue to Rip</button>`)
 				</div>
 			</div>
+		</div>
 
-			<template x-if="$store.drive.scanError">
-				<div class="alert alert-error mt-3">
-					<strong>Scan failed:</strong> <span x-text="$store.drive.scanError"></span>
-				</div>
-			</template>
+		<!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ -->
+		<div x-data x-show="$store.drive.currentStep === 5" x-cloak class="step-content">
+			<div class="card">
+				<!-- Pre-rip confirmation (no rip in progress) -->
+				<template x-if="!$store.drive.ripProgress || !$store.drive.ripProgress.Status">
+					<div>
+						<div class="section-title">Confirm &amp; Rip</div>
 
-			<template x-if="$store.drive.scanning">
-				<div class="empty-state">
-					<p>Scanning disc…</p>
-				</div>
-			</template>
+						<p class="text-secondary">
+							Ripping <strong x-text="selectedTitleCount()"></strong> title(s) from
+							<strong x-text="$store.drive.discName"></strong>
+						</p>
 
-			<template x-if="!$store.drive.scanning && $store.drive.titles.length === 0">
-				<div class="empty-state">
-					<p>No titles scanned yet. Use the Scan Disc button above to read the disc.</p>
-				</div>
-			</template>
+						<template x-if="$store.drive.selectedRelease">
+							<p class="text-secondary mt-2" style="font-size: 0.85rem;">
+								Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
+								(<span x-text="$store.drive.selectedRelease.year"></span>)
+								&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+							</p>
+						</template>
 
-			<template x-if="!$store.drive.scanning && $store.drive.titles.length > 0">
-				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)) }>
-					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-					<!-- Hidden fields populated from Alpine store -->
-					<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
-					<input type="hidden" name="media_item_id"
-						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''"/>
-					<input type="hidden" name="release_id"
-						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''"/>
-					<input type="hidden" name="content_title"
-						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''"/>
-					<input type="hidden" name="content_year"
-						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''"/>
-					<input type="hidden" name="content_type"
-						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''"/>
+						<!-- Selected titles summary -->
+						<ul class="rip-summary-list mt-3">
+							<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
+								<li>
+									<span class="text-primary" x-text="t.outputName || t.sourceFile"></span>
+									<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.duration"></span>
+									<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.size"></span>
+								</li>
+							</template>
+						</ul>
 
-					<div style="overflow-x:auto;">
-						<table>
-							<thead>
-								<tr>
-									<th></th>
-									<th>Title</th>
-									@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
-									<th>Source</th>
-									@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Output</th></template>`)
-									<th>Duration</th>
-									<th>Size</th>
-								</tr>
-							</thead>
-							<tbody>
-								<template x-for="t in $store.drive.titles" :key="t.index">
-									<tr>
-										<td><input type="checkbox" name="titles" :value="t.index" :checked="t.selected" x-on:change="t.selected = $el.checked"/></td>
-										<td class="text-muted" x-text="t.index"></td>
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
-										<td class="text-muted" x-text="t.sourceFile"></td>
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
-										<td class="text-secondary" x-text="t.duration"></td>
-										<td class="text-secondary" x-text="t.size"></td>
-										@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
-										@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
-										@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
-										@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
-										@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
-										@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
-									</tr>
-								</template>
-							</tbody>
-						</table>
+						<!-- Hidden form for actual submission -->
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)) }>
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
+							<input type="hidden" name="media_item_id"
+								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''"/>
+							<input type="hidden" name="release_id"
+								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''"/>
+							<input type="hidden" name="content_title"
+								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''"/>
+							<input type="hidden" name="content_year"
+								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''"/>
+							<input type="hidden" name="content_type"
+								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''"/>
+
+							<!-- Per-title hidden fields -->
+							<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
+								<div>
+									@templ.Raw(`<input type="hidden" name="titles" :value="t.index"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
+									@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
+								</div>
+							</template>
+
+							<div class="mt-4" style="display:flex; gap:0.75rem; justify-content:flex-end;">
+								<button type="button" class="btn btn-secondary" x-on:click="goToStep(4)">&larr; Back to Titles</button>
+								<button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">Start Rip</button>
+							</div>
+						</form>
 					</div>
-					<div class="mt-3">
-						<button type="submit" class="btn btn-primary">Rip Selected</button>
+				</template>
+
+				<!-- Rip in progress -->
+				<template x-if="$store.drive.ripProgress && $store.drive.ripProgress.Status">
+					<div>
+						<div class="section-title">
+							<template x-if="$store.drive.ripProgress.Status === 'completed'">
+								<span>Rip Complete</span>
+							</template>
+							<template x-if="$store.drive.ripProgress.Status === 'failed'">
+								<span>Rip Failed</span>
+							</template>
+							<template x-if="$store.drive.ripProgress.Status !== 'completed' && $store.drive.ripProgress.Status !== 'failed'">
+								<span>Ripping in Progress</span>
+							</template>
+						</div>
+
+						<div style="margin-bottom: 1.5rem;">
+							<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+								<span class="text-secondary">
+									<span x-text="$store.drive.ripProgress.TitleName || $store.drive.ripProgress.DiscName"></span>
+								</span>
+								<span :class="'badge badge-' + $store.drive.ripProgress.Status" x-text="$store.drive.ripProgress.Status"></span>
+							</div>
+							<div class="progress-bar" style="height: 8px;">
+								<div class="progress-fill" x-bind:style="'width: ' + ($store.drive.ripProgress.Progress || 0) + '%'"></div>
+							</div>
+							<div class="text-muted mt-2" style="font-size: 0.8rem;">
+								<span x-text="($store.drive.ripProgress.Progress || 0) + '%'"></span> complete
+							</div>
+						</div>
+
+						<!-- Completion state -->
+						<template x-if="$store.drive.ripProgress.Status === 'completed'">
+							<div class="alert alert-success">
+								Rip completed successfully. You can eject the disc or <a href="/activity" style="color: inherit; text-decoration: underline;">view activity</a>.
+							</div>
+						</template>
+
+						<template x-if="$store.drive.ripProgress.Status === 'failed'">
+							<div>
+								<div class="alert alert-error">
+									Rip failed: <span x-text="$store.drive.ripProgress.Error"></span>
+								</div>
+								<div class="mt-3" style="display:flex; gap:0.75rem; justify-content:flex-end;">
+									<button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button>
+								</div>
+							</div>
+						</template>
 					</div>
-				</form>
-			</template>
+				</template>
+			</div>
 		</div>
 	}
 }

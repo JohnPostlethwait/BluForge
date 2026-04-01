@@ -36,10 +36,12 @@ templ Settings(data SettingsData) {
 				<div class="form-group">
 					<label for="min_title_length">Minimum Title Length (seconds)</label>
 					<input type="number" id="min_title_length" name="min_title_length" value={ data.MinTitleLength }/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">Titles shorter than this are excluded from auto-rip. Set to 0 to include all titles.</p>
 				</div>
 				<div class="form-group">
 					<label for="poll_interval">Drive Poll Interval (seconds)</label>
 					<input type="number" id="poll_interval" name="poll_interval" value={ data.PollInterval }/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">How often to check for inserted or ejected discs.</p>
 				</div>
 				<div class="form-group">
 					<label for="duplicate_action">Duplicate Action</label>

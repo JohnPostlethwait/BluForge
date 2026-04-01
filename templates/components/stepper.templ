@@ -1,0 +1,41 @@
+package components
+
+import "fmt"
+
+// StepperStep defines one step in the wizard.
+type StepperStep struct {
+	Number int
+	Label  string
+}
+
+// Stepper renders a horizontal step indicator.
+// The current step and completed state are managed client-side via Alpine.js.
+// The template emits the static structure; Alpine classes toggle per step state.
+templ Stepper(steps []StepperStep) {
+	<div class="stepper" x-data>
+		for i, step := range steps {
+			if i > 0 {
+				<div
+					class="stepper-line"
+					x-bind:class={ "{'completed': $store.drive.currentStep > " + itoa(step.Number) + "}" }
+				></div>
+			}
+			<div
+				class="stepper-step"
+				x-bind:class={ "{'completed': $store.drive.currentStep > " + itoa(step.Number) + ", 'active': $store.drive.currentStep === " + itoa(step.Number) + ", 'clickable': $store.drive.currentStep > " + itoa(step.Number) + "}" }
+				x-on:click={ "if ($store.drive.currentStep > " + itoa(step.Number) + ") $store.drive.currentStep = " + itoa(step.Number) }
+			>
+				<div class="stepper-circle">
+					<span x-show={ "$store.drive.currentStep <= " + itoa(step.Number) }>{ itoa(step.Number) }</span>
+					<span x-show={ "$store.drive.currentStep > " + itoa(step.Number) } x-cloak>&#10003;</span>
+				</div>
+				<span class="stepper-label">{ step.Label }</span>
+			</div>
+		}
+	</div>
+}
+
+// itoa converts an int to a string for use in templates.
+func itoa(n int) string {
+	return fmt.Sprintf("%d", n)
+}

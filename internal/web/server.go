@@ -141,12 +141,12 @@ e.GET("/drives/:id", s.handleDriveDetail)
 	e.POST("/drives/:id/rip", s.handleDriveRip)
 	e.POST("/drives/:id/rescan", s.handleDriveRescan)
 	e.POST("/drives/:id/match", s.handleDriveMatch)
-	e.GET("/queue", s.handleQueue)
-	e.GET("/history", s.handleHistory)
+	e.GET("/activity", s.handleActivity)
+	e.POST("/activity/:id/cancel", s.handleActivityCancel)
+	e.POST("/activity/:id/retry", s.handleActivityRetry)
 	e.GET("/settings", s.handleSettings)
 	e.POST("/settings", s.handleSettingsSave)
 	e.GET("/events", s.handleSSE)
-	e.GET("/drives/:id/contribute", s.handleContribute)
 
 	return s
 }
