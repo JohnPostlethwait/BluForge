@@ -176,6 +176,9 @@ func (p *progressRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string
 }
 
 func TestEngine_ProgressBackwardsIgnored(t *testing.T) {
+	// Small backward steps within a stage are ignored; large drops trigger a
+	// stage reset. Here 50→30 is a >5-point drop so it resets, and 80 is then
+	// reported as forward progress from the new stage baseline.
 	exec := &progressRipExecutor{progressValues: []int{50, 30, 80}}
 	engine := NewEngine(exec)
 
@@ -241,9 +244,12 @@ completed:
 	}
 }
 
-func TestEngine_EarlyHighProgressIgnored(t *testing.T) {
-	// First 3 events are >= 95% and should be suppressed; 4th event (50%) should pass through.
-	exec := &progressRipExecutor{progressValues: []int{98, 99, 97, 50}}
+func TestEngine_StageTransitionResetsProgress(t *testing.T) {
+	// Simulates makemkvcon's multi-stage behavior: analysis phase goes to 98%,
+	// then the rip phase starts at 5% and climbs to 100%. The stage transition
+	// (large drop from 98 to 5) should reset tracking so the rip phase progress
+	// is reported correctly.
+	exec := &progressRipExecutor{progressValues: []int{20, 60, 98, 5, 50, 100}}
 	engine := NewEngine(exec)
 
 	var (
@@ -283,24 +289,21 @@ completed:
 	mu.Lock()
 	defer mu.Unlock()
 
-	// 98 and 99 should NOT appear before 50 in the reported values.
-	for _, v := range reported {
-		if v == 98 || v == 99 {
-			t.Errorf("early high progress %d%% should have been filtered, got %v", v, reported)
-			break
-		}
-	}
-
-	// 50% should appear in the reported values (as actual progress, not just the
-	// start/organizing/complete lifecycle notifications).
-	seen50 := false
+	// After the stage transition (98→5), rip-phase values 50 and 100 must
+	// be reported — this is the actual file-writing progress.
+	seen50, seen100 := false, false
 	for _, v := range reported {
 		if v == 50 {
 			seen50 = true
-			break
+		}
+		if v == 100 {
+			seen100 = true
 		}
 	}
 	if !seen50 {
-		t.Errorf("expected 50%% to be the first real progress reported, got %v", reported)
+		t.Errorf("expected rip-phase 50%% to be reported, got %v", reported)
+	}
+	if !seen100 {
+		t.Errorf("expected rip-phase 100%% to be reported, got %v", reported)
 	}
 }

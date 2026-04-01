@@ -183,10 +183,7 @@ func (e *Engine) run(job *Job) {
 		}
 	}
 
-	// progressStarted is set true once we see the first legitimately low
-	// progress value (<95%). Until then we discard all high values, which
-	// prevents MakeMKV's init-phase "100%" bursts from locking the bar.
-	var progressStarted bool
+	var lastPct int
 	err := e.executor.StartRip(ctx, job.DriveIndex, job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
@@ -195,22 +192,19 @@ func (e *Engine) run(job *Job) {
 				if pct > 100 {
 					pct = 100
 				}
-				// Discard high values until real progress begins.
-				if !progressStarted {
-					if pct >= 95 {
-						return
-					}
-					progressStarted = true
+				// When progress drops significantly, a new stage has
+				// started (e.g. analysis → rip). Reset so we track
+				// the new stage from zero.
+				if pct < lastPct-5 {
+					lastPct = pct
 				}
-				// Never allow progress to go backwards.
-				job.mu.Lock()
-				currentPct := job.Progress
-				job.mu.Unlock()
-				if pct < currentPct {
-					return
+				// Only update when progress advances within the
+				// current stage.
+				if pct > lastPct {
+					lastPct = pct
+					job.UpdateProgress(pct)
+					e.notify(job)
 				}
-				job.UpdateProgress(pct)
-				e.notify(job)
 			}
 		}
 	})
