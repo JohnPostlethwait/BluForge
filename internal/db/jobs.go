@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -139,6 +140,32 @@ func (s *Store) CountJobsCompletedToday() (int, error) {
 		return 0, fmt.Errorf("count completed today: %w", err)
 	}
 	return count, nil
+}
+
+// DeleteJobsExcept deletes all rip jobs except those whose IDs appear in excludeIDs.
+// If excludeIDs is nil or empty, all rip jobs are deleted.
+func (s *Store) DeleteJobsExcept(excludeIDs []int64) error {
+	if len(excludeIDs) == 0 {
+		_, err := s.db.Exec(`DELETE FROM rip_jobs`)
+		if err != nil {
+			return fmt.Errorf("delete all jobs: %w", err)
+		}
+		return nil
+	}
+
+	placeholders := strings.Join(strings.Split(strings.Repeat("?", len(excludeIDs)), ""), ", ")
+	q := fmt.Sprintf(`DELETE FROM rip_jobs WHERE id NOT IN (%s)`, placeholders)
+
+	args := make([]any, len(excludeIDs))
+	for i, id := range excludeIDs {
+		args[i] = id
+	}
+
+	_, err := s.db.Exec(q, args...)
+	if err != nil {
+		return fmt.Errorf("delete jobs except: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) queryJobs(query string, args ...any) ([]RipJob, error) {

@@ -239,3 +239,76 @@ func TestCountJobsCompletedToday_NoJobs(t *testing.T) {
 		t.Errorf("count: want 0, got %d", count)
 	}
 }
+
+func TestDeleteJobsExcept(t *testing.T) {
+	store := openTestDB(t)
+
+	id1, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob 1: %v", err)
+	}
+	id2, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob 2: %v", err)
+	}
+	id3, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob 3: %v", err)
+	}
+
+	if err := store.DeleteJobsExcept([]int64{id1, id2}); err != nil {
+		t.Fatalf("DeleteJobsExcept: %v", err)
+	}
+
+	// id3 should be gone.
+	got3, err := store.GetJob(id3)
+	if err != nil {
+		t.Fatalf("GetJob id3: %v", err)
+	}
+	if got3 != nil {
+		t.Errorf("id3 should have been deleted, but still exists")
+	}
+
+	// id1 and id2 should remain.
+	got1, err := store.GetJob(id1)
+	if err != nil {
+		t.Fatalf("GetJob id1: %v", err)
+	}
+	if got1 == nil {
+		t.Errorf("id1 should still exist but was deleted")
+	}
+
+	got2, err := store.GetJob(id2)
+	if err != nil {
+		t.Fatalf("GetJob id2: %v", err)
+	}
+	if got2 == nil {
+		t.Errorf("id2 should still exist but was deleted")
+	}
+}
+
+func TestDeleteJobsExcept_EmptyExcludes(t *testing.T) {
+	store := openTestDB(t)
+
+	if _, err := store.CreateJob(makeTestJob()); err != nil {
+		t.Fatalf("CreateJob 1: %v", err)
+	}
+	if _, err := store.CreateJob(makeTestJob()); err != nil {
+		t.Fatalf("CreateJob 2: %v", err)
+	}
+	if _, err := store.CreateJob(makeTestJob()); err != nil {
+		t.Fatalf("CreateJob 3: %v", err)
+	}
+
+	if err := store.DeleteJobsExcept(nil); err != nil {
+		t.Fatalf("DeleteJobsExcept(nil): %v", err)
+	}
+
+	jobs, err := store.ListAllJobs(100, 0)
+	if err != nil {
+		t.Fatalf("ListAllJobs: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Errorf("want 0 jobs after DeleteJobsExcept(nil), got %d", len(jobs))
+	}
+}
