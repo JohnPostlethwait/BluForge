@@ -98,6 +98,7 @@ async function clearHistory(btn) {
 		if (resp.ok) {
 			Alpine.store('activity').history = []
 			Alpine.store('activity').hasMore = false
+			Alpine.store('activity').page = 1
 		} else {
 			const data = await resp.json().catch(() => ({}))
 			alert('Clear failed: ' + (data.message || resp.statusText))
