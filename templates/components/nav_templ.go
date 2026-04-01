@@ -29,7 +29,7 @@ func Nav() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<nav aria-label=\"Main navigation\"><a href=\"/\" class=\"logo\">BluForge</a><ul class=\"nav-links\"><li><a href=\"/\">Dashboard</a></li><li><a href=\"/activity\">Activity</a></li><li><a href=\"/settings\">Settings</a></li></ul></nav>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<nav aria-label=\"Main navigation\"><a href=\"/\" class=\"logo\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 72 72\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\"><circle cx=\"36\" cy=\"36\" r=\"30\" fill=\"url(#navDiscFill)\"></circle> <circle cx=\"36\" cy=\"36\" r=\"6\" fill=\"var(--bg-secondary)\"></circle> <circle cx=\"36\" cy=\"36\" r=\"30\" fill=\"none\" stroke=\"url(#navEmberRing)\" stroke-width=\"4.5\"></circle> <defs><radialGradient id=\"navDiscFill\" cx=\"50%\" cy=\"40%\" r=\"55%\"><stop offset=\"0%\" stop-color=\"#1d4ed8\"></stop> <stop offset=\"100%\" stop-color=\"#172554\"></stop></radialGradient> <linearGradient id=\"navEmberRing\" x1=\"36\" y1=\"4\" x2=\"36\" y2=\"68\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0%\" stop-color=\"#3b82f6\"></stop> <stop offset=\"55%\" stop-color=\"#f59e0b\"></stop> <stop offset=\"100%\" stop-color=\"#f97316\"></stop></linearGradient></defs></svg> <span><span class=\"logo-blu\">Blu</span><span class=\"logo-forge\">Forge</span></span></a><ul class=\"nav-links\"><li><a href=\"/\">Dashboard</a></li><li><a href=\"/activity\">Activity</a></li><li><a href=\"/settings\">Settings</a></li></ul></nav>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
