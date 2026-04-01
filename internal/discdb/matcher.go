@@ -51,8 +51,11 @@ func MatchTitles(scan *makemkv.DiscScan, disc Disc) []ContentMatch {
 				if dt.Item.Type != "" {
 					cm.ContentType = dt.Item.Type
 				}
-				// Extras should never carry season/episode data.
-				if strings.EqualFold(cm.ContentType, "extra") {
+				// Only episodes should carry season/episode data.
+				// The API returns many non-episode types (Extra,
+				// DeletedScene, etc.) that may have season/episode
+				// set to indicate association, not identity.
+				if !IsEpisodeType(cm.ContentType) {
 					cm.Season = ""
 					cm.Episode = ""
 				}
@@ -61,6 +64,13 @@ func MatchTitles(scan *makemkv.DiscScan, disc Disc) []ContentMatch {
 		matches = append(matches, cm)
 	}
 	return matches
+}
+
+// isEpisodeType returns true for content types that should receive
+// season/episode formatting (S##E## prefix).
+func IsEpisodeType(ct string) bool {
+	lower := strings.ToLower(ct)
+	return lower == "episode" || lower == "series"
 }
 
 // ScoreRelease scores how well a release matches the scan: 10 points per

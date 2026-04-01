@@ -135,6 +135,11 @@ func TestBuildOutputName(t *testing.T) {
 			want: "Behind the Scenes.mkv",
 		},
 		{
+			name: "DeletedScene with season and episode gets no prefix",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Deleted Scenes: Male Unbonding", ContentType: "DeletedScene", Season: "1", Episode: "2"},
+			want: "Deleted Scenes: Male Unbonding.mkv",
+		},
+		{
 			name: "movie with no season or episode",
 			m:    discdb.ContentMatch{Matched: true, ContentTitle: "The Matrix", ContentType: "movie"},
 			want: "The Matrix.mkv",

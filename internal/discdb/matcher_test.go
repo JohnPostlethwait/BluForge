@@ -78,59 +78,73 @@ func TestMatchBySourceFile(t *testing.T) {
 }
 
 func TestMatchExtrasDropSeasonEpisode(t *testing.T) {
-	scan := makeScan("TestDisc", "00100.mpls", "00002.m2ts")
+	scan := makeScan("TestDisc", "00100.mpls", "00002.m2ts", "00004.m2ts")
 
 	disc := Disc{
 		Titles: []DiscTitle{
 			{
 				SourceFile: "00100.mpls",
-				ItemType:   "video",
+				ItemType:   "Episode",
 				Season:     "1",
 				Episode:    "2",
-				Item:       &DiscItemReference{Title: "Male Unbonding", Type: "episode", Season: "1", Episode: "2"},
+				Item:       &DiscItemReference{Title: "Male Unbonding", Type: "Episode", Season: "1", Episode: "2"},
 			},
 			{
 				SourceFile: "00002.m2ts",
-				ItemType:   "video",
+				ItemType:   "DeletedScene",
 				Season:     "1",
 				Episode:    "2",
-				Item:       &DiscItemReference{Title: "Deleted Scenes: Male Unbonding", Type: "extra"},
+				Item:       &DiscItemReference{Title: "Deleted Scenes: Male Unbonding", Type: "DeletedScene"},
+			},
+			{
+				SourceFile: "00004.m2ts",
+				ItemType:   "Extra",
+				Season:     "1",
+				Episode:    "2",
+				Item:       &DiscItemReference{Title: "Inside Look: Male Unbonding", Type: "Extra"},
 			},
 		},
 	}
 
 	matches := MatchTitles(scan, disc)
 
-	if len(matches) != 2 {
-		t.Fatalf("expected 2 matches, got %d", len(matches))
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 matches, got %d", len(matches))
 	}
 
-	var episode, extra ContentMatch
+	bySource := make(map[string]ContentMatch)
 	for _, m := range matches {
-		if m.SourceFile == "00100.mpls" {
-			episode = m
-		} else {
-			extra = m
-		}
+		bySource[m.SourceFile] = m
 	}
 
 	// Episode should keep season/episode.
-	if episode.ContentType != "episode" {
-		t.Errorf("expected episode ContentType=episode, got %q", episode.ContentType)
+	episode := bySource["00100.mpls"]
+	if episode.ContentType != "Episode" {
+		t.Errorf("expected episode ContentType=Episode, got %q", episode.ContentType)
 	}
 	if episode.Season != "1" || episode.Episode != "2" {
 		t.Errorf("expected episode Season=1/Episode=2, got %q/%q", episode.Season, episode.Episode)
 	}
 
-	// Extra should have season/episode cleared even though DiscTitle has them.
-	if extra.ContentType != "extra" {
-		t.Errorf("expected extra ContentType=extra, got %q", extra.ContentType)
+	// DeletedScene should have season/episode cleared.
+	deleted := bySource["00002.m2ts"]
+	if deleted.ContentType != "DeletedScene" {
+		t.Errorf("expected ContentType=DeletedScene, got %q", deleted.ContentType)
+	}
+	if deleted.Season != "" || deleted.Episode != "" {
+		t.Errorf("expected DeletedScene Season/Episode to be empty, got %q/%q", deleted.Season, deleted.Episode)
+	}
+	if deleted.ContentTitle != "Deleted Scenes: Male Unbonding" {
+		t.Errorf("expected ContentTitle='Deleted Scenes: Male Unbonding', got %q", deleted.ContentTitle)
+	}
+
+	// Extra should have season/episode cleared.
+	extra := bySource["00004.m2ts"]
+	if extra.ContentType != "Extra" {
+		t.Errorf("expected ContentType=Extra, got %q", extra.ContentType)
 	}
 	if extra.Season != "" || extra.Episode != "" {
-		t.Errorf("expected extra Season/Episode to be empty, got %q/%q", extra.Season, extra.Episode)
-	}
-	if extra.ContentTitle != "Deleted Scenes: Male Unbonding" {
-		t.Errorf("expected extra ContentTitle='Deleted Scenes: Male Unbonding', got %q", extra.ContentTitle)
+		t.Errorf("expected Extra Season/Episode to be empty, got %q/%q", extra.Season, extra.Episode)
 	}
 }
 
