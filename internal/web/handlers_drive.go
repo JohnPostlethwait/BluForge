@@ -66,6 +66,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 						driveStore.MatchedMedia += " (" + mapping.MediaYear + ")"
 					}
 					driveStore.MatchedRelease = mapping.ReleaseID
+					driveStore.MatchedDiscID = mapping.DiscID
 				}
 			}
 		}
@@ -76,6 +77,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		driveStore.SelectedRelease = &SelectedReleaseJSON{
 			MediaItemID: session.MediaItemID,
 			ReleaseID:   session.ReleaseID,
+			DiscID:      session.DiscID,
 			Title:       session.MediaTitle,
 			Year:        session.MediaYear,
 			Type:        session.MediaType,
@@ -89,7 +91,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		// enriched titles so match data survives page refreshes.
 		if session.ReleaseID != "" && session.RawSearchResults != nil && s.orchestrator != nil {
 			if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-				if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID); disc != nil {
+				if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
 					driveStore.Titles = enrichTitlesWithMatches(scan, *disc)
 				}
 			}
@@ -289,6 +291,7 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		DuplicateAction: duplicateAction,
 		MediaItemID:     c.FormValue("media_item_id"),
 		ReleaseID:       c.FormValue("release_id"),
+		DiscID:          c.FormValue("disc_id"),
 		MediaTitle:      c.FormValue("content_title"),
 		MediaYear:       c.FormValue("content_year"),
 		MediaType:       c.FormValue("content_type"),
@@ -338,6 +341,7 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 				DiscKey:     discKey,
 				MediaItemID: session.MediaItemID,
 				ReleaseID:   session.ReleaseID,
+				DiscID:      session.DiscID,
 				MediaTitle:  session.MediaTitle,
 				MediaYear:   session.MediaYear,
 				MediaType:   session.MediaType,
@@ -350,7 +354,7 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	// If a release is selected, enrich titles with DiscDB match data.
 	var titles []TitleJSON
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && session.RawSearchResults != nil {
-		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID); disc != nil {
+		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
 			titles = enrichTitlesWithMatches(scan, *disc)
 			slog.Info("scan completed with match enrichment", "drive_index", idx, "title_count", len(titles))
 			return c.JSON(http.StatusOK, titles)
@@ -403,7 +407,7 @@ func (s *Server) handleDriveMatch(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "no search results cached — search first")
 	}
 
-	disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID)
+	disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID)
 	if disc == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "release disc not found in search results")
 	}

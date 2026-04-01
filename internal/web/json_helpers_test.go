@@ -189,7 +189,7 @@ func TestFindDiscForRelease(t *testing.T) {
 	}
 
 	t.Run("found first disc of matching release", func(t *testing.T) {
-		disc := findDiscForRelease(items, "100")
+		disc := findDiscForRelease(items, "100", "")
 		if disc == nil {
 			t.Fatal("expected disc, got nil")
 		}
@@ -199,7 +199,7 @@ func TestFindDiscForRelease(t *testing.T) {
 	})
 
 	t.Run("found disc from second release", func(t *testing.T) {
-		disc := findDiscForRelease(items, "101")
+		disc := findDiscForRelease(items, "101", "")
 		if disc == nil {
 			t.Fatal("expected disc, got nil")
 		}
@@ -209,30 +209,82 @@ func TestFindDiscForRelease(t *testing.T) {
 	})
 
 	t.Run("release with no discs returns nil", func(t *testing.T) {
-		disc := findDiscForRelease(items, "200")
+		disc := findDiscForRelease(items, "200", "")
 		if disc != nil {
 			t.Errorf("expected nil for release with no discs, got %+v", disc)
 		}
 	})
 
 	t.Run("unknown release ID returns nil", func(t *testing.T) {
-		disc := findDiscForRelease(items, "999")
+		disc := findDiscForRelease(items, "999", "")
 		if disc != nil {
 			t.Errorf("expected nil for unknown release ID, got %+v", disc)
 		}
 	})
 
 	t.Run("non-numeric release ID returns nil", func(t *testing.T) {
-		disc := findDiscForRelease(items, "not-a-number")
+		disc := findDiscForRelease(items, "not-a-number", "")
 		if disc != nil {
 			t.Errorf("expected nil for non-numeric release ID, got %+v", disc)
 		}
 	})
 
 	t.Run("empty items returns nil", func(t *testing.T) {
-		disc := findDiscForRelease(nil, "100")
+		disc := findDiscForRelease(nil, "100", "")
 		if disc != nil {
 			t.Errorf("expected nil for empty items, got %+v", disc)
+		}
+	})
+
+	// Multi-disc release tests for disc ID selection.
+	multiDiscItems := []discdb.MediaItem{
+		{
+			ID:    3,
+			Title: "Seinfeld",
+			Releases: []discdb.Release{
+				{
+					ID:    300,
+					Title: "Season 2",
+					Discs: []discdb.Disc{
+						{ID: 50, Index: 0, Name: "Disc 1"},
+						{ID: 51, Index: 1, Name: "Disc 2"},
+						{ID: 52, Index: 2, Name: "Disc 3"},
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("multi-disc with valid discID returns correct disc", func(t *testing.T) {
+		disc := findDiscForRelease(multiDiscItems, "300", "51")
+		if disc == nil {
+			t.Fatal("expected disc, got nil")
+		}
+		if disc.ID != 51 {
+			t.Errorf("expected disc.ID=51, got %d", disc.ID)
+		}
+		if disc.Name != "Disc 2" {
+			t.Errorf("expected disc.Name='Disc 2', got %q", disc.Name)
+		}
+	})
+
+	t.Run("multi-disc with empty discID returns first disc", func(t *testing.T) {
+		disc := findDiscForRelease(multiDiscItems, "300", "")
+		if disc == nil {
+			t.Fatal("expected disc, got nil")
+		}
+		if disc.ID != 50 {
+			t.Errorf("expected disc.ID=50 (first disc), got %d", disc.ID)
+		}
+	})
+
+	t.Run("multi-disc with invalid discID returns first disc", func(t *testing.T) {
+		disc := findDiscForRelease(multiDiscItems, "300", "999")
+		if disc == nil {
+			t.Fatal("expected disc, got nil")
+		}
+		if disc.ID != 50 {
+			t.Errorf("expected disc.ID=50 (fallback to first), got %d", disc.ID)
 		}
 	})
 }

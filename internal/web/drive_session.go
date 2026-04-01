@@ -12,6 +12,7 @@ import (
 type DriveSession struct {
 	MediaItemID      string
 	ReleaseID        string
+	DiscID           string
 	MediaTitle       string
 	MediaYear        string
 	MediaType        string

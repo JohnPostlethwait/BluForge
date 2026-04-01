@@ -13,6 +13,7 @@ type DiscMapping struct {
 	DiscName    string
 	MediaItemID string
 	ReleaseID   string
+	DiscID      string
 	MediaTitle  string
 	MediaYear   string
 	MediaType   string
@@ -24,19 +25,20 @@ type DiscMapping struct {
 func (s *Store) SaveMapping(m DiscMapping) error {
 	const q = `
 		INSERT INTO disc_mappings
-			(disc_key, disc_name, media_item_id, release_id, media_title, media_year, media_type)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+			(disc_key, disc_name, media_item_id, release_id, disc_id, media_title, media_year, media_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(disc_key) DO UPDATE SET
 			disc_name    = excluded.disc_name,
 			media_item_id = excluded.media_item_id,
 			release_id   = excluded.release_id,
+			disc_id      = excluded.disc_id,
 			media_title  = excluded.media_title,
 			media_year   = excluded.media_year,
 			media_type   = excluded.media_type,
 			updated_at   = CURRENT_TIMESTAMP`
 
 	_, err := s.db.Exec(q,
-		m.DiscKey, m.DiscName, m.MediaItemID, m.ReleaseID,
+		m.DiscKey, m.DiscName, m.MediaItemID, m.ReleaseID, m.DiscID,
 		m.MediaTitle, m.MediaYear, m.MediaType,
 	)
 	if err != nil {
@@ -50,7 +52,7 @@ func (s *Store) SaveMapping(m DiscMapping) error {
 // Returns nil, nil if the mapping does not exist.
 func (s *Store) GetMapping(discKey string) (*DiscMapping, error) {
 	const q = `
-		SELECT id, disc_key, disc_name, media_item_id, release_id,
+		SELECT id, disc_key, disc_name, media_item_id, release_id, disc_id,
 		       media_title, media_year, media_type, created_at, updated_at
 		FROM disc_mappings WHERE disc_key = ?`
 
@@ -81,7 +83,7 @@ func (s *Store) DeleteMapping(discKey string) error {
 // ListMappings returns all disc mappings.
 func (s *Store) ListMappings() ([]DiscMapping, error) {
 	const q = `
-		SELECT id, disc_key, disc_name, media_item_id, release_id,
+		SELECT id, disc_key, disc_name, media_item_id, release_id, disc_id,
 		       media_title, media_year, media_type, created_at, updated_at
 		FROM disc_mappings
 		ORDER BY created_at DESC`
@@ -111,7 +113,7 @@ func (s *Store) ListMappings() ([]DiscMapping, error) {
 func scanMapping(s scanner) (*DiscMapping, error) {
 	var m DiscMapping
 	err := s.Scan(
-		&m.ID, &m.DiscKey, &m.DiscName, &m.MediaItemID, &m.ReleaseID,
+		&m.ID, &m.DiscKey, &m.DiscName, &m.MediaItemID, &m.ReleaseID, &m.DiscID,
 		&m.MediaTitle, &m.MediaYear, &m.MediaType,
 		&m.CreatedAt, &m.UpdatedAt,
 	)

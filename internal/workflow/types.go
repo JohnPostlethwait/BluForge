@@ -27,6 +27,7 @@ type ManualRipParams struct {
 	// Mapping metadata — saved for future lookups.
 	MediaItemID string
 	ReleaseID   string
+	DiscID      string
 	MediaTitle  string
 	MediaYear   string
 	MediaType   string

@@ -1,0 +1,1 @@
+ALTER TABLE disc_mappings ADD COLUMN disc_id TEXT NOT NULL DEFAULT '';

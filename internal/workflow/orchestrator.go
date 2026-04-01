@@ -102,6 +102,7 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 			DiscName:    params.DiscName,
 			MediaItemID: params.MediaItemID,
 			ReleaseID:   params.ReleaseID,
+			DiscID:      params.DiscID,
 			MediaTitle:  params.MediaTitle,
 			MediaYear:   params.MediaYear,
 			MediaType:   params.MediaType,
@@ -343,7 +344,7 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 	}
 
 	var titles []TitleSelection
-	var mediaItemID, releaseID, mediaTitle, mediaYear, mediaType string
+	var mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType string
 
 	if mapping != nil {
 		slog.Info("auto-rip: using cached disc mapping",
@@ -351,11 +352,12 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 		titles = o.titlesFromMapping(scan, mapping)
 		mediaItemID = mapping.MediaItemID
 		releaseID = mapping.ReleaseID
+		discID = mapping.DiscID
 		mediaTitle = mapping.MediaTitle
 		mediaYear = mapping.MediaYear
 		mediaType = mapping.MediaType
 	} else {
-		titles, mediaItemID, releaseID, mediaTitle, mediaYear, mediaType = o.autoMatch(ctx, scan)
+		titles, mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType = o.autoMatch(ctx, scan)
 	}
 
 	params := ManualRipParams{
@@ -367,6 +369,7 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 		DuplicateAction: cfg.DuplicateAction,
 		MediaItemID:     mediaItemID,
 		ReleaseID:       releaseID,
+		DiscID:          discID,
 		MediaTitle:      mediaTitle,
 		MediaYear:       mediaYear,
 		MediaType:       mediaType,
@@ -424,7 +427,7 @@ func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.Dis
 // confident match is found.
 func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 	titles []TitleSelection,
-	mediaItemID, releaseID, mediaTitle, mediaYear, mediaType string,
+	mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType string,
 ) {
 	if o.discDB != nil && scan.DiscName != "" {
 		items, err := o.discDB.SearchByTitle(ctx, scan.DiscName)
@@ -438,6 +441,7 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 				titles = o.titlesFromSearchResult(scan, best)
 				mediaItemID = strconv.Itoa(best.MediaItem.ID)
 				releaseID = strconv.Itoa(best.Release.ID)
+				discID = strconv.Itoa(best.Disc.ID)
 				mediaTitle = best.MediaItem.Title
 				mediaYear = strconv.Itoa(best.MediaItem.Year)
 				mediaType = best.MediaItem.Type

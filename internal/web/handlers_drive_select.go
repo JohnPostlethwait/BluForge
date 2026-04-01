@@ -11,6 +11,7 @@ import (
 type selectRequest struct {
 	MediaItemID string `json:"mediaItemID"`
 	ReleaseID   string `json:"releaseID"`
+	DiscID      string `json:"discID"`
 	Title       string `json:"title"`
 	Year        string `json:"year"`
 	Type        string `json:"type"`
@@ -45,6 +46,7 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	s.driveSessions.Set(idx, &DriveSession{
 		MediaItemID:      req.MediaItemID,
 		ReleaseID:        req.ReleaseID,
+		DiscID:           req.DiscID,
 		MediaTitle:       req.Title,
 		MediaYear:        req.Year,
 		MediaType:        req.Type,
@@ -58,7 +60,7 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
 			session := s.driveSessions.Get(idx)
 			if session != nil && session.RawSearchResults != nil {
-				if disc := findDiscForRelease(session.RawSearchResults, req.ReleaseID); disc != nil {
+				if disc := findDiscForRelease(session.RawSearchResults, req.ReleaseID, req.DiscID); disc != nil {
 					titles := enrichTitlesWithMatches(scan, *disc)
 					return c.JSON(http.StatusOK, map[string]interface{}{
 						"status": "ok",

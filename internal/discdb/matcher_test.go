@@ -386,16 +386,13 @@ func TestBestRelease_ReleaseWithNoDiscs(t *testing.T) {
 		},
 	}
 
-	result, _ := BestRelease(scan, items)
-	if result == nil {
-		t.Fatalf("expected non-nil result")
+	result, score := BestRelease(scan, items)
+	// A release with no discs cannot match any scan titles.
+	if result != nil {
+		t.Errorf("expected nil result for release with no discs, got %+v", result)
 	}
-	// Disc should be zero-value since there are no discs in the release.
-	if result.Disc.ID != 0 {
-		t.Errorf("expected zero-value Disc.ID, got %d", result.Disc.ID)
-	}
-	if len(result.Disc.Titles) != 0 {
-		t.Errorf("expected zero-value Disc with no titles, got %d titles", len(result.Disc.Titles))
+	if score != 0 {
+		t.Errorf("expected score 0, got %d", score)
 	}
 }
 
@@ -434,5 +431,70 @@ func TestScoreRelease_PerfectMatch(t *testing.T) {
 	// 3 matching files * 10 = 30, plus title count match bonus = 5, total = 35.
 	if score != 35 {
 		t.Errorf("expected score=35, got %d", score)
+	}
+}
+
+func TestBestRelease_MultiDisc_SelectsCorrectDisc(t *testing.T) {
+	// Scan has source files that match disc 2 (index 1), not disc 1 (index 0).
+	scan := makeScan("Seinfeld_S2_D2", "00010.mpls", "00011.mpls", "00012.mpls")
+
+	items := []MediaItem{
+		{
+			ID:    1,
+			Title: "Seinfeld",
+			Year:  1990,
+			Releases: []Release{
+				{
+					ID:    100,
+					Title: "Season 2 Blu-ray",
+					Discs: []Disc{
+						{
+							ID:    501,
+							Index: 0,
+							Name:  "Disc 1",
+							Titles: []DiscTitle{
+								{SourceFile: "00001.mpls"},
+								{SourceFile: "00002.mpls"},
+								{SourceFile: "00003.mpls"},
+							},
+						},
+						{
+							ID:    502,
+							Index: 1,
+							Name:  "Disc 2",
+							Titles: []DiscTitle{
+								{SourceFile: "00010.mpls"},
+								{SourceFile: "00011.mpls"},
+								{SourceFile: "00012.mpls"},
+							},
+						},
+						{
+							ID:    503,
+							Index: 2,
+							Name:  "Disc 3",
+							Titles: []DiscTitle{
+								{SourceFile: "00020.mpls"},
+								{SourceFile: "00021.mpls"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, score := BestRelease(scan, items)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	// Should match disc 2 (ID=502): 3 files * 10 = 30 + 5 title count bonus = 35.
+	if score != 35 {
+		t.Errorf("expected score=35, got %d", score)
+	}
+	if result.Disc.ID != 502 {
+		t.Errorf("expected Disc.ID=502 (Disc 2), got %d", result.Disc.ID)
+	}
+	if result.Disc.Name != "Disc 2" {
+		t.Errorf("expected Disc.Name='Disc 2', got %q", result.Disc.Name)
 	}
 }

@@ -105,26 +105,48 @@ func ScoreRelease(scan *makemkv.DiscScan, release Release) int {
 	return score
 }
 
-// BestRelease finds the best-matching release across all MediaItems. Returns
-// the SearchResult and the score. Returns nil if items is empty.
+// scoreDisc scores how well a single disc matches the scan: 10 points per
+// matching source file, +5 bonus if the disc's title count matches the scan's.
+func scoreDisc(scan *makemkv.DiscScan, scanFiles map[string]struct{}, disc Disc) int {
+	score := 0
+	for _, dt := range disc.Titles {
+		if _, ok := scanFiles[dt.SourceFile]; ok {
+			score += 10
+		}
+	}
+	if len(disc.Titles) == scan.TitleCount {
+		score += 5
+	}
+	return score
+}
+
+// BestRelease finds the best-matching release and disc across all MediaItems.
+// Scores each disc individually so multi-disc releases match the correct disc
+// rather than always returning Discs[0]. Returns nil if items is empty.
 func BestRelease(scan *makemkv.DiscScan, items []MediaItem) (*SearchResult, int) {
+	// Build set of source files from the scan once.
+	scanFiles := make(map[string]struct{}, len(scan.Titles))
+	for _, t := range scan.Titles {
+		if sf := t.SourceFile(); sf != "" {
+			scanFiles[sf] = struct{}{}
+		}
+	}
+
 	var best *SearchResult
 	bestScore := -1
 
 	for _, item := range items {
 		for _, release := range item.Releases {
-			s := ScoreRelease(scan, release)
-			if s > bestScore {
-				bestScore = s
-				r := &SearchResult{
-					MediaItem: item,
-					Release:   release,
+			for _, disc := range release.Discs {
+				s := scoreDisc(scan, scanFiles, disc)
+				if s > bestScore {
+					bestScore = s
+					best = &SearchResult{
+						MediaItem: item,
+						Release:   release,
+						Disc:      disc,
+					}
 				}
-				// Attach first disc for convenience.
-				if len(release.Discs) > 0 {
-					r.Disc = release.Discs[0]
-				}
-				best = r
 			}
 		}
 	}

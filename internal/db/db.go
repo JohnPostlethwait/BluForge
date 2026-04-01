@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"github.com/johnpostlethwait/bluforge/migrations"
 	_ "modernc.org/sqlite"
@@ -70,6 +71,11 @@ func (s *Store) runMigrations() error {
 		}
 
 		if _, err := s.db.Exec(string(data)); err != nil {
+			// ALTER TABLE ADD COLUMN is not idempotent in SQLite;
+			// skip "duplicate column name" errors on re-run.
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("execute migration %s: %w", entry.Name(), err)
 		}
 	}

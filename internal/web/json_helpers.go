@@ -47,17 +47,29 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 // findDiscForRelease finds the first disc of the release identified by releaseID
 // (as a decimal string) within items. Returns nil if not found or the release
 // has no discs.
-func findDiscForRelease(items []discdb.MediaItem, releaseID string) *discdb.Disc {
-	id, err := strconv.Atoi(releaseID)
+func findDiscForRelease(items []discdb.MediaItem, releaseID string, discID string) *discdb.Disc {
+	relID, err := strconv.Atoi(releaseID)
 	if err != nil {
 		return nil
 	}
 	for _, item := range items {
 		for _, rel := range item.Releases {
-			if rel.ID == id {
+			if rel.ID == relID {
 				if len(rel.Discs) == 0 {
 					return nil
 				}
+				// If a specific disc was selected, find it by ID.
+				if discID != "" {
+					if dID, err := strconv.Atoi(discID); err == nil {
+						for _, d := range rel.Discs {
+							if d.ID == dID {
+								disc := d
+								return &disc
+							}
+						}
+					}
+				}
+				// Fallback to first disc (backward compat / single-disc releases).
 				disc := rel.Discs[0]
 				return &disc
 			}
@@ -116,24 +128,33 @@ func padLeft(s string, width int) string {
 type SelectedReleaseJSON struct {
 	MediaItemID string `json:"mediaItemID"`
 	ReleaseID   string `json:"releaseID"`
+	DiscID      string `json:"discID"`
 	Title       string `json:"title"`
 	Year        string `json:"year"`
 	Type        string `json:"type"`
 }
 
+// DiscJSON is the JSON representation of a disc within a release.
+type DiscJSON struct {
+	ID    string `json:"id"`
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+}
+
 // SearchResultJSON is the JSON representation of a search result row.
 type SearchResultJSON struct {
-	MediaTitle   string `json:"mediaTitle"`
-	MediaYear    int    `json:"mediaYear"`
-	MediaType    string `json:"mediaType"`
-	ReleaseTitle string `json:"releaseTitle"`
-	ReleaseUPC   string `json:"releaseUPC"`
-	ReleaseASIN  string `json:"releaseASIN"`
-	RegionCode   string `json:"regionCode"`
-	Format       string `json:"format"`
-	DiscCount    int    `json:"discCount"`
-	ReleaseID    string `json:"releaseID"`
-	MediaItemID  string `json:"mediaItemID"`
+	MediaTitle   string     `json:"mediaTitle"`
+	MediaYear    int        `json:"mediaYear"`
+	MediaType    string     `json:"mediaType"`
+	ReleaseTitle string     `json:"releaseTitle"`
+	ReleaseUPC   string     `json:"releaseUPC"`
+	ReleaseASIN  string     `json:"releaseASIN"`
+	RegionCode   string     `json:"regionCode"`
+	Format       string     `json:"format"`
+	DiscCount    int        `json:"discCount"`
+	Discs        []DiscJSON `json:"discs"`
+	ReleaseID    string     `json:"releaseID"`
+	MediaItemID  string     `json:"mediaItemID"`
 }
 
 // RipJobJSON is a snapshot of a single rip job for the Alpine store.
@@ -177,6 +198,7 @@ type DriveStoreJSON struct {
 	HasMapping      bool                 `json:"hasMapping"`
 	MatchedMedia    string               `json:"matchedMedia"`
 	MatchedRelease  string               `json:"matchedRelease"`
+	MatchedDiscID   string               `json:"matchedDiscID"`
 	Titles          []TitleJSON          `json:"titles"`
 	SelectedRelease *SelectedReleaseJSON `json:"selectedRelease"`
 	SearchResults   []SearchResultJSON   `json:"searchResults"`
@@ -211,6 +233,14 @@ func mediaItemsToSearchJSON(items []discdb.MediaItem) []SearchResultJSON {
 			if len(rel.Discs) > 0 {
 				format = rel.Discs[0].Format
 			}
+			discs := make([]DiscJSON, 0, len(rel.Discs))
+			for _, d := range rel.Discs {
+				discs = append(discs, DiscJSON{
+					ID:    strconv.Itoa(d.ID),
+					Index: d.Index,
+					Name:  d.Name,
+				})
+			}
 			rows = append(rows, SearchResultJSON{
 				MediaTitle:   item.Title,
 				MediaYear:    item.Year,
@@ -221,6 +251,7 @@ func mediaItemsToSearchJSON(items []discdb.MediaItem) []SearchResultJSON {
 				RegionCode:   rel.RegionCode,
 				Format:       format,
 				DiscCount:    len(rel.Discs),
+				Discs:        discs,
 				ReleaseID:    strconv.Itoa(rel.ID),
 				MediaItemID:  strconv.Itoa(item.ID),
 			})
