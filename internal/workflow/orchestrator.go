@@ -70,8 +70,23 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 	var result RipResult
 
+	// Create one parent temp directory for all titles in this rip session.
+	// Individual per-title subdirs are created lazily when each job starts.
+	parentTempDir, err := os.MkdirTemp(params.OutputDir, ".rip-")
+	if err != nil {
+		slog.Error("failed to create parent temp dir", "error", err)
+		for _, sel := range params.Titles {
+			result.Titles = append(result.Titles, TitleResult{
+				TitleIndex: sel.TitleIndex,
+				Status:     "failed",
+				Reason:     fmt.Sprintf("create parent temp dir: %v", err),
+			})
+		}
+		return result
+	}
+
 	for _, sel := range params.Titles {
-		tr := o.processTitle(params, sel)
+		tr := o.processTitle(params, sel, parentTempDir)
 		result.Titles = append(result.Titles, tr)
 	}
 
@@ -95,7 +110,7 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 
 // processTitle handles a single title: build path, duplicate check, disk space,
 // DB creation, engine submission.
-func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) TitleResult {
+func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, parentTempDir string) TitleResult {
 	// 1. Build destination path.
 	destPath := o.buildDestPath(params, sel)
 	fullDest := filepath.Join(params.OutputDir, destPath)
@@ -137,42 +152,43 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 		}
 	}
 
-	// 5. Create a temp subdirectory for the rip. MakeMKV writes files with
-	// its own naming scheme (e.g. "Seinfeld Season 1_t01.mkv"). We rip into
-	// a temp dir, then move the output to the desired path in the OnComplete
-	// callback.
-	ripDir, err := os.MkdirTemp(params.OutputDir, fmt.Sprintf(".rip-%d-t%d-", params.DriveIndex, sel.TitleIndex))
-	if err != nil {
-		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
-			slog.Error("failed to update job status", "job_id", jobID, "error", dbErr)
-		}
-		return TitleResult{
-			TitleIndex: sel.TitleIndex,
-			Status:     "failed",
-			Reason:     fmt.Sprintf("create temp rip dir: %v", err),
-		}
-	}
-
-	// 6. Create ripper job with OnComplete hook.
-	ripJob := ripper.NewJob(params.DriveIndex, sel.TitleIndex, params.DiscName, ripDir)
+	// 5. Create ripper job. The per-title temp subdirectory is created lazily
+	// via OnStart when the rip actually begins (not at submission time), so
+	// queued jobs don't create orphaned temp dirs up front.
+	ripJob := ripper.NewJob(params.DriveIndex, sel.TitleIndex, params.DiscName, "")
 	ripJob.ID = jobID
 	ripJob.TitleName = sel.TitleName
 	ripJob.ContentType = sel.ContentType
+
+	// OnStart: create the per-title subdir inside the shared parent temp dir.
+	ripJob.OnStart = func(job *ripper.Job) error {
+		titleDir, err := os.MkdirTemp(parentTempDir, fmt.Sprintf("t%d-", sel.TitleIndex))
+		if err != nil {
+			return fmt.Errorf("create title temp dir: %w", err)
+		}
+		job.OutputDir = titleDir
+		return nil
+	}
+
+	// OnComplete: move the ripped file to its final destination and clean up.
 	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
 		if ripErr != nil {
 			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", job.Progress, ripErr.Error()); dbErr != nil {
 				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
 			}
 			o.broadcastJobUpdate(job.ID, "failed")
-			// Clean up temp dir on failure.
-			os.RemoveAll(ripDir)
+			// Clean up title temp dir; try parent dir if now empty.
+			if job.OutputDir != "" {
+				os.RemoveAll(job.OutputDir)
+			}
+			os.Remove(parentTempDir) // no-op if not empty
 			return
 		}
 
-		// Find the .mkv file MakeMKV wrote to the temp dir.
-		srcPath, findErr := findMKVFile(ripDir)
+		// Find the .mkv file MakeMKV wrote to the title temp dir.
+		srcPath, findErr := findMKVFile(job.OutputDir)
 		if findErr != nil {
-			slog.Error("could not find ripped file", "job_id", job.ID, "rip_dir", ripDir, "error", findErr)
+			slog.Error("could not find ripped file", "job_id", job.ID, "rip_dir", job.OutputDir, "error", findErr)
 			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", 100, findErr.Error()); dbErr != nil {
 				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
 			}
@@ -191,8 +207,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection) 
 			return
 		}
 
-		// Clean up temp dir.
-		os.RemoveAll(ripDir)
+		// Clean up title temp dir; try parent dir if now empty.
+		os.RemoveAll(job.OutputDir)
+		os.Remove(parentTempDir) // no-op if other titles are still using it
 
 		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest); dbErr != nil {
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)

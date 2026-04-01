@@ -42,7 +42,7 @@ document.addEventListener('alpine:init', () => {
 				Alpine.store('drive').selecting = false
 				Alpine.store('drive').scanError = ''
 				Alpine.store('drive').searchError = ''
-				Alpine.store('drive').ripProgress = null
+				Alpine.store('drive').ripJobs = []
 				Alpine.store('drive').hasMapping = false
 				Alpine.store('drive').currentStep = 1
 			}
@@ -52,10 +52,15 @@ document.addEventListener('alpine:init', () => {
 	evtSource.addEventListener('rip-update', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
-			Alpine.store('drive').ripProgress = update
-			if (update.Status === 'completed' || update.Status === 'failed') {
-				// Stay on step 5 to show completion state
-			} else if (Alpine.store('drive').currentStep !== 5) {
+			const jobs = [...Alpine.store('drive').ripJobs]
+			const idx = jobs.findIndex(j => j.ID === update.ID)
+			if (idx >= 0) {
+				jobs[idx] = update
+			} else {
+				jobs.push(update)
+			}
+			Alpine.store('drive').ripJobs = jobs
+			if (Alpine.store('drive').currentStep !== 5) {
 				Alpine.store('drive').currentStep = 5
 			}
 		}
@@ -191,6 +196,26 @@ function contentTypeBadgeClass(t) {
 
 function selectedTitleCount() {
 	return Alpine.store('drive').titles.filter(t => t.selected).length
+}
+
+function activeRipJob() {
+	return Alpine.store('drive').ripJobs.find(j => j.Status === 'ripping' || j.Status === 'organizing')
+}
+
+function allRipJobsDone() {
+	const jobs = Alpine.store('drive').ripJobs
+	return jobs.length > 0 && jobs.every(j => j.Status === 'completed' || j.Status === 'failed' || j.Status === 'skipped')
+}
+
+function ripHasErrors() {
+	return Alpine.store('drive').ripJobs.some(j => j.Status === 'failed')
+}
+
+function ripStatusBadgeClass(status) {
+	if (status === 'completed') return 'badge badge-detected'
+	if (status === 'failed') return 'badge badge-error'
+	if (status === 'ripping' || status === 'organizing') return 'badge badge-ripping'
+	return 'badge badge-empty'
 }
 
 async function scanDisc(driveIndex) {
@@ -492,8 +517,8 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 5" x-cloak class="step-content">
 			<div class="card">
-				<!-- Pre-rip confirmation (no rip in progress) -->
-				<template x-if="!$store.drive.ripProgress || !$store.drive.ripProgress.Status">
+				<!-- Pre-rip confirmation (no jobs submitted yet) -->
+				<template x-if="$store.drive.ripJobs.length === 0">
 					<div>
 						<div class="section-title">Confirm &amp; Rip</div>
 
@@ -566,55 +591,28 @@ async function scanDisc(driveIndex) {
 					</div>
 				</template>
 
-				<!-- Rip in progress -->
-				<template x-if="$store.drive.ripProgress && $store.drive.ripProgress.Status">
-					<div>
-						<div class="section-title">
-							<template x-if="$store.drive.ripProgress.Status === 'completed'">
-								<span>Rip Complete</span>
-							</template>
-							<template x-if="$store.drive.ripProgress.Status === 'failed'">
-								<span>Rip Failed</span>
-							</template>
-							<template x-if="$store.drive.ripProgress.Status !== 'completed' && $store.drive.ripProgress.Status !== 'failed'">
-								<span>Ripping in Progress</span>
-							</template>
-						</div>
+				<div x-show="$store.drive.ripJobs.length !== 0" x-cloak>
+					<div class="section-title">
+						<span x-show="!allRipJobsDone()">Ripping in Progress</span>
+						<span x-show="allRipJobsDone() && !ripHasErrors()" x-cloak>Rip Complete</span>
+						<span x-show="allRipJobsDone() && ripHasErrors()" x-cloak>Rip Complete (with errors)</span>
+					</div>
 
-						<div style="margin-bottom: 1.5rem;">
-							<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
-								<span class="text-secondary">
-									<span x-text="$store.drive.ripProgress.TitleName || $store.drive.ripProgress.DiscName"></span>
-								</span>
-								<span :class="'badge badge-' + $store.drive.ripProgress.Status" x-text="$store.drive.ripProgress.Status"></span>
-							</div>
-							<div class="progress-bar" style="height: 8px;">
-								<div class="progress-fill" x-bind:style="'width: ' + ($store.drive.ripProgress.Progress || 0) + '%'"></div>
-							</div>
-							<div class="text-muted mt-2" style="font-size: 0.8rem;">
-								<span x-text="($store.drive.ripProgress.Progress || 0) + '%'"></span> complete
-							</div>
-						</div>
-
-						<!-- Completion state -->
-						<template x-if="$store.drive.ripProgress.Status === 'completed'">
-							<div class="alert alert-success">
-								Rip completed successfully. You can eject the disc or <a href="/activity" style="color: inherit; text-decoration: underline;">view activity</a>.
-							</div>
-						</template>
-
-						<template x-if="$store.drive.ripProgress.Status === 'failed'">
-							<div>
-								<div class="alert alert-error">
-									Rip failed: <span x-text="$store.drive.ripProgress.Error"></span>
+					<div style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;">
+						<template x-for="job in $store.drive.ripJobs" :key="job.ID">
+							<div style="border:1px solid var(--border); border-radius:6px; padding:0.75rem 1rem;">
+								<div style="display:flex; justify-content:space-between; align-items:center;">
+									<span class="text-secondary" x-text="job.TitleName || job.DiscName"></span>
+									<span :class="ripStatusBadgeClass(job.Status)" x-text="job.Status"></span>
 								</div>
-								<div class="mt-3" style="display:flex; gap:0.75rem; justify-content:flex-end;">
-									<button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button>
-								</div>
+								@templ.Raw(`<template x-if="job.Status === 'ripping' || job.Status === 'organizing'"><div style="margin-top:0.5rem;"><div class="progress-bar" style="height:6px;"><div class="progress-fill" :style="'width:' + (job.Progress || 0) + '%'"></div></div><div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div></div></template>`)
+								@templ.Raw(`<template x-if="job.Status === 'failed' && job.Error"><div class="text-muted mt-1" style="font-size:0.78rem;" x-text="job.Error"></div></template>`)
 							</div>
 						</template>
 					</div>
-				</template>
+					@templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success">All titles ripped successfully. You can eject the disc or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`)
+					@templ.Raw(`<div x-show="allRipJobsDone() && ripHasErrors()" x-cloak><div class="alert alert-error">One or more titles failed. Check the errors above or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a> for details.</div><div class="mt-3" style="display:flex;gap:0.75rem;justify-content:flex-end;"><button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button></div></div>`)
+				</div>
 			</div>
 		</div>
 	}

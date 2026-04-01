@@ -36,6 +36,10 @@ type Job struct {
 	Error       string     `json:"Error,omitempty"`
 	StartedAt   time.Time  `json:"StartedAt"`
 	FinishedAt  time.Time  `json:"FinishedAt"`
+	// OnStart is an optional callback invoked just before the rip begins.
+	// Returning a non-nil error aborts the job and transitions it to Failed.
+	// Typical use: lazy creation of the per-title temp directory.
+	OnStart func(job *Job) error `json:"-"`
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
 	OnComplete func(job *Job, err error) `json:"-"`
@@ -95,6 +99,26 @@ func (j *Job) Skip() {
 	defer j.mu.Unlock()
 	j.Status = StatusSkipped
 	j.FinishedAt = time.Now()
+}
+
+// Snapshot returns a consistent copy of the job's exported fields.
+// Safe to call from any goroutine.
+func (j *Job) Snapshot() Job {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return Job{
+		ID:          j.ID,
+		DriveIndex:  j.DriveIndex,
+		TitleIndex:  j.TitleIndex,
+		DiscName:    j.DiscName,
+		TitleName:   j.TitleName,
+		ContentType: j.ContentType,
+		Status:      j.Status,
+		Progress:    j.Progress,
+		Error:       j.Error,
+		StartedAt:   j.StartedAt,
+		FinishedAt:  j.FinishedAt,
+	}
 }
 
 // Cancel stops a running job by cancelling its context.

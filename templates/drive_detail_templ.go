@@ -81,7 +81,7 @@ document.addEventListener('alpine:init', () => {
 				Alpine.store('drive').selecting = false
 				Alpine.store('drive').scanError = ''
 				Alpine.store('drive').searchError = ''
-				Alpine.store('drive').ripProgress = null
+				Alpine.store('drive').ripJobs = []
 				Alpine.store('drive').hasMapping = false
 				Alpine.store('drive').currentStep = 1
 			}
@@ -91,10 +91,15 @@ document.addEventListener('alpine:init', () => {
 	evtSource.addEventListener('rip-update', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
-			Alpine.store('drive').ripProgress = update
-			if (update.Status === 'completed' || update.Status === 'failed') {
-				// Stay on step 5 to show completion state
-			} else if (Alpine.store('drive').currentStep !== 5) {
+			const jobs = [...Alpine.store('drive').ripJobs]
+			const idx = jobs.findIndex(j => j.ID === update.ID)
+			if (idx >= 0) {
+				jobs[idx] = update
+			} else {
+				jobs.push(update)
+			}
+			Alpine.store('drive').ripJobs = jobs
+			if (Alpine.store('drive').currentStep !== 5) {
 				Alpine.store('drive').currentStep = 5
 			}
 		}
@@ -232,6 +237,26 @@ function selectedTitleCount() {
 	return Alpine.store('drive').titles.filter(t => t.selected).length
 }
 
+function activeRipJob() {
+	return Alpine.store('drive').ripJobs.find(j => j.Status === 'ripping' || j.Status === 'organizing')
+}
+
+function allRipJobsDone() {
+	const jobs = Alpine.store('drive').ripJobs
+	return jobs.length > 0 && jobs.every(j => j.Status === 'completed' || j.Status === 'failed' || j.Status === 'skipped')
+}
+
+function ripHasErrors() {
+	return Alpine.store('drive').ripJobs.some(j => j.Status === 'failed')
+}
+
+function ripStatusBadgeClass(status) {
+	if (status === 'completed') return 'badge badge-detected'
+	if (status === 'failed') return 'badge badge-error'
+	if (status === 'ripping' || status === 'organizing') return 'badge badge-ripping'
+	return 'badge badge-empty'
+}
+
 async function scanDisc(driveIndex) {
 	Alpine.store('drive').scanning = true
 	Alpine.store('drive').scanError = ''
@@ -276,7 +301,7 @@ async function scanDisc(driveIndex) {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 228, Col: 16}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 253, Col: 16}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -294,7 +319,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.DriveName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 233, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 258, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -428,14 +453,14 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div></div></div><!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ --> <div x-data x-show=\"$store.drive.currentStep === 5\" x-cloak class=\"step-content\"><div class=\"card\"><!-- Pre-rip confirmation (no rip in progress) --><template x-if=\"!$store.drive.ripProgress || !$store.drive.ripProgress.Status\"><div><div class=\"section-title\">Confirm &amp; Rip</div><p class=\"text-secondary\">Ripping <strong x-text=\"selectedTitleCount()\"></strong> title(s) from <strong x-text=\"$store.drive.discName\"></strong></p><template x-if=\"$store.drive.selectedRelease\"><p class=\"text-secondary mt-2\" style=\"font-size: 0.85rem;\">Organizing as: <strong x-text=\"$store.drive.selectedRelease.title\"></strong> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) &mdash; <span x-text=\"$store.drive.selectedRelease.type\"></span></p></template><!-- Selected titles summary --><ul class=\"rip-summary-list mt-3\"><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><li><span class=\"text-primary\" x-text=\"t.outputName || t.sourceFile\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.duration\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.size\"></span></li></template></ul><!-- Hidden form for actual submission --><form method=\"POST\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div></div></div><!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ --> <div x-data x-show=\"$store.drive.currentStep === 5\" x-cloak class=\"step-content\"><div class=\"card\"><!-- Pre-rip confirmation (no jobs submitted yet) --><template x-if=\"$store.drive.ripJobs.length === 0\"><div><div class=\"section-title\">Confirm &amp; Rip</div><p class=\"text-secondary\">Ripping <strong x-text=\"selectedTitleCount()\"></strong> title(s) from <strong x-text=\"$store.drive.discName\"></strong></p><template x-if=\"$store.drive.selectedRelease\"><p class=\"text-secondary mt-2\" style=\"font-size: 0.85rem;\">Organizing as: <strong x-text=\"$store.drive.selectedRelease.title\"></strong> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) &mdash; <span x-text=\"$store.drive.selectedRelease.type\"></span></p></template><!-- Selected titles summary --><ul class=\"rip-summary-list mt-3\"><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><li><span class=\"text-primary\" x-text=\"t.outputName || t.sourceFile\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.duration\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.size\"></span></li></template></ul><!-- Hidden form for actual submission --><form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 templ.SafeURL
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 525, Col: 96}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 550, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -448,7 +473,7 @@ async function scanDisc(driveIndex) {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 526, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `templates/drive_detail.templ`, Line: 551, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -486,7 +511,31 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</div></template><!-- Duplicate handling --><div class=\"mt-3\" style=\"display:flex; align-items:center; gap:0.75rem;\"><label style=\"margin-bottom:0; white-space:nowrap;\" class=\"text-secondary\">If file already exists:</label> <select name=\"duplicate_action\" style=\"width:auto; min-width:140px;\"><option value=\"skip\" selected>Skip</option> <option value=\"overwrite\">Overwrite</option></select></div><div class=\"mt-4\" style=\"display:flex; gap:0.75rem; justify-content:flex-end;\"><button type=\"button\" class=\"btn btn-secondary\" x-on:click=\"goToStep(4)\">&larr; Back to Titles</button> <button type=\"submit\" class=\"btn btn-primary\" style=\"padding: 0.5rem 1.5rem;\">Start Rip</button></div></form></div></template><!-- Rip in progress --><template x-if=\"$store.drive.ripProgress && $store.drive.ripProgress.Status\"><div><div class=\"section-title\"><template x-if=\"$store.drive.ripProgress.Status === 'completed'\"><span>Rip Complete</span></template><template x-if=\"$store.drive.ripProgress.Status === 'failed'\"><span>Rip Failed</span></template><template x-if=\"$store.drive.ripProgress.Status !== 'completed' && $store.drive.ripProgress.Status !== 'failed'\"><span>Ripping in Progress</span></template></div><div style=\"margin-bottom: 1.5rem;\"><div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;\"><span class=\"text-secondary\"><span x-text=\"$store.drive.ripProgress.TitleName || $store.drive.ripProgress.DiscName\"></span></span> <span :class=\"'badge badge-' + $store.drive.ripProgress.Status\" x-text=\"$store.drive.ripProgress.Status\"></span></div><div class=\"progress-bar\" style=\"height: 8px;\"><div class=\"progress-fill\" x-bind:style=\"'width: ' + ($store.drive.ripProgress.Progress || 0) + '%'\"></div></div><div class=\"text-muted mt-2\" style=\"font-size: 0.8rem;\"><span x-text=\"($store.drive.ripProgress.Progress || 0) + '%'\"></span> complete</div></div><!-- Completion state --><template x-if=\"$store.drive.ripProgress.Status === 'completed'\"><div class=\"alert alert-success\">Rip completed successfully. You can eject the disc or <a href=\"/activity\" style=\"color: inherit; text-decoration: underline;\">view activity</a>.</div></template><template x-if=\"$store.drive.ripProgress.Status === 'failed'\"><div><div class=\"alert alert-error\">Rip failed: <span x-text=\"$store.drive.ripProgress.Error\"></span></div><div class=\"mt-3\" style=\"display:flex; gap:0.75rem; justify-content:flex-end;\"><button class=\"btn btn-secondary\" x-on:click=\"goToStep(4)\">Back to Titles</button></div></div></template></div></template></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</div></template><!-- Duplicate handling --><div class=\"mt-3\" style=\"display:flex; align-items:center; gap:0.75rem;\"><label style=\"margin-bottom:0; white-space:nowrap;\" class=\"text-secondary\">If file already exists:</label> <select name=\"duplicate_action\" style=\"width:auto; min-width:140px;\"><option value=\"skip\" selected>Skip</option> <option value=\"overwrite\">Overwrite</option></select></div><div class=\"mt-4\" style=\"display:flex; gap:0.75rem; justify-content:flex-end;\"><button type=\"button\" class=\"btn btn-secondary\" x-on:click=\"goToStep(4)\">&larr; Back to Titles</button> <button type=\"submit\" class=\"btn btn-primary\" style=\"padding: 0.5rem 1.5rem;\">Start Rip</button></div></form></div></template><div x-show=\"$store.drive.ripJobs.length !== 0\" x-cloak><div class=\"section-title\"><span x-show=\"!allRipJobsDone()\">Ripping in Progress</span> <span x-show=\"allRipJobsDone() && !ripHasErrors()\" x-cloak>Rip Complete</span> <span x-show=\"allRipJobsDone() && ripHasErrors()\" x-cloak>Rip Complete (with errors)</span></div><div style=\"display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;\"><template x-for=\"job in $store.drive.ripJobs\" :key=\"job.ID\"><div style=\"border:1px solid var(--border); border-radius:6px; padding:0.75rem 1rem;\"><div style=\"display:flex; justify-content:space-between; align-items:center;\"><span class=\"text-secondary\" x-text=\"job.TitleName || job.DiscName\"></span> <span :class=\"ripStatusBadgeClass(job.Status)\" x-text=\"job.Status\"></span></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="job.Status === 'ripping' || job.Status === 'organizing'"><div style="margin-top:0.5rem;"><div class="progress-bar" style="height:6px;"><div class="progress-fill" :style="'width:' + (job.Progress || 0) + '%'"></div></div><div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div></div></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="job.Status === 'failed' && job.Error"><div class="text-muted mt-1" style="font-size:0.78rem;" x-text="job.Error"></div></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></template></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success">All titles ripped successfully. You can eject the disc or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.Raw(`<div x-show="allRipJobsDone() && ripHasErrors()" x-cloak><div class="alert alert-error">One or more titles failed. Check the errors above or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a> for details.</div><div class="mt-3" style="display:flex;gap:0.75rem;justify-content:flex-end;"><button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button></div></div>`).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</div></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
