@@ -46,7 +46,7 @@ nav {
 .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   text-decoration: none;
   font-size: 1.1rem;
   font-weight: 700;
