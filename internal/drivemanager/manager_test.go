@@ -145,3 +145,98 @@ func TestManagerMultipleDrives(t *testing.T) {
 		t.Errorf("drive 1: expected DiscName %q, got %q", "DISC_TWO", byIndex[1].DiscName)
 	}
 }
+
+func TestReady_FalseBeforePoll(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+
+	if mgr.Ready() {
+		t.Error("expected Ready() to be false before PollOnce")
+	}
+}
+
+func TestReady_TrueAfterPoll(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+	mgr.PollOnce(context.Background())
+
+	if !mgr.Ready() {
+		t.Error("expected Ready() to be true after PollOnce")
+	}
+}
+
+func TestGetDrive_ValidIndex(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+	mgr.PollOnce(context.Background())
+
+	drive := mgr.GetDrive(0)
+	if drive == nil {
+		t.Fatal("expected non-nil drive for index 0")
+	}
+	if drive.Index() != 0 {
+		t.Errorf("expected Index() == 0, got %d", drive.Index())
+	}
+}
+
+func TestGetDrive_InvalidIndex(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+	mgr.PollOnce(context.Background())
+
+	drive := mgr.GetDrive(99)
+	if drive != nil {
+		t.Errorf("expected nil for invalid index 99, got %+v", drive)
+	}
+}
+
+func TestGetAllDrives_AfterPoll(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
+			{Index: 1, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+	mgr.PollOnce(context.Background())
+
+	allDrives := mgr.GetAllDrives()
+	if len(allDrives) != 2 {
+		t.Errorf("expected 2 drives, got %d", len(allDrives))
+	}
+}
+
+func TestGetAllDrives_NoDrives(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+	mgr.PollOnce(context.Background())
+
+	allDrives := mgr.GetAllDrives()
+	if len(allDrives) != 0 {
+		t.Errorf("expected 0 drives, got %d", len(allDrives))
+	}
+}

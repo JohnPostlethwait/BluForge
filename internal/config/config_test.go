@@ -116,3 +116,63 @@ func TestLoadFromFileOverridesEnv(t *testing.T) {
 		t.Errorf("Port: want 7777 (from file), got %d", cfg.Port)
 	}
 }
+
+// TestSave_RoundTrip verifies that Save writes a config that Load reads back
+// with identical values.
+func TestSave_RoundTrip(t *testing.T) {
+	cfg := AppConfig{
+		Port:               8080,
+		OutputDir:          "/custom/output",
+		AutoRip:            true,
+		MinTitleLength:     90,
+		PollInterval:       10,
+		GitHubClientID:     "gh-id",
+		GitHubClientSecret: "gh-secret",
+		DuplicateAction:    "overwrite",
+	}
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Save(cfg, configPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	clearEnv(t)
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if loaded.Port != cfg.Port {
+		t.Errorf("Port: want %d, got %d", cfg.Port, loaded.Port)
+	}
+	if loaded.OutputDir != cfg.OutputDir {
+		t.Errorf("OutputDir: want %q, got %q", cfg.OutputDir, loaded.OutputDir)
+	}
+	if loaded.AutoRip != cfg.AutoRip {
+		t.Errorf("AutoRip: want %v, got %v", cfg.AutoRip, loaded.AutoRip)
+	}
+	if loaded.MinTitleLength != cfg.MinTitleLength {
+		t.Errorf("MinTitleLength: want %d, got %d", cfg.MinTitleLength, loaded.MinTitleLength)
+	}
+	if loaded.PollInterval != cfg.PollInterval {
+		t.Errorf("PollInterval: want %d, got %d", cfg.PollInterval, loaded.PollInterval)
+	}
+	if loaded.GitHubClientID != cfg.GitHubClientID {
+		t.Errorf("GitHubClientID: want %q, got %q", cfg.GitHubClientID, loaded.GitHubClientID)
+	}
+	if loaded.GitHubClientSecret != cfg.GitHubClientSecret {
+		t.Errorf("GitHubClientSecret: want %q, got %q", cfg.GitHubClientSecret, loaded.GitHubClientSecret)
+	}
+	if loaded.DuplicateAction != cfg.DuplicateAction {
+		t.Errorf("DuplicateAction: want %q, got %q", cfg.DuplicateAction, loaded.DuplicateAction)
+	}
+}
+
+// TestSave_InvalidPath verifies that Save returns an error for an invalid path.
+func TestSave_InvalidPath(t *testing.T) {
+	err := Save(AppConfig{}, "/nonexistent/dir/config.yaml")
+	if err == nil {
+		t.Fatal("expected error for invalid path, got nil")
+	}
+}

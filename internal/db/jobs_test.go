@@ -131,3 +131,111 @@ func TestListJobsByStatus(t *testing.T) {
 		t.Errorf("ripping job ID: want %d, got %d", id2, ripping[0].ID)
 	}
 }
+
+func TestUpdateJobOutput(t *testing.T) {
+	store := openTestDB(t)
+
+	id, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	if err := store.UpdateJobOutput(id, "/final/movie.mkv"); err != nil {
+		t.Fatalf("UpdateJobOutput: %v", err)
+	}
+
+	got, err := store.GetJob(id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+
+	if got.OutputPath != "/final/movie.mkv" {
+		t.Errorf("OutputPath: want %q, got %q", "/final/movie.mkv", got.OutputPath)
+	}
+}
+
+func TestListAllJobs_Pagination(t *testing.T) {
+	store := openTestDB(t)
+
+	for i := 0; i < 5; i++ {
+		if _, err := store.CreateJob(makeTestJob()); err != nil {
+			t.Fatalf("CreateJob %d: %v", i, err)
+		}
+	}
+
+	page1, err := store.ListAllJobs(2, 0)
+	if err != nil {
+		t.Fatalf("ListAllJobs(2, 0): %v", err)
+	}
+	if len(page1) != 2 {
+		t.Errorf("page1: want 2 jobs, got %d", len(page1))
+	}
+
+	page2, err := store.ListAllJobs(2, 2)
+	if err != nil {
+		t.Fatalf("ListAllJobs(2, 2): %v", err)
+	}
+	if len(page2) != 2 {
+		t.Errorf("page2: want 2 jobs, got %d", len(page2))
+	}
+
+	page3, err := store.ListAllJobs(2, 4)
+	if err != nil {
+		t.Fatalf("ListAllJobs(2, 4): %v", err)
+	}
+	if len(page3) != 1 {
+		t.Errorf("page3: want 1 job, got %d", len(page3))
+	}
+}
+
+func TestListAllJobs_EmptyTable(t *testing.T) {
+	store := openTestDB(t)
+
+	jobs, err := store.ListAllJobs(10, 0)
+	if err != nil {
+		t.Fatalf("ListAllJobs: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Errorf("want 0 jobs, got %d", len(jobs))
+	}
+}
+
+func TestCountJobsCompletedToday(t *testing.T) {
+	store := openTestDB(t)
+
+	id1, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob 1: %v", err)
+	}
+	id2, err := store.CreateJob(makeTestJob())
+	if err != nil {
+		t.Fatalf("CreateJob 2: %v", err)
+	}
+
+	if err := store.UpdateJobStatus(id1, "completed", 100, ""); err != nil {
+		t.Fatalf("UpdateJobStatus 1: %v", err)
+	}
+	if err := store.UpdateJobStatus(id2, "completed", 100, ""); err != nil {
+		t.Fatalf("UpdateJobStatus 2: %v", err)
+	}
+
+	count, err := store.CountJobsCompletedToday()
+	if err != nil {
+		t.Fatalf("CountJobsCompletedToday: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count: want 2, got %d", count)
+	}
+}
+
+func TestCountJobsCompletedToday_NoJobs(t *testing.T) {
+	store := openTestDB(t)
+
+	count, err := store.CountJobsCompletedToday()
+	if err != nil {
+		t.Fatalf("CountJobsCompletedToday: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count: want 0, got %d", count)
+	}
+}

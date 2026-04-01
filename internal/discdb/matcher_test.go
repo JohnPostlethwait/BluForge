@@ -168,3 +168,200 @@ func TestBuildDiscKey(t *testing.T) {
 		t.Errorf("expected key length 32, got %d", len(key))
 	}
 }
+
+func TestBestRelease_SingleItemSingleRelease(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls", "00002.mpls")
+
+	items := []MediaItem{
+		{
+			ID:    1,
+			Title: "Test Movie",
+			Year:  2024,
+			Type:  "movie",
+			Releases: []Release{
+				{
+					ID:    10,
+					Title: "Test Release",
+					Discs: []Disc{
+						{
+							ID: 100,
+							Titles: []DiscTitle{
+								{SourceFile: "00001.mpls"},
+								{SourceFile: "00002.mpls"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, score := BestRelease(scan, items)
+	if result == nil {
+		t.Fatalf("expected non-nil result")
+	}
+	if score <= 0 {
+		t.Errorf("expected score > 0, got %d", score)
+	}
+	if result.MediaItem.ID != 1 {
+		t.Errorf("expected MediaItem.ID=1, got %d", result.MediaItem.ID)
+	}
+	if result.Release.ID != 10 {
+		t.Errorf("expected Release.ID=10, got %d", result.Release.ID)
+	}
+	if result.Disc.ID != 100 {
+		t.Errorf("expected Disc.ID=100, got %d", result.Disc.ID)
+	}
+}
+
+func TestBestRelease_HighestScoreWins(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls")
+
+	items := []MediaItem{
+		{
+			ID:    1,
+			Title: "Good Match",
+			Releases: []Release{
+				{
+					ID:    10,
+					Title: "Good Release",
+					Discs: []Disc{
+						{
+							Titles: []DiscTitle{
+								{SourceFile: "00001.mpls"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ID:    2,
+			Title: "Bad Match",
+			Releases: []Release{
+				{
+					ID:    20,
+					Title: "Bad Release",
+					Discs: []Disc{
+						{
+							Titles: []DiscTitle{
+								{SourceFile: "99999.mpls"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, _ := BestRelease(scan, items)
+	if result == nil {
+		t.Fatalf("expected non-nil result")
+	}
+	if result.MediaItem.ID != 1 {
+		t.Errorf("expected first item (ID=1) to win, got MediaItem.ID=%d", result.MediaItem.ID)
+	}
+	if result.Release.ID != 10 {
+		t.Errorf("expected Release.ID=10, got %d", result.Release.ID)
+	}
+}
+
+func TestBestRelease_EmptyItems(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls")
+
+	result, score := BestRelease(scan, []MediaItem{})
+	if result != nil {
+		t.Errorf("expected nil result for empty items, got %+v", result)
+	}
+	if score != 0 {
+		t.Errorf("expected score=0 for empty items, got %d", score)
+	}
+}
+
+func TestBestRelease_NoReleases(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls")
+
+	items := []MediaItem{
+		{
+			ID:       1,
+			Title:    "No Releases Movie",
+			Releases: []Release{},
+		},
+	}
+
+	result, score := BestRelease(scan, items)
+	if result != nil {
+		t.Errorf("expected nil result for item with no releases, got %+v", result)
+	}
+	if score != 0 {
+		t.Errorf("expected score=0, got %d", score)
+	}
+}
+
+func TestBestRelease_ReleaseWithNoDiscs(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls")
+
+	items := []MediaItem{
+		{
+			ID:    1,
+			Title: "Movie With Empty Release",
+			Releases: []Release{
+				{
+					ID:    10,
+					Title: "Empty Release",
+					Discs: []Disc{},
+				},
+			},
+		},
+	}
+
+	result, _ := BestRelease(scan, items)
+	if result == nil {
+		t.Fatalf("expected non-nil result")
+	}
+	// Disc should be zero-value since there are no discs in the release.
+	if result.Disc.ID != 0 {
+		t.Errorf("expected zero-value Disc.ID, got %d", result.Disc.ID)
+	}
+	if len(result.Disc.Titles) != 0 {
+		t.Errorf("expected zero-value Disc with no titles, got %d titles", len(result.Disc.Titles))
+	}
+}
+
+func TestScoreRelease_ZeroDiscs(t *testing.T) {
+	scan := makeScan("Empty")
+
+	release := Release{
+		Title: "No Discs",
+		Discs: []Disc{},
+	}
+
+	score := ScoreRelease(scan, release)
+	// scan.TitleCount == 0, totalDiscTitles == 0, so title count bonus applies: +5.
+	if score != 5 {
+		t.Errorf("expected score=5 (title count bonus only), got %d", score)
+	}
+}
+
+func TestScoreRelease_PerfectMatch(t *testing.T) {
+	scan := makeScan("TestDisc", "00001.mpls", "00002.mpls", "00003.mpls")
+
+	release := Release{
+		Title: "Perfect Release",
+		Discs: []Disc{
+			{
+				Titles: []DiscTitle{
+					{SourceFile: "00001.mpls"},
+					{SourceFile: "00002.mpls"},
+					{SourceFile: "00003.mpls"},
+				},
+			},
+		},
+	}
+
+	score := ScoreRelease(scan, release)
+	// 3 matching files * 10 = 30, plus title count match bonus = 5, total = 35.
+	if score != 35 {
+		t.Errorf("expected score=35, got %d", score)
+	}
+}

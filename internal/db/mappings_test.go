@@ -119,3 +119,48 @@ func TestSaveMappingUpserts(t *testing.T) {
 		t.Errorf("MediaYear after upsert: want %q, got %q", "2003", got.MediaYear)
 	}
 }
+
+func TestListMappings_ReturnsAll(t *testing.T) {
+	store := openTestDB(t)
+
+	m1 := makeTestMapping()
+	m1.DiscKey = "disc-key-001"
+	m1.DiscName = "The Matrix"
+	if err := store.SaveMapping(m1); err != nil {
+		t.Fatalf("SaveMapping m1: %v", err)
+	}
+
+	m2 := makeTestMapping()
+	m2.DiscKey = "disc-key-002"
+	m2.DiscName = "Inception"
+	if err := store.SaveMapping(m2); err != nil {
+		t.Fatalf("SaveMapping m2: %v", err)
+	}
+
+	m3 := makeTestMapping()
+	m3.DiscKey = "disc-key-003"
+	m3.DiscName = "Interstellar"
+	if err := store.SaveMapping(m3); err != nil {
+		t.Fatalf("SaveMapping m3: %v", err)
+	}
+
+	mappings, err := store.ListMappings()
+	if err != nil {
+		t.Fatalf("ListMappings: %v", err)
+	}
+	if len(mappings) != 3 {
+		t.Errorf("expected 3 mappings, got %d", len(mappings))
+	}
+}
+
+func TestListMappings_EmptyTable(t *testing.T) {
+	store := openTestDB(t)
+
+	mappings, err := store.ListMappings()
+	if err != nil {
+		t.Fatalf("ListMappings: %v", err)
+	}
+	if mappings != nil && len(mappings) != 0 {
+		t.Errorf("expected nil or empty slice, got %d mappings", len(mappings))
+	}
+}

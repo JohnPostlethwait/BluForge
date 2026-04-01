@@ -1,6 +1,7 @@
 package ripper
 
 import (
+	"context"
 	"testing"
 )
 
@@ -60,4 +61,37 @@ func TestJobFail(t *testing.T) {
 	if job.FinishedAt.IsZero() {
 		t.Error("FinishedAt should be set after Fail()")
 	}
+}
+
+func TestJobSkip(t *testing.T) {
+	job := NewJob(0, 1, "DISC", "/output")
+	job.Skip()
+
+	if job.Status != StatusSkipped {
+		t.Fatalf("expected status %q after Skip(), got %q", StatusSkipped, job.Status)
+	}
+	if job.FinishedAt.IsZero() {
+		t.Error("FinishedAt should be set after Skip()")
+	}
+}
+
+func TestJobCancel_WithCancelFunc(t *testing.T) {
+	job := NewJob(0, 1, "DISC", "/output")
+	ctx, cancel := context.WithCancel(context.Background())
+	job.cancel = cancel
+
+	job.Cancel()
+
+	select {
+	case <-ctx.Done():
+		// expected: context was cancelled
+	default:
+		t.Fatal("expected context to be done after Cancel()")
+	}
+}
+
+func TestJobCancel_NilCancelFunc(t *testing.T) {
+	job := NewJob(0, 1, "DISC", "/output")
+	// cancel is nil by default; calling Cancel() should not panic
+	job.Cancel()
 }

@@ -153,3 +153,154 @@ func TestEngineAllowsConcurrentDrives(t *testing.T) {
 	// Unblock to allow cleanup.
 	mock.release()
 }
+
+// progressRipExecutor fires a sequence of progress events then returns.
+type progressRipExecutor struct {
+	progressValues []int // percentage values to fire as progress events
+}
+
+func (p *progressRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+	if onEvent != nil {
+		for _, pct := range p.progressValues {
+			onEvent(makemkv.Event{
+				Type: "PRGV",
+				Progress: &makemkv.Progress{
+					Current: pct,
+					Total:   100,
+					Max:     100,
+				},
+			})
+		}
+	}
+	return nil
+}
+
+func TestEngine_ProgressBackwardsIgnored(t *testing.T) {
+	exec := &progressRipExecutor{progressValues: []int{50, 30, 80}}
+	engine := NewEngine(exec)
+
+	var (
+		mu       sync.Mutex
+		reported []int
+	)
+	engine.OnUpdate(func(j *Job) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, j.Progress)
+	})
+
+	job := NewJob(0, 1, "DISC", "/output")
+
+	done := make(chan struct{})
+	job.OnComplete = func(_ *Job, _ error) {
+		close(done)
+	}
+
+	if err := engine.Submit(job); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Wait for the job to complete.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			goto completed
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	t.Fatal("job did not complete in time")
+completed:
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	for _, v := range reported {
+		if v == 30 {
+			t.Errorf("progress went backwards: 30%% should not appear in reported values %v", reported)
+			break
+		}
+	}
+
+	// Verify that both 50 and 80 were reported somewhere in the sequence.
+	seen50, seen80 := false, false
+	for _, v := range reported {
+		if v == 50 {
+			seen50 = true
+		}
+		if v == 80 {
+			seen80 = true
+		}
+	}
+	if !seen50 {
+		t.Errorf("expected 50%% to be reported, got %v", reported)
+	}
+	if !seen80 {
+		t.Errorf("expected 80%% to be reported, got %v", reported)
+	}
+}
+
+func TestEngine_EarlyHighProgressIgnored(t *testing.T) {
+	// First 3 events are >= 95% and should be suppressed; 4th event (50%) should pass through.
+	exec := &progressRipExecutor{progressValues: []int{98, 99, 97, 50}}
+	engine := NewEngine(exec)
+
+	var (
+		mu       sync.Mutex
+		reported []int
+	)
+	engine.OnUpdate(func(j *Job) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, j.Progress)
+	})
+
+	job := NewJob(0, 1, "DISC", "/output")
+
+	done := make(chan struct{})
+	job.OnComplete = func(_ *Job, _ error) {
+		close(done)
+	}
+
+	if err := engine.Submit(job); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Wait for the job to complete.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			goto completed
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	t.Fatal("job did not complete in time")
+completed:
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// 98 and 99 should NOT appear before 50 in the reported values.
+	for _, v := range reported {
+		if v == 98 || v == 99 {
+			t.Errorf("early high progress %d%% should have been filtered, got %v", v, reported)
+			break
+		}
+	}
+
+	// 50% should appear in the reported values (as actual progress, not just the
+	// start/organizing/complete lifecycle notifications).
+	seen50 := false
+	for _, v := range reported {
+		if v == 50 {
+			seen50 = true
+			break
+		}
+	}
+	if !seen50 {
+		t.Errorf("expected 50%% to be the first real progress reported, got %v", reported)
+	}
+}
