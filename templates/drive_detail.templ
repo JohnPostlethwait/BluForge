@@ -24,6 +24,7 @@ document.addEventListener('alpine:init', () => {
 	store.searching = false
 	store.searchError = ''
 	store.selecting = false
+	store.ripJobs = store.ripJobs || []
 	Alpine.store('drive', store)
 
 	const evtSource = new EventSource('/events')

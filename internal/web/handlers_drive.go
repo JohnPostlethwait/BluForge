@@ -51,6 +51,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		CurrentStep:   1,
 		Titles:        make([]TitleJSON, 0),
 		SearchResults: make([]SearchResultJSON, 0),
+		RipJobs:       make([]RipJobJSON, 0),
 	}
 
 	// Check for an existing disc mapping (from a previous rip of this disc).
