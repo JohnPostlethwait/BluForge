@@ -85,10 +85,15 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 		return result
 	}
 
+	var wg sync.WaitGroup
 	for _, sel := range params.Titles {
-		tr := o.processTitle(params, sel, parentTempDir)
+		tr := o.processTitle(params, sel, parentTempDir, &wg)
 		result.Titles = append(result.Titles, tr)
 	}
+	go func() {
+		wg.Wait()
+		os.Remove(parentTempDir)
+	}()
 
 	// Save disc mapping if we have the necessary identifiers.
 	if params.DiscKey != "" && params.MediaItemID != "" {
@@ -110,7 +115,7 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 
 // processTitle handles a single title: build path, duplicate check, disk space,
 // DB creation, engine submission.
-func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, parentTempDir string) TitleResult {
+func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, parentTempDir string, wg *sync.WaitGroup) TitleResult {
 	// 1. Build destination path.
 	destPath := o.buildDestPath(params, sel)
 	fullDest := filepath.Join(params.OutputDir, destPath)
@@ -172,16 +177,15 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 
 	// OnComplete: move the ripped file to its final destination and clean up.
 	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
+		defer wg.Done()
 		if ripErr != nil {
 			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", job.Progress, ripErr.Error()); dbErr != nil {
 				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
 			}
 			o.broadcastJobUpdate(job.ID, "failed")
-			// Clean up title temp dir; try parent dir if now empty.
 			if job.OutputDir != "" {
 				os.RemoveAll(job.OutputDir)
 			}
-			os.Remove(parentTempDir) // no-op if not empty
 			return
 		}
 
@@ -207,9 +211,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			return
 		}
 
-		// Clean up title temp dir; try parent dir if now empty.
+		// Clean up title temp dir. Parent is cleaned up by the WaitGroup goroutine
+		// in ManualRip once all titles have completed.
 		os.RemoveAll(job.OutputDir)
-		os.Remove(parentTempDir) // no-op if other titles are still using it
 
 		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest); dbErr != nil {
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)
@@ -221,7 +225,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	}
 
 	// 7. Submit to engine.
+	wg.Add(1)
 	if err := o.engine.Submit(ripJob); err != nil {
+		wg.Done()
 		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
 			slog.Error("failed to update job status on submit failure", "job_id", jobID, "error", dbErr)
 		}
