@@ -74,7 +74,8 @@
       "Bash(ls -la /Users/johnpostlethwait/Documents/workspace/BluForge/internal/web/*.go)",
       "Bash(openssl dgst:*)",
       "Bash(openssl enc:*)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "WebFetch(domain:192.168.1.200)"
     ]
   }
 }

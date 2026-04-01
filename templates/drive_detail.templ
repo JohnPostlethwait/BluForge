@@ -376,7 +376,10 @@ async function scanDisc(driveIndex) {
 				<!-- Scanning state -->
 				<template x-if="$store.drive.scanning">
 					<div class="empty-state" style="padding: 2rem 1rem;">
-						<p>Scanning disc&hellip; this may take a moment.</p>
+						<div style="display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+							<span class="spinner"></span>
+							<span>Scanning disc&hellip; this may take a moment.</span>
+						</div>
 					</div>
 				</template>
 
@@ -396,7 +399,6 @@ async function scanDisc(driveIndex) {
 					<div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Review Titles</div>
 					<div style="display:flex; gap:0.5rem; align-items:center;">
 						<button class="btn btn-secondary btn-sm" x-on:click="goToStep(3)">&larr; Back</button>
-						@templ.Raw(`<template x-if="$store.drive.titles.length > 0"><span style="display:flex; gap:0.5rem;"><button class="btn btn-secondary btn-sm" x-on:click="selectAllTitles()">Select All</button><button class="btn btn-secondary btn-sm" x-on:click="deselectAllTitles()">Deselect All</button></span></template>`)
 					</div>
 				</div>
 
@@ -418,7 +420,7 @@ async function scanDisc(driveIndex) {
 							<table>
 								<thead>
 									<tr>
-										<th style="width:2rem;"></th>
+										@templ.Raw(`<th style="width:2rem;"><input type="checkbox" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
 										<th>Title</th>
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th>Match</th></template>`)
 										<th>Source</th>
@@ -429,8 +431,8 @@ async function scanDisc(driveIndex) {
 								</thead>
 								<tbody>
 									<template x-for="t in $store.drive.titles" :key="t.index">
-										<tr x-bind:class="{'title-row-matched': t.matched}">
-											<td><input type="checkbox" :checked="t.selected" x-on:change="t.selected = $el.checked"/></td>
+										<tr>
+											<td style="display:flex; align-items:center; gap:0.25rem;"><input type="checkbox" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
 											<td class="text-muted" x-text="t.index"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											<td class="text-muted" x-text="t.sourceFile"></td>
@@ -517,6 +519,15 @@ async function scanDisc(driveIndex) {
 									@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
 								</div>
 							</template>
+
+							<!-- Duplicate handling -->
+							<div class="mt-3" style="display:flex; align-items:center; gap:0.75rem;">
+								<label style="margin-bottom:0; white-space:nowrap;" class="text-secondary">If file already exists:</label>
+								<select name="duplicate_action" style="width:auto; min-width:140px;">
+									<option value="skip" selected>Skip</option>
+									<option value="overwrite">Overwrite</option>
+								</select>
+							</div>
 
 							<div class="mt-4" style="display:flex; gap:0.75rem; justify-content:flex-end;">
 								<button type="button" class="btn btn-secondary" x-on:click="goToStep(4)">&larr; Back to Titles</button>

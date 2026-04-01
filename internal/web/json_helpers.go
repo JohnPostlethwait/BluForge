@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -97,7 +98,7 @@ func buildOutputName(m discdb.ContentMatch) string {
 	if !m.Matched || m.ContentTitle == "" {
 		return ""
 	}
-	if m.Season != "" && m.Episode != "" && m.ContentType != "extra" {
+	if m.Season != "" && m.Episode != "" && !strings.EqualFold(m.ContentType, "extra") {
 		return fmt.Sprintf("S%sE%s - %s.mkv", padLeft(m.Season, 2), padLeft(m.Episode, 2), m.ContentTitle)
 	}
 	return m.ContentTitle + ".mkv"

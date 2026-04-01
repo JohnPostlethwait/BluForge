@@ -130,6 +130,11 @@ func TestBuildOutputName(t *testing.T) {
 			want: "Inside Look: Male Unbonding.mkv",
 		},
 		{
+			name: "Extra capitalized with season and episode gets no prefix",
+			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Behind the Scenes", ContentType: "Extra", Season: "1", Episode: "2"},
+			want: "Behind the Scenes.mkv",
+		},
+		{
 			name: "movie with no season or episode",
 			m:    discdb.ContentMatch{Matched: true, ContentTitle: "The Matrix", ContentType: "movie"},
 			want: "The Matrix.mkv",

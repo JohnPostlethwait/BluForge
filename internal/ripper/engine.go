@@ -167,6 +167,7 @@ func (e *Engine) run(job *Job) {
 	job.Start()
 	e.notify(job)
 
+	var progressCount int
 	err := e.executor.StartRip(ctx, job.DriveIndex, job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
@@ -174,6 +175,18 @@ func (e *Engine) run(job *Job) {
 				pct := int(float64(p.Current) / float64(p.Max) * 100)
 				if pct > 100 {
 					pct = 100
+				}
+				progressCount++
+				// Ignore spurious high values during MakeMKV initialization phase.
+				if progressCount <= 3 && pct >= 95 {
+					return
+				}
+				// Never allow progress to go backwards.
+				job.mu.Lock()
+				currentPct := job.Progress
+				job.mu.Unlock()
+				if pct < currentPct {
+					return
 				}
 				job.UpdateProgress(pct)
 				e.notify(job)

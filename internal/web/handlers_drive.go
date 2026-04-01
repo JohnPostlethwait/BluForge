@@ -262,13 +262,18 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		discKey = discdb.BuildDiscKey(scan)
 	}
 
+	duplicateAction := c.FormValue("duplicate_action")
+	if duplicateAction == "" {
+		duplicateAction = cfg.DuplicateAction
+	}
+
 	params := workflow.ManualRipParams{
 		DriveIndex:      idx,
 		DiscName:        discName,
 		DiscKey:         discKey,
 		Titles:          titles,
 		OutputDir:       cfg.OutputDir,
-		DuplicateAction: cfg.DuplicateAction,
+		DuplicateAction: duplicateAction,
 		MediaItemID:     c.FormValue("media_item_id"),
 		ReleaseID:       c.FormValue("release_id"),
 		MediaTitle:      c.FormValue("content_title"),

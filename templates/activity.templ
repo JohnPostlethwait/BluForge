@@ -40,6 +40,19 @@ document.addEventListener('alpine:init', () => {
 					finishedAt: new Date().toLocaleString(),
 				})
 
+				// Also add to history so it appears in the History tab immediately.
+				store.history.unshift({
+					id: job.ID,
+					discName: job.DiscName,
+					titleName: job.TitleName,
+					contentType: active.contentType,
+					status: job.Status,
+					error: job.Error || '',
+					duration: '',
+					outputPath: '',
+					createdAt: new Date().toLocaleString(),
+				})
+
 				// Promote next queued job to active.
 				const nextIdx = store.pending.findIndex(j => j.driveIndex === active.driveIndex)
 				if (nextIdx !== -1) {
@@ -130,17 +143,10 @@ function copyToClipboard(text, btn) {
 			</button>
 			<button
 				class="tab-btn"
-				:class="{'tab-active': $store.activityTab === 'completed'}"
-				x-on:click="$store.activityTab = 'completed'"
-			>
-				Completed
-			</button>
-			<button
-				class="tab-btn"
 				:class="{'tab-active': $store.activityTab === 'history'}"
 				x-on:click="$store.activityTab = 'history'"
 			>
-				All History
+				History
 			</button>
 		</div>
 
@@ -232,55 +238,7 @@ function copyToClipboard(text, btn) {
 			</template>
 		</div>
 
-		<!-- ═══════════ Completed Tab ═══════════ -->
-		<div x-data x-show="$store.activityTab === 'completed'" x-cloak>
-			<div class="card">
-				<template x-if="$store.activity.completed.length === 0">
-					<div class="empty-state"><p>No completed jobs yet.</p></div>
-				</template>
-				<template x-if="$store.activity.completed.length > 0">
-					<div style="overflow-x:auto;"><table>
-						<thead>
-							<tr>
-								<th>Disc</th>
-								<th>Title</th>
-								<th>Type</th>
-								<th>Status</th>
-								<th>Finished</th>
-								<th></th>
-							</tr>
-						</thead>
-						<tbody>
-							<template x-for="j in $store.activity.completed" :key="j.id">
-								<tr :class="{'row-failed': j.status === 'failed'}">
-									<td>
-										<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
-									</td>
-									<td x-text="j.titleName"></td>
-									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
-									<td>
-										<template x-if="j.status === 'failed' && j.error">
-											<span class="text-error" style="font-size: 0.8rem;" x-text="j.error"></span>
-										</template>
-										<template x-if="!(j.status === 'failed' && j.error)">
-											<span class="badge" :class="'badge-' + j.status" x-text="j.status"></span>
-										</template>
-									</td>
-									<td class="text-muted" x-text="j.finishedAt"></td>
-									<td>
-										<template x-if="j.status === 'failed'">
-											<button class="btn btn-primary btn-sm" x-on:click="retryJob(j.id, $el)">Retry</button>
-										</template>
-									</td>
-								</tr>
-							</template>
-						</tbody>
-					</table></div>
-				</template>
-			</div>
-		</div>
-
-		<!-- ═══════════ All History Tab ═══════════ -->
+		<!-- ═══════════ History Tab ═══════════ -->
 		<div x-data="{ filter: '', statusFilter: 'all' }" x-show="$store.activityTab === 'history'" x-cloak>
 			<div class="card">
 				<!-- Filters -->
@@ -309,6 +267,7 @@ function copyToClipboard(text, btn) {
 									<th>Status</th>
 									<th>Duration</th>
 									<th>Output</th>
+									<th></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -333,6 +292,11 @@ function copyToClipboard(text, btn) {
 											</template>
 											<template x-if="!r.outputPath">
 												<span class="text-muted">&mdash;</span>
+											</template>
+										</td>
+										<td>
+											<template x-if="r.status === 'failed'">
+												<button class="btn btn-primary btn-sm" x-on:click="retryJob(r.id, $el)">Retry</button>
 											</template>
 										</td>
 									</tr>
