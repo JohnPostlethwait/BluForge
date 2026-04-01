@@ -88,6 +88,27 @@ async function cancelJob(jobId, btn) {
 	}
 }
 
+async function clearHistory(btn) {
+	if (btn) btn.disabled = true
+	try {
+		const resp = await fetch('/activity/clear-history', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		if (resp.ok) {
+			Alpine.store('activity').history = []
+			Alpine.store('activity').hasMore = false
+		} else {
+			const data = await resp.json().catch(() => ({}))
+			alert('Clear failed: ' + (data.message || resp.statusText))
+			if (btn) btn.disabled = false
+		}
+	} catch (e) {
+		alert('Clear failed: ' + e.message)
+		if (btn) btn.disabled = false
+	}
+}
+
 </script>`, data.StoreJSON))
 
 		<div class="page-header">
@@ -215,6 +236,7 @@ async function cancelJob(jobId, btn) {
 						<option value="failed">Failed</option>
 						<option value="ripping">Ripping</option>
 					</select>
+					<button class="btn btn-danger btn-sm" @click="clearHistory($el)">Clear Log</button>
 				</div>
 
 				<template x-if="$store.activity.history.length === 0">
