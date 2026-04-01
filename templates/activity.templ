@@ -12,7 +12,7 @@ templ Activity(data ActivityPageData) {
 		@templ.Raw(fmt.Sprintf(`<script>
 document.addEventListener('alpine:init', () => {
 	Alpine.store('activity', %s)
-	Alpine.store('activityTab', 'active')
+	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
 
 	const evtSource = new EventSource('/events')
 
@@ -88,41 +88,6 @@ async function cancelJob(jobId, btn) {
 	}
 }
 
-async function retryJob(jobId, btn) {
-	if (btn) btn.disabled = true
-	try {
-		const resp = await fetch('/activity/' + jobId + '/retry', {
-			method: 'POST',
-			headers: { 'Accept': 'application/json' },
-		})
-		if (resp.ok) {
-			const store = Alpine.store('activity')
-			const job = store.completed.find(j => j.id === jobId)
-			if (job) {
-				job.status = 'pending'
-				job.error = ''
-			}
-		} else {
-			const data = await resp.json().catch(() => ({}))
-			alert('Retry failed: ' + (data.error || data.message || resp.statusText))
-			if (btn) btn.disabled = false
-		}
-	} catch (e) {
-		alert('Retry failed: ' + e.message)
-		if (btn) btn.disabled = false
-	}
-}
-
-function copyToClipboard(text, btn) {
-	navigator.clipboard.writeText(text).then(() => {
-		if (btn) {
-			const orig = btn.innerHTML
-			btn.innerHTML = '&#x2713;'
-			btn.classList.add('text-success')
-			setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('text-success') }, 1500)
-		}
-	})
-}
 </script>`, data.StoreJSON))
 
 		<div class="page-header">
@@ -153,7 +118,7 @@ function copyToClipboard(text, btn) {
 		<!-- ═══════════ Active & Queued Tab ═══════════ -->
 		<div x-data x-show="$store.activityTab === 'active'" x-cloak style="display:flex; flex-direction:column; gap:1.5rem;">
 			<!-- Active Jobs -->
-			<div class="card">
+			<div class="card" style="margin-bottom: 1rem;">
 				<div class="section-title">Active</div>
 				<template x-if="$store.activity.active.length === 0">
 					<div class="empty-state"><p>No active jobs.</p></div>
@@ -267,7 +232,6 @@ function copyToClipboard(text, btn) {
 									<th>Status</th>
 									<th>Duration</th>
 									<th>Output</th>
-									<th></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -283,20 +247,12 @@ function copyToClipboard(text, btn) {
 										<td><span class="badge" :class="'badge-' + r.contentType" x-text="r.contentType || '—'"></span></td>
 										<td><span class="badge" :class="'badge-' + r.status" x-text="r.status"></span></td>
 										<td class="text-secondary" x-text="r.duration"></td>
-										<td style="max-width: 260px;">
+										<td>
 											<template x-if="r.outputPath">
-												<div style="display:flex; align-items:center; gap:0.25rem;">
-													<span class="text-muted" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" :title="r.outputPath" x-text="r.outputPath"></span>
-													<button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.4rem; font-size:0.7rem;" x-on:click="copyToClipboard(r.outputPath, $el)" title="Copy path">&#x2398;</button>
-												</div>
+												<span class="text-muted" x-text="r.outputPath"></span>
 											</template>
 											<template x-if="!r.outputPath">
 												<span class="text-muted">&mdash;</span>
-											</template>
-										</td>
-										<td>
-											<template x-if="r.status === 'failed'">
-												<button class="btn btn-primary btn-sm" x-on:click="retryJob(r.id, $el)">Retry</button>
 											</template>
 										</td>
 									</tr>
@@ -309,11 +265,11 @@ function copyToClipboard(text, btn) {
 				<!-- Pagination -->
 				<div class="flex gap-2 items-center mt-3" style="justify-content:flex-end;">
 					<template x-if="$store.activity.page > 1">
-						<a :href="'/activity?page=' + ($store.activity.page - 1)" class="btn btn-secondary btn-sm">&larr; Previous</a>
+						<a :href="'/activity?tab=history&page=' + ($store.activity.page - 1)" class="btn btn-secondary btn-sm">&larr; Previous</a>
 					</template>
 					<span class="text-muted" x-text="'Page ' + $store.activity.page"></span>
 					<template x-if="$store.activity.hasMore">
-						<a :href="'/activity?page=' + ($store.activity.page + 1)" class="btn btn-secondary btn-sm">Next &rarr;</a>
+						<a :href="'/activity?tab=history&page=' + ($store.activity.page + 1)" class="btn btn-secondary btn-sm">Next &rarr;</a>
 					</template>
 				</div>
 			</div>

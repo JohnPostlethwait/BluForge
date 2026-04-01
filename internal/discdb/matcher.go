@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -45,6 +46,16 @@ func MatchTitles(scan *makemkv.DiscScan, disc Disc) []ContentMatch {
 			cm.Episode = dt.Episode
 			if dt.Item != nil {
 				cm.ContentTitle = dt.Item.Title
+				// Use item-level type when available — this correctly
+				// distinguishes extras from episodes.
+				if dt.Item.Type != "" {
+					cm.ContentType = dt.Item.Type
+				}
+				// Extras should never carry season/episode data.
+				if strings.EqualFold(cm.ContentType, "extra") {
+					cm.Season = ""
+					cm.Episode = ""
+				}
 			}
 		}
 		matches = append(matches, cm)

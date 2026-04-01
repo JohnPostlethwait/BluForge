@@ -8,7 +8,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
@@ -186,39 +185,3 @@ func (s *Server) handleActivityCancel(c echo.Context) error {
 	return echo.NewHTTPError(http.StatusNotFound, "job not found in active or queued")
 }
 
-// handleActivityRetry re-submits a failed job.
-func (s *Server) handleActivityRetry(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid job id")
-	}
-
-	job, err := s.store.GetJob(id)
-	if err != nil {
-		slog.Error("failed to get job for retry", "id", id, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load job.")
-	}
-	if job == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "job not found")
-	}
-	if job.Status != "failed" {
-		return echo.NewHTTPError(http.StatusBadRequest, "only failed jobs can be retried")
-	}
-
-	cfg := s.GetConfig()
-
-	// Re-create and submit the job through the orchestrator.
-	result := s.orchestrator.ManualRip(workflow.ManualRipParams{
-		DriveIndex:      job.DriveIndex,
-		DiscName:        job.DiscName,
-		Titles:          []workflow.TitleSelection{{TitleIndex: job.TitleIndex, TitleName: job.TitleName, ContentType: job.ContentType}},
-		OutputDir:       cfg.OutputDir,
-		DuplicateAction: cfg.DuplicateAction,
-	})
-
-	if result.HasErrors() {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": result.ErrorSummary()})
-	}
-
-	return c.JSON(http.StatusOK, map[string]string{"status": "retried"})
-}
