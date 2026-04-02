@@ -37,6 +37,7 @@ func TestGetConfig_ConcurrentAccess(t *testing.T) {
 		OutputDir:    "/tmp/output",
 		AutoRip:      false,
 		PollInterval: 5,
+		Port:         9160,
 	}
 	s, _ := newTestServer(t, cfg)
 
@@ -60,8 +61,10 @@ func TestGetConfig_ConcurrentAccess(t *testing.T) {
 // in-memory value returned by getConfig and the on-disk YAML file.
 func TestUpdateConfig_Persists(t *testing.T) {
 	cfg := config.AppConfig{
-		OutputDir:    "/old/output",
-		PollInterval: 5,
+		OutputDir:       "/old/output",
+		PollInterval:    5,
+		Port:            9160,
+		DuplicateAction: "skip",
 	}
 	s, cfgPath := newTestServer(t, cfg)
 

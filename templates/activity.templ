@@ -1,6 +1,9 @@
 package templates
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/johnpostlethwait/bluforge/templates/components"
+)
 
 // ActivityPageData holds all data needed to render the activity page.
 type ActivityPageData struct {
@@ -105,10 +108,10 @@ async function clearHistory(btn) {
 		} else {
 			const data = await resp.json().catch(() => ({}))
 			alert('Clear failed: ' + (data.message || resp.statusText))
-			if (btn) btn.disabled = false
 		}
 	} catch (e) {
 		alert('Clear failed: ' + e.message)
+	} finally {
 		if (btn) btn.disabled = false
 	}
 }
@@ -128,14 +131,13 @@ async function clearFiltered(btn, search, status) {
 				const matchesStatus = status === 'all' || r.status === status
 				return !(matchesText && matchesStatus)
 			})
-			if (btn) btn.disabled = false
 		} else {
 			const data = await resp.json().catch(() => ({}))
 			alert('Clear failed: ' + (data.message || resp.statusText))
-			if (btn) btn.disabled = false
 		}
 	} catch (e) {
 		alert('Clear failed: ' + e.message)
+	} finally {
 		if (btn) btn.disabled = false
 	}
 }
@@ -199,7 +201,7 @@ async function clearFiltered(btn, search, status) {
 						</thead>
 						<tbody>
 							<template x-for="j in $store.activity.active" :key="j.id">
-								<tr>
+								<tr :aria-label="'Active rip job for ' + j.discName">
 									<td>
 										<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
 									</td>
@@ -208,9 +210,7 @@ async function clearFiltered(btn, search, status) {
 									<td style="min-width: 140px;">
 										<div style="display:flex; align-items:center; gap:0.5rem;">
 											<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
-											<div class="progress-bar" style="flex:1;" role="progressbar" :aria-valuenow="j.progress" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress">
-												<div class="progress-fill" :style="'width: ' + j.progress + '%'"></div>
-											</div>
+											@components.ProgressBarDynamic("j.progress", "flex:1;")
 										</div>
 									</td>
 									<td>

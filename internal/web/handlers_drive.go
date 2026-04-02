@@ -219,7 +219,9 @@ func (s *Server) searchDiscDB(c echo.Context, searchType, query string) []discdb
 
 	if s.discdbCache != nil {
 		if data, err := json.Marshal(items); err == nil {
-			_ = s.discdbCache.Set(cacheKey, data)
+			if err := s.discdbCache.Set(cacheKey, data); err != nil {
+				slog.Warn("failed to cache discdb results", "key", cacheKey, "err", err)
+			}
 		}
 	}
 
@@ -250,29 +252,11 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		if err != nil {
 			continue
 		}
-		// Per-title fields override global fields when present.
-		contentType := c.FormValue(fmt.Sprintf("title_content_type_%d", titleIdx))
-		if contentType == "" {
-			contentType = c.FormValue("content_type")
-		}
-		contentTitle := c.FormValue(fmt.Sprintf("title_content_title_%d", titleIdx))
-		if contentTitle == "" {
-			contentTitle = c.FormValue("content_title")
-		}
-		titles = append(titles, workflow.TitleSelection{
-			TitleIndex:   titleIdx,
-			TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
-			ContentType:  contentType,
-			ContentTitle: contentTitle,
-			Year:         c.FormValue("content_year"),
-			Season:       c.FormValue(fmt.Sprintf("title_season_%d", titleIdx)),
-			Episode:      c.FormValue(fmt.Sprintf("title_episode_%d", titleIdx)),
-			SourceFile:   c.FormValue(fmt.Sprintf("title_source_file_%d", titleIdx)),
-		})
+		titles = append(titles, parseTitleSelection(c, titleIdx))
 	}
 
 	if len(titles) == 0 {
-		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape("No titles selected")))
+		return redirectDriveError(c, idx, "No titles selected")
 	}
 
 	// Build disc key from cached scan (avoid triggering a full rescan).
@@ -304,10 +288,10 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	result := s.orchestrator.ManualRip(params)
 
 	if result.HasErrors() {
-		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape(result.ErrorSummary())))
+		return redirectDriveError(c, idx, result.ErrorSummary())
 	}
 
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d", idx))
+	return redirectDriveError(c, idx, "")
 }
 
 // handleDriveScan runs a disc scan synchronously and returns the titles as JSON.
@@ -418,4 +402,37 @@ func (s *Server) handleDriveMatch(c echo.Context) error {
 
 	titles := enrichTitlesWithMatches(scan, *disc)
 	return c.JSON(http.StatusOK, titles)
+}
+
+// parseTitleSelection builds a workflow.TitleSelection from per-title form fields,
+// falling back to global form fields for content type and title when per-title
+// values are absent.
+func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
+	contentType := c.FormValue(fmt.Sprintf("title_content_type_%d", titleIdx))
+	if contentType == "" {
+		contentType = c.FormValue("content_type")
+	}
+	contentTitle := c.FormValue(fmt.Sprintf("title_content_title_%d", titleIdx))
+	if contentTitle == "" {
+		contentTitle = c.FormValue("content_title")
+	}
+	return workflow.TitleSelection{
+		TitleIndex:   titleIdx,
+		TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
+		ContentType:  contentType,
+		ContentTitle: contentTitle,
+		Year:         c.FormValue("content_year"),
+		Season:       c.FormValue(fmt.Sprintf("title_season_%d", titleIdx)),
+		Episode:      c.FormValue(fmt.Sprintf("title_episode_%d", titleIdx)),
+		SourceFile:   c.FormValue(fmt.Sprintf("title_source_file_%d", titleIdx)),
+	}
+}
+
+// redirectDriveError redirects to the drive detail page. When msg is non-empty
+// it appends an ?error= query parameter so the page can surface the message.
+func redirectDriveError(c echo.Context, idx int, msg string) error {
+	if msg != "" {
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape(msg)))
+	}
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d", idx))
 }

@@ -53,3 +53,20 @@ PRGV:32768,50000,65536
 PRGV:65536,65536,65536
 MSG:1005,0,1,"Operation successfully completed","","Operation successfully completed"
 `
+
+// EmptyDiscOutput simulates makemkvcon robot-mode output when a disc is
+// inserted but contains no readable titles (e.g. a scratched or unrecognised
+// disc). There is a DRV line for the drive but zero TINFO lines.
+const EmptyDiscOutput = `MSG:1005,0,0,"MakeMKV v1.17.7 linux(x64-release) started","","MakeMKV v1.17.7 linux(x64-release) started"
+DRV:0,2,999,12,"BD-RE HL-DT-ST BD-RE  WH16NS40","UNKNOWN_DISC","/dev/sr0"
+TCOUT:0
+CINFO:1,0,"Blu-ray disc"
+CINFO:2,0,"UNKNOWN_DISC"
+MSG:1005,0,1,"Operation successfully completed","","Operation successfully completed"
+`
+
+// NoDiscMsgOutput simulates makemkvcon robot-mode output when the drive is
+// empty or the disc cannot be read, represented by a MSG:5055 error line
+// (no disc / drive not ready).
+const NoDiscMsgOutput = `MSG:5055,516,0,"Failed to open disc","","Failed to open disc"
+`

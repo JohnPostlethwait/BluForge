@@ -77,14 +77,14 @@ The orchestrator receives a simple `func(event, data string)` callback for SSE b
 ## Frontend
 
 - **Templ** for type-safe Go HTML templates (in `templates/`)
-- **Alpine.js** for client-side reactive state on dynamic pages (dashboard, drive detail)
+- **Alpine.js** for client-side reactive state on dynamic pages (dashboard, drive detail, activity)
 - **HTMX** for form submissions and page navigation
 - **SSE** for real-time drive events and rip progress
 - **Static CSS** in `static/style.css` (dark theme)
 
 ### Alpine.js + SSE Design Pattern
 
-All Alpine-enabled pages follow this pattern:
+Alpine-enabled pages (dashboard, drive_detail, activity) follow this pattern:
 
 ```
 SSE delivers JSON → Alpine.store() updates → Alpine templates re-render
@@ -98,7 +98,11 @@ Accept header determines response format (JSON vs HTML)
 - Endpoints check the `Accept` header: `application/json` returns JSON, otherwise returns HTML.
 - Requests that need JSON responses use Alpine `fetch()` with `Accept: application/json` (not HTMX `hx-post`).
 - HTMX is used only for requests that expect HTML responses (page navigation, form submissions that redirect).
-- Pages without Alpine (queue, settings, history) keep the existing HTMX/SSE pattern unchanged.
+- The settings page has no Alpine or HTMX — it is a plain HTML `<form method="POST">` with no real-time updates.
+
+### SSE Hub Architecture
+
+`internal/web/sse.go` implements `SSEHub`: a `map[chan SSEEvent]struct{}` protected by `sync.RWMutex`. Each subscriber gets a buffered channel (capacity 32). `Broadcast` fans out to all channels; if a client's channel is full the event is silently dropped rather than blocking the broadcaster. The `workflow` orchestrator calls `hub.Broadcast` via a `func(event, data string)` callback wired in `main.go`.
 
 ## Database
 

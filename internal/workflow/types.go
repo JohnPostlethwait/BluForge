@@ -1,6 +1,9 @@
 package workflow
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // TitleSelection represents a user's choice of which title to rip and its metadata.
 type TitleSelection struct {
@@ -71,12 +74,5 @@ func (r *RipResult) ErrorSummary() string {
 			msgs = append(msgs, fmt.Sprintf("Title %d: skipped (%s)", t.TitleIndex, t.Reason))
 		}
 	}
-	result := ""
-	for i, s := range msgs {
-		if i > 0 {
-			result += "; "
-		}
-		result += s
-	}
-	return result
+	return strings.Join(msgs, "; ")
 }

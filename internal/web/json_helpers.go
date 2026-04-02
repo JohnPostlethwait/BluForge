@@ -111,17 +111,11 @@ func buildOutputName(m discdb.ContentMatch) string {
 		return ""
 	}
 	if m.Season != "" && m.Episode != "" && discdb.IsEpisodeType(m.ContentType) {
-		return fmt.Sprintf("S%sE%s - %s.mkv", padLeft(m.Season, 2), padLeft(m.Episode, 2), m.ContentTitle)
+		sn, _ := strconv.Atoi(m.Season)
+		ep, _ := strconv.Atoi(m.Episode)
+		return fmt.Sprintf("S%02dE%02d - %s.mkv", sn, ep, m.ContentTitle)
 	}
 	return m.ContentTitle + ".mkv"
-}
-
-// padLeft zero-pads s to at least width characters.
-func padLeft(s string, width int) string {
-	for len(s) < width {
-		s = "0" + s
-	}
-	return s
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.

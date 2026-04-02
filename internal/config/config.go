@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 
@@ -39,6 +41,8 @@ func LoadFromEnv() AppConfig {
 	if v := os.Getenv("BLUFORGE_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Port = n
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_PORT", "value", v)
 		}
 	}
 	if v := os.Getenv("BLUFORGE_OUTPUT_DIR"); v != "" {
@@ -47,16 +51,22 @@ func LoadFromEnv() AppConfig {
 	if v := os.Getenv("BLUFORGE_AUTO_RIP"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.AutoRip = b
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_AUTO_RIP", "value", v)
 		}
 	}
 	if v := os.Getenv("BLUFORGE_MIN_TITLE_LENGTH"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.MinTitleLength = n
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_MIN_TITLE_LENGTH", "value", v)
 		}
 	}
 	if v := os.Getenv("BLUFORGE_POLL_INTERVAL"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.PollInterval = n
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_POLL_INTERVAL", "value", v)
 		}
 	}
 	if v := os.Getenv("BLUFORGE_GITHUB_CLIENT_ID"); v != "" {
@@ -72,6 +82,24 @@ func LoadFromEnv() AppConfig {
 	return cfg
 }
 
+// Validate checks that the AppConfig fields hold valid values.
+func (c *AppConfig) Validate() error {
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("invalid port %d: must be 1-65535", c.Port)
+	}
+	if c.PollInterval <= 0 {
+		return fmt.Errorf("invalid poll_interval %d: must be positive", c.PollInterval)
+	}
+	if c.MinTitleLength < 0 {
+		return fmt.Errorf("invalid min_title_length %d: must be >= 0", c.MinTitleLength)
+	}
+	valid := map[string]bool{"skip": true, "overwrite": true, "rename": true}
+	if _, ok := valid[c.DuplicateAction]; !ok {
+		return fmt.Errorf("invalid duplicate_action %q: must be one of skip, overwrite, rename", c.DuplicateAction)
+	}
+	return nil
+}
+
 // Load reads env var defaults first, then overrides with the YAML config file
 // at configPath (if it exists). The config file is the source of truth.
 func Load(configPath string) (AppConfig, error) {
@@ -81,12 +109,19 @@ func Load(configPath string) (AppConfig, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No config file yet — env vars (and defaults) are sufficient.
+			if err := cfg.Validate(); err != nil {
+				return cfg, err
+			}
 			return cfg, nil
 		}
 		return cfg, err
 	}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+
+	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
 

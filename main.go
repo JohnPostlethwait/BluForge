@@ -141,7 +141,11 @@ func main() {
 			Ready bool           `json:"ready"`
 			List  []web.DriveJSON `json:"list"`
 		}{Ready: driveMgr.Ready(), List: driveList}
-		driveUpdateData, _ := json.Marshal(driveUpdatePayload)
+		driveUpdateData, err := json.Marshal(driveUpdatePayload)
+		if err != nil {
+			slog.Error("failed to marshal drive update payload", "err", err)
+			return
+		}
 		sseHub.Broadcast(web.SSEEvent{Event: "drive-update", Data: string(driveUpdateData)})
 
 		// Auto-rip: trigger on disc insert when enabled.
@@ -222,7 +226,7 @@ func setupMakeMKVData(configDir string, minTitleLength int) {
 
 	// Create the persistent directory if it doesn't exist.
 	if err := os.MkdirAll(persistDir, 0755); err != nil {
-		slog.Warn("failed to create MakeMKV data dir", "path", persistDir, "error", err)
+		slog.Error("failed to create MakeMKV data dir", "path", persistDir, "error", err)
 		return
 	}
 
@@ -232,9 +236,11 @@ func setupMakeMKVData(configDir string, minTitleLength int) {
 		// Already symlinked correctly.
 	} else {
 		// Remove whatever is there (old dir or broken symlink) and create symlink.
-		os.RemoveAll(homeMakeMKV)
+		if err := os.RemoveAll(homeMakeMKV); err != nil {
+			slog.Warn("failed to remove existing MakeMKV home dir", "path", homeMakeMKV, "err", err)
+		}
 		if err := os.Symlink(persistDir, homeMakeMKV); err != nil {
-			slog.Warn("failed to symlink MakeMKV data dir", "from", homeMakeMKV, "to", persistDir, "error", err)
+			slog.Error("failed to symlink MakeMKV data dir", "from", homeMakeMKV, "to", persistDir, "error", err)
 			return
 		}
 	}
@@ -297,7 +303,7 @@ func writeMakeMKVSettings(path string, settings map[string]string) {
 	}
 
 	if err := os.WriteFile(path, []byte(buf.String()), 0600); err != nil {
-		slog.Warn("failed to write MakeMKV settings", "path", path, "error", err)
+		slog.Error("failed to write MakeMKV settings", "path", path, "error", err)
 		return
 	}
 

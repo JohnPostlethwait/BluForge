@@ -180,12 +180,12 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
 		defer wg.Done()
 		if ripErr != nil {
-			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", job.Progress, ripErr.Error()); dbErr != nil {
-				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
-			}
+			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
 			o.broadcastJobUpdate(job.ID, "failed")
 			if job.OutputDir != "" {
-				os.RemoveAll(job.OutputDir)
+				if err := os.RemoveAll(job.OutputDir); err != nil {
+					slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
+				}
 			}
 			return
 		}
@@ -194,9 +194,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		srcPath, findErr := findMKVFile(job.OutputDir)
 		if findErr != nil {
 			slog.Error("could not find ripped file", "job_id", job.ID, "rip_dir", job.OutputDir, "error", findErr)
-			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", 100, findErr.Error()); dbErr != nil {
-				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
-			}
+			o.setJobStatus(job.ID, "failed", 100, findErr.Error())
 			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
@@ -205,23 +203,21 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		slog.Info("organizing ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest)
 		if moveErr := organizer.AtomicMove(srcPath, fullDest); moveErr != nil {
 			slog.Error("failed to organize ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest, "error", moveErr)
-			if dbErr := o.store.UpdateJobStatus(job.ID, "failed", 100, fmt.Sprintf("organize: %v", moveErr)); dbErr != nil {
-				slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
-			}
+			o.setJobStatus(job.ID, "failed", 100, fmt.Sprintf("organize: %v", moveErr))
 			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
 
 		// Clean up title temp dir. Parent is cleaned up by the WaitGroup goroutine
 		// in ManualRip once all titles have completed.
-		os.RemoveAll(job.OutputDir)
+		if err := os.RemoveAll(job.OutputDir); err != nil {
+			slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
+		}
 
 		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest); dbErr != nil {
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)
 		}
-		if dbErr := o.store.UpdateJobStatus(job.ID, "completed", 100, ""); dbErr != nil {
-			slog.Error("failed to update job status", "job_id", job.ID, "error", dbErr)
-		}
+		o.setJobStatus(job.ID, "completed", 100, "")
 		o.broadcastJobUpdate(job.ID, "completed")
 	}
 
@@ -307,9 +303,9 @@ func (o *Orchestrator) CachedScan(driveIndex int, discName string) *makemkv.Disc
 func (o *Orchestrator) InvalidateScan(driveIndex int) {
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
+	prefix := fmt.Sprintf("%d:", driveIndex)
 	for key := range o.scanCache {
-		prefix := fmt.Sprintf("%d:", driveIndex)
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+		if strings.HasPrefix(key, prefix) {
 			delete(o.scanCache, key)
 		}
 	}
@@ -322,7 +318,7 @@ func (o *Orchestrator) GetCachedScanByDrive(driveIndex int) *makemkv.DiscScan {
 	o.scanMu.RLock()
 	defer o.scanMu.RUnlock()
 	for key, scan := range o.scanCache {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+		if strings.HasPrefix(key, prefix) {
 			return scan
 		}
 	}
@@ -539,6 +535,13 @@ func findMKVFile(dir string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no .mkv file found in %s", dir)
+}
+
+// setJobStatus updates a job's status in the DB and logs on failure.
+func (o *Orchestrator) setJobStatus(jobID int64, status string, progress int, errMsg string) {
+	if err := o.store.UpdateJobStatus(jobID, status, progress, errMsg); err != nil {
+		slog.Error("failed to update job status", "jobID", jobID, "status", status, "err", err)
+	}
 }
 
 // broadcastJobUpdate sends a job status update over SSE.

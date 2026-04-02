@@ -185,10 +185,12 @@ function deselectAllTitles() {
 	Alpine.store('drive').titles.forEach(t => t.selected = false)
 }
 
+const EPISODE_TYPES = ['episode', 'series']
+
 function matchDisplay(t) {
 	if (!t.matched) return ''
 	const ct = (t.contentType || '').toLowerCase()
-	if ((ct === 'series' || ct === 'episode') && t.season && t.episode) {
+	if (EPISODE_TYPES.includes(ct) && t.season && t.episode) {
 		return 'S' + t.season.padStart(2, '0') + 'E' + t.episode.padStart(2, '0') + ' - ' + t.contentTitle
 	}
 	return t.contentTitle || ''
@@ -199,8 +201,8 @@ function sortedTitles() {
 	return [...titles].sort((a, b) => {
 		const aEp = (a.contentType || '').toLowerCase()
 		const bEp = (b.contentType || '').toLowerCase()
-		const aIsEp = aEp === 'episode' || aEp === 'series'
-		const bIsEp = bEp === 'episode' || bEp === 'series'
+		const aIsEp = EPISODE_TYPES.includes(aEp)
+		const bIsEp = EPISODE_TYPES.includes(bEp)
 		if (aIsEp && !bIsEp) return -1
 		if (!aIsEp && bIsEp) return 1
 		if (aIsEp && bIsEp) {
@@ -216,7 +218,7 @@ function sortedTitles() {
 function contentTypeBadgeClass(t) {
 	if (!t.matched || !t.contentType) return ''
 	const ct = t.contentType.toLowerCase()
-	if (ct === 'episode' || ct === 'series') return 'badge badge-episode'
+	if (EPISODE_TYPES.includes(ct)) return 'badge badge-episode'
 	if (ct === 'movie') return 'badge badge-movie'
 	return 'badge badge-extra'
 }
@@ -312,7 +314,7 @@ async function scanDisc(driveIndex) {
 					<div class="alert alert-success" role="status" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 0.5rem;">
 						<span>Previously matched: <strong x-text="$store.drive.matchedMedia"></strong></span>
 						<div class="flex gap-2">
-							@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`))
+							@templ.Raw(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`)
 							@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Clear &amp; Re-scan</a>`, data.DriveIndex))
 						</div>
 					</div>
@@ -675,7 +677,12 @@ async function scanDisc(driveIndex) {
 									<span class="text-secondary" x-text="job.TitleName || job.DiscName"></span>
 									<span :class="ripStatusBadgeClass(job.Status)" x-text="job.Status"></span>
 								</div>
-								@templ.Raw(`<template x-if="job.Status === 'ripping' || job.Status === 'organizing'"><div style="margin-top:0.5rem;"><div class="progress-bar" style="height:6px;" role="progressbar" :aria-valuenow="job.Progress || 0" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress"><div class="progress-fill" :style="'width:' + (job.Progress || 0) + '%'"></div></div><div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div></div></template>`)
+								<template x-if="job.Status === 'ripping' || job.Status === 'organizing'">
+									<div style="margin-top:0.5rem;">
+										@components.ProgressBarDynamic("job.Progress || 0", "height:6px;")
+										<div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div>
+									</div>
+								</template>
 								@templ.Raw(`<template x-if="job.Status === 'failed' && job.Error"><div class="text-muted mt-1" style="font-size:0.78rem;" x-text="job.Error"></div></template>`)
 							</div>
 						</template>

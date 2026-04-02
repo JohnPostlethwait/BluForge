@@ -170,19 +170,8 @@ func BuildDiscKey(scan *makemkv.DiscScan) string {
 	}
 	sort.Strings(files)
 
-	input := fmt.Sprintf("%s|%d|%s", scan.DiscName, scan.TitleCount, joinStrings(files, ","))
+	input := fmt.Sprintf("%s|%d|%s", scan.DiscName, scan.TitleCount, strings.Join(files, ","))
 	sum := sha256.Sum256([]byte(input))
 	return fmt.Sprintf("%x", sum[:16])
 }
 
-// joinStrings joins a string slice with a separator.
-func joinStrings(ss []string, sep string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	result := ss[0]
-	for _, s := range ss[1:] {
-		result += sep + s
-	}
-	return result
-}

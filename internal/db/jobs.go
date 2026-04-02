@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
+	       output_path, status, progress, error_message, size_bytes, duration,
+	       created_at, updated_at`
+
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
 	ID           int64
@@ -57,11 +61,7 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 
 // GetJob retrieves a rip job by ID.
 func (s *Store) GetJob(id int64) (*RipJob, error) {
-	const q = `
-		SELECT id, drive_index, disc_name, title_index, title_name, content_type,
-		       output_path, status, progress, error_message, size_bytes, duration,
-		       created_at, updated_at
-		FROM rip_jobs WHERE id = ?`
+	q := `SELECT ` + jobSelectCols + ` FROM rip_jobs WHERE id = ?`
 
 	row := s.db.QueryRow(q, id)
 	job, err := scanJob(row)
@@ -107,26 +107,14 @@ func (s *Store) UpdateJobOutput(id int64, outputPath string) error {
 
 // ListJobsByStatus returns all rip jobs matching status, ordered by created_at DESC.
 func (s *Store) ListJobsByStatus(status string) ([]RipJob, error) {
-	const q = `
-		SELECT id, drive_index, disc_name, title_index, title_name, content_type,
-		       output_path, status, progress, error_message, size_bytes, duration,
-		       created_at, updated_at
-		FROM rip_jobs
-		WHERE status = ?
-		ORDER BY created_at DESC`
+	q := `SELECT ` + jobSelectCols + ` FROM rip_jobs WHERE status = ? ORDER BY created_at DESC`
 
 	return s.queryJobs(q, status)
 }
 
 // ListAllJobs returns all rip jobs ordered by created_at DESC with pagination.
 func (s *Store) ListAllJobs(limit, offset int) ([]RipJob, error) {
-	const q = `
-		SELECT id, drive_index, disc_name, title_index, title_name, content_type,
-		       output_path, status, progress, error_message, size_bytes, duration,
-		       created_at, updated_at
-		FROM rip_jobs
-		ORDER BY created_at DESC
-		LIMIT ? OFFSET ?`
+	q := `SELECT ` + jobSelectCols + ` FROM rip_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?`
 
 	return s.queryJobs(q, limit, offset)
 }

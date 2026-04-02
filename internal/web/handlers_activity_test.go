@@ -62,6 +62,8 @@ func setupActivityServer(t *testing.T) (*Server, *db.Store) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
+	// Use a file-based DB (rather than :memory:) so these handler integration
+	// tests exercise real filesystem I/O and run closer to production conditions.
 	dbPath := filepath.Join(tmpDir, "test.db")
 	store, err := db.Open(dbPath)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 func openTestDB(t *testing.T) *Store {
 	t.Helper()
 
+	// Use :memory: for fast, isolated unit tests that need no on-disk persistence.
 	store, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open: %v", err)

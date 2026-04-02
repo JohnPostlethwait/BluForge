@@ -9,52 +9,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
-
-	"github.com/johnpostlethwait/bluforge/internal/config"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
-// stubExecutor satisfies drivemanager.DriveExecutor for tests.
-type stubExecutor struct{}
-
-func (s *stubExecutor) ListDrives(ctx context.Context) ([]makemkv.DriveInfo, error) {
-	return nil, nil
-}
-
-func (s *stubExecutor) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
-	return nil, nil
-}
-
-// newTestDriveManager creates a Manager with a single drive at index 0.
-func newTestDriveManager(discName string) *drivemanager.Manager {
-	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
-	// Trigger a poll so Ready() returns true and the drive is registered.
-	// We do this by calling PollOnce with a context. Since stubExecutor returns
-	// no drives, we need to use an alternate approach: just inject a drive
-	// via PollOnce with real DriveInfo.
-	return mgr
-}
-
-// testServerWithDrive creates a Server with a drive manager that has one drive
-// registered at index 0 with the given disc name.
+// testServerWithDrive creates a Server backed by a stub (no-drives) manager,
+// suitable for search-handler tests that don't require a real disc present.
 func testServerWithDrive(t *testing.T, discName string) *Server {
 	t.Helper()
 
 	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
-
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
-
-	s := &Server{
-		echo:          echo.New(),
-		cfg:           &cfg,
-		driveMgr:      mgr,
-		sseHub:        NewSSEHub(),
-		driveSessions: NewDriveSessionStore(),
-	}
+	s := newTestServer(t, mgr)
 
 	// Register routes needed for tests.
 	s.echo.POST("/drives/:id/search", s.handleDriveSearch)
@@ -114,14 +81,7 @@ func TestHandleDashboard_JSONStore(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TestDisc"}, nil)
 	mgr.PollOnce(context.Background())
 
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
-	srv := &Server{
-		echo:          echo.New(),
-		cfg:           &cfg,
-		driveMgr:      mgr,
-		sseHub:        NewSSEHub(),
-		driveSessions: NewDriveSessionStore(),
-	}
+	srv := newTestServer(t, mgr)
 	srv.echo.GET("/", srv.handleDashboard)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -149,15 +109,7 @@ func TestHandleDashboard_JSONStore(t *testing.T) {
 
 func TestHandleDriveSearch_JSONEmptyQuery(t *testing.T) {
 	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
-
-	srv := &Server{
-		echo:          echo.New(),
-		cfg:           &cfg,
-		driveMgr:      mgr,
-		sseHub:        NewSSEHub(),
-		driveSessions: NewDriveSessionStore(),
-	}
+	srv := newTestServer(t, mgr)
 	srv.echo.POST("/drives/:id/search", srv.handleDriveSearch)
 
 	form := url.Values{}
@@ -183,41 +135,11 @@ func TestHandleDriveSearch_JSONEmptyQuery(t *testing.T) {
 	}
 }
 
-// driveWithDiscExecutor returns a single drive with a disc.
-type driveWithDiscExecutor struct {
-	discName string
-}
-
-func (e *driveWithDiscExecutor) ListDrives(ctx context.Context) ([]makemkv.DriveInfo, error) {
-	return []makemkv.DriveInfo{
-		{
-			Index:      0,
-			Visible:    2,
-			Enabled:    999,
-			Flags:      12,
-			DriveName:  "Test Drive",
-			DiscName:   e.discName,
-			DevicePath: "/dev/sr0",
-		},
-	}, nil
-}
-
-func (e *driveWithDiscExecutor) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
-	return &makemkv.DiscScan{DriveIndex: driveIndex, DiscName: e.discName}, nil
-}
-
 func TestDriveSelectFlow_PersistsAcrossRefresh(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld Season 1"}, nil)
 	mgr.PollOnce(context.Background())
 
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
-	srv := &Server{
-		echo:          echo.New(),
-		cfg:           &cfg,
-		driveMgr:      mgr,
-		sseHub:        NewSSEHub(),
-		driveSessions: NewDriveSessionStore(),
-	}
+	srv := newTestServer(t, mgr)
 	srv.echo.POST("/drives/:id/select", srv.handleDriveSelectAlpine)
 	srv.echo.GET("/drives/:id", srv.handleDriveDetail)
 
@@ -272,17 +194,10 @@ func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld_Season_1"}, nil)
 	mgr.PollOnce(context.Background())
 
-	cfg := config.AppConfig{OutputDir: "/tmp/test"}
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{})
 
-	srv := &Server{
-		echo:          echo.New(),
-		cfg:           &cfg,
-		driveMgr:      mgr,
-		sseHub:        NewSSEHub(),
-		driveSessions: NewDriveSessionStore(),
-		orchestrator:  orch,
-	}
+	srv := newTestServer(t, mgr)
+	srv.orchestrator = orch
 	srv.echo.POST("/drives/:id/match", srv.handleDriveMatch)
 
 	// Pre-populate: cached scan in orchestrator.

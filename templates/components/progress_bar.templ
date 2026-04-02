@@ -2,6 +2,7 @@ package components
 
 import "fmt"
 
+// ProgressBar renders a static progress bar with a known integer percent.
 templ ProgressBar(jobID string, percent int) {
 	<div
 		class="progress-bar"
@@ -13,5 +14,24 @@ templ ProgressBar(jobID string, percent int) {
 		aria-label="Rip progress"
 	>
 		<div class="progress-fill" style={ fmt.Sprintf("width: %d%%", percent) }></div>
+	</div>
+}
+
+// ProgressBarDynamic renders a progress bar whose fill width is driven by an
+// Alpine.js expression (e.g. "j.progress"). The caller supplies the expression
+// string that will be placed in :style and :aria-valuenow bindings.
+// extraStyle is appended verbatim to the wrapper element's inline style (e.g.
+// "flex:1;" or "height:6px;") — pass an empty string when not needed.
+templ ProgressBarDynamic(alpineExpr string, extraStyle string) {
+	<div
+		class="progress-bar"
+		style={ extraStyle }
+		role="progressbar"
+		:aria-valuenow={ alpineExpr }
+		aria-valuemin="0"
+		aria-valuemax="100"
+		aria-label="Rip progress"
+	>
+		<div class="progress-fill" :style={ fmt.Sprintf("'width: ' + (%s) + '%%'", alpineExpr) }></div>
 	</div>
 }

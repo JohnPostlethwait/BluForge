@@ -1,6 +1,9 @@
 package templates
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/johnpostlethwait/bluforge/templates/components"
+)
 
 // DashboardData holds the data needed to render the dashboard page.
 type DashboardData struct {
@@ -131,9 +134,7 @@ function stepLabel(n) { return stepLabels[n] || '' }
 											<span class="text-muted" style="font-size:0.8rem;">Ripping</span>
 											<span class="text-secondary" style="font-size:0.8rem;" x-text="drive.ripProgress + '%'"></span>
 										</div>
-										<div class="progress-bar" role="progressbar" :aria-valuenow="drive.ripProgress" aria-valuemin="0" aria-valuemax="100" aria-label="Rip progress">
-											<div class="progress-fill" :style="'width: ' + drive.ripProgress + '%'"></div>
-										</div>
+										@components.ProgressBarDynamic("drive.ripProgress", "")
 									</div>
 								</template>
 								<!-- Workflow step label -->
