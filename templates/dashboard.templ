@@ -49,21 +49,41 @@ function stepLabel(n) { return stepLabels[n] || '' }
 
 		<!-- Status Bar -->
 		<div class="status-bar" x-data role="status" aria-label="Drive status summary">
-			<div class="status-item">
-				<span class="status-value" x-text="$store.drives.list.length">0</span>
-				<span class="status-label">Drives</span>
+			<div class="status-item status-item--drives">
+				<div class="status-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+				</div>
+				<div class="status-text">
+					<span class="status-value" x-text="$store.drives.list.length">0</span>
+					<span class="status-label">Drives</span>
+				</div>
 			</div>
-			<div class="status-item">
-				<span class="status-value" x-text="$store.drives.activeCount">0</span>
-				<span class="status-label">Active</span>
+			<div class="status-item status-item--active">
+				<div class="status-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+				</div>
+				<div class="status-text">
+					<span class="status-value" x-text="$store.drives.activeCount">0</span>
+					<span class="status-label">Active</span>
+				</div>
 			</div>
-			<div class="status-item">
-				<span class="status-value" x-text="$store.drives.queuedCount">0</span>
-				<span class="status-label">Queued</span>
+			<div class="status-item status-item--queued">
+				<div class="status-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+				</div>
+				<div class="status-text">
+					<span class="status-value" x-text="$store.drives.queuedCount">0</span>
+					<span class="status-label">Queued</span>
+				</div>
 			</div>
-			<div class="status-item">
-				<span class="status-value" x-text="$store.drives.completedToday">0</span>
-				<span class="status-label">Today</span>
+			<div class="status-item status-item--today">
+				<div class="status-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+				</div>
+				<div class="status-text">
+					<span class="status-value" x-text="$store.drives.completedToday">0</span>
+					<span class="status-label">Today</span>
+				</div>
 			</div>
 		</div>
 

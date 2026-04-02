@@ -5,6 +5,7 @@
   --accent-blue: #3b82f6;
   --accent-blue-hover: #2563eb;
   --accent-blue-dim: #1e40af;
+  --accent-teal: #06b6d4;
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
   --text-muted: #8494a7;
@@ -663,25 +664,44 @@ button.stepper-step {
 /* ── Status Bar ── */
 .status-bar {
   display: flex;
-  gap: 1.5rem;
-  padding: 1rem 1.25rem;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 1rem;
   margin-bottom: 1.5rem;
 }
 
 .status-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  min-width: 60px;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+
+.status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.status-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.status-text {
+  display: flex;
+  flex-direction: column;
 }
 
 .status-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--text-primary);
   line-height: 1;
 }
 
@@ -693,6 +713,31 @@ button.stepper-step {
   color: var(--text-muted);
   margin-top: 0.25rem;
 }
+
+/* Status item color variants */
+.status-item--drives .status-icon {
+  background-color: rgba(59, 130, 246, 0.12);
+  color: var(--accent-blue);
+}
+.status-item--drives .status-value { color: var(--accent-blue); }
+
+.status-item--active .status-icon {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+.status-item--active .status-value { color: var(--success); }
+
+.status-item--queued .status-icon {
+  background-color: rgba(234, 179, 8, 0.12);
+  color: var(--warning);
+}
+.status-item--queued .status-value { color: var(--warning); }
+
+.status-item--today .status-icon {
+  background-color: rgba(6, 182, 212, 0.12);
+  color: var(--accent-teal);
+}
+.status-item--today .status-value { color: var(--accent-teal); }
 
 /* In-content links should be distinguishable from text */
 main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
@@ -819,12 +864,12 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 @media (max-width: 480px) {
   .status-bar {
     flex-wrap: wrap;
-    gap: 1rem;
-    justify-content: space-around;
+    gap: 0.75rem;
   }
 
   .status-item {
-    min-width: 45%;
+    flex: 1 1 calc(50% - 0.375rem);
+    min-width: 0;
   }
 
   .tab-bar {
