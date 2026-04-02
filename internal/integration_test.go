@@ -92,7 +92,7 @@ func (m *fullMockExecutor) ScanDisc(_ context.Context, driveIndex int) (*makemkv
 }
 
 // StartRip parses the SampleProgressOutput fixture and fires onEvent for each event.
-func (m *fullMockExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+func (m *fullMockExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	events, err := makemkv.ParseAll(strings.NewReader(testutil.SampleProgressOutput))
 	if err != nil {
 		return err

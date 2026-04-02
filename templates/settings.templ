@@ -4,14 +4,18 @@ import "fmt"
 
 // SettingsData holds the current settings values for the settings form.
 type SettingsData struct {
-	OutputDir          string
-	AutoRip            bool
-	MinTitleLength     string
-	PollInterval       string
-	DuplicateAction    string
-	GitHubClientID     string
-	GitHubClientSecret string
-	CSRFToken          string
+	OutputDir             string
+	AutoRip               bool
+	MinTitleLength        string
+	PollInterval          string
+	DuplicateAction       string
+	GitHubClientID        string
+	GitHubClientSecret    string
+	PreferredAudioLangs   string
+	PreferredSubtitleLangs string
+	KeepForcedSubtitles   bool
+	KeepLosslessAudio     bool
+	CSRFToken             string
 }
 
 templ Settings(data SettingsData) {
@@ -50,6 +54,34 @@ templ Settings(data SettingsData) {
 						<option value="overwrite" selected?={ data.DuplicateAction == "overwrite" }>Overwrite</option>
 						<option value="rename" selected?={ data.DuplicateAction == "rename" }>Rename</option>
 					</select>
+				</div>
+			</div>
+			<div class="card" style="margin-bottom: 1rem;">
+				<h2 class="section-title">Track Selection</h2>
+				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+					Configure default audio and subtitle track preferences for ripping. When set, only tracks matching these languages will be included. Leave empty to include all tracks.
+				</p>
+				<div class="form-group">
+					<label for="preferred_audio_langs">Preferred Audio Languages</label>
+					<input type="text" id="preferred_audio_langs" name="preferred_audio_langs" value={ data.PreferredAudioLangs } placeholder="e.g. eng,jpn"/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
+				</div>
+				<div class="form-group">
+					<label for="preferred_subtitle_langs">Preferred Subtitle Languages</label>
+					<input type="text" id="preferred_subtitle_langs" name="preferred_subtitle_langs" value={ data.PreferredSubtitleLangs } placeholder="e.g. eng"/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
+				</div>
+				<div class="form-group">
+					<label>
+						<input type="checkbox" name="keep_forced_subtitles" value="true" checked?={ data.KeepForcedSubtitles } style="width:auto; margin-right: 0.4rem;"/>
+						Keep forced subtitles
+					</label>
+				</div>
+				<div class="form-group">
+					<label>
+						<input type="checkbox" name="keep_lossless_audio" value="true" checked?={ data.KeepLosslessAudio } style="width:auto; margin-right: 0.4rem;"/>
+						Keep lossless audio tracks
+					</label>
 				</div>
 			</div>
 			<div class="card" style="margin-bottom: 1rem;">

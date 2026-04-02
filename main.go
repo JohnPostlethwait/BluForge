@@ -156,9 +156,19 @@ func main() {
 		if ev.Type == drivemanager.EventDiscInserted && snapCfg.AutoRip {
 			go func() {
 				slog.Info("auto-rip triggered", "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
+
+				// Build selection opts from config defaults.
+				selOpts := makemkv.NewSelectionOpts(
+					snapCfg.PreferredAudioLangs,
+					snapCfg.PreferredSubtitleLangs,
+					snapCfg.KeepForcedSubtitles,
+					snapCfg.KeepLosslessAudio,
+				)
+
 				autoErr := orch.AutoRip(context.Background(), ev.DriveIndex, workflow.AutoRipConfig{
 					OutputDir:       snapCfg.OutputDir,
 					DuplicateAction: snapCfg.DuplicateAction,
+					SelectionOpts:   selOpts,
 				})
 				if autoErr != nil {
 					slog.Error("auto-rip failed", "error", autoErr, "drive_index", ev.DriveIndex)

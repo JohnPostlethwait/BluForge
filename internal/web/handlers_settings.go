@@ -14,14 +14,18 @@ import (
 func (s *Server) handleSettings(c echo.Context) error {
 	cfg := s.GetConfig()
 	data := templates.SettingsData{
-		OutputDir:          cfg.OutputDir,
-		AutoRip:            cfg.AutoRip,
-		MinTitleLength:     strconv.Itoa(cfg.MinTitleLength),
-		PollInterval:       strconv.Itoa(cfg.PollInterval),
-		DuplicateAction:    cfg.DuplicateAction,
-		GitHubClientID:     cfg.GitHubClientID,
-		GitHubClientSecret: cfg.GitHubClientSecret,
-		CSRFToken:          csrfToken(c),
+		OutputDir:             cfg.OutputDir,
+		AutoRip:               cfg.AutoRip,
+		MinTitleLength:        strconv.Itoa(cfg.MinTitleLength),
+		PollInterval:          strconv.Itoa(cfg.PollInterval),
+		DuplicateAction:       cfg.DuplicateAction,
+		GitHubClientID:        cfg.GitHubClientID,
+		GitHubClientSecret:    cfg.GitHubClientSecret,
+		PreferredAudioLangs:   cfg.PreferredAudioLangs,
+		PreferredSubtitleLangs: cfg.PreferredSubtitleLangs,
+		KeepForcedSubtitles:   cfg.KeepForcedSubtitles,
+		KeepLosslessAudio:     cfg.KeepLosslessAudio,
+		CSRFToken:             csrfToken(c),
 	}
 	return templates.Settings(data).Render(c.Request().Context(), c.Response().Writer)
 }
@@ -32,6 +36,10 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	duplicateAction := c.FormValue("duplicate_action")
 	githubClientID := c.FormValue("github_client_id")
 	githubClientSecret := c.FormValue("github_client_secret")
+	preferredAudioLangs := c.FormValue("preferred_audio_langs")
+	preferredSubtitleLangs := c.FormValue("preferred_subtitle_langs")
+	keepForcedSubtitles := c.FormValue("keep_forced_subtitles") == "true"
+	keepLosslessAudio := c.FormValue("keep_lossless_audio") == "true"
 
 	minTitleLength := -1
 	if v := c.FormValue("min_title_length"); v != "" {
@@ -51,6 +59,10 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 		cfg.AutoRip = autoRip
 		cfg.DuplicateAction = duplicateAction
 		cfg.GitHubClientID = githubClientID
+		cfg.PreferredAudioLangs = preferredAudioLangs
+		cfg.PreferredSubtitleLangs = preferredSubtitleLangs
+		cfg.KeepForcedSubtitles = keepForcedSubtitles
+		cfg.KeepLosslessAudio = keepLosslessAudio
 
 		// Only update the secret if the user provided a non-masked value.
 		if githubClientSecret != "" && githubClientSecret != "••••••••" {

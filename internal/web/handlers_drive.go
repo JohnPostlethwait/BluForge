@@ -14,6 +14,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
@@ -43,16 +44,22 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		CSRFToken:  csrfToken(c),
 	}
 
+	cfg := s.GetConfig()
+
 	// Build Alpine store hydration JSON.
 	driveStore := DriveStoreJSON{
-		DriveIndex:    idx,
-		DriveName:     drv.DriveName(),
-		DiscName:      drv.DiscName(),
-		State:         string(drv.State()),
-		CurrentStep:   1,
-		Titles:        make([]TitleJSON, 0),
-		SearchResults: make([]SearchResultJSON, 0),
-		RipJobs:       make([]RipJobJSON, 0),
+		DriveIndex:        idx,
+		DriveName:         drv.DriveName(),
+		DiscName:          drv.DiscName(),
+		State:             string(drv.State()),
+		CurrentStep:       1,
+		Titles:            make([]TitleJSON, 0),
+		SearchResults:     make([]SearchResultJSON, 0),
+		RipJobs:           make([]RipJobJSON, 0),
+		AudioLanguages:    make([]LangOptionJSON, 0),
+		SubtitleLanguages: make([]LangOptionJSON, 0),
+		KeepForcedSubs:    cfg.KeepForcedSubtitles,
+		KeepLossless:      cfg.KeepLosslessAudio,
 	}
 
 	// Check for an existing disc mapping (from a previous rip of this disc).
@@ -96,6 +103,16 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 					driveStore.Titles = enrichTitlesWithMatches(scan, *disc)
 				}
 			}
+		}
+	}
+
+	// Populate disc-level language aggregates and lossless flag from cached scan.
+	if s.orchestrator != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			audioLangs, subLangs := extractDiscLanguages(scan, cfg.PreferredAudioLangs, cfg.PreferredSubtitleLangs)
+			driveStore.AudioLanguages = audioLangs
+			driveStore.SubtitleLanguages = subLangs
+			driveStore.HasLosslessAudio = discHasLosslessAudio(scan)
 		}
 	}
 
@@ -284,6 +301,14 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		MediaYear:       c.FormValue("content_year"),
 		MediaType:       c.FormValue("content_type"),
 	}
+
+	// Parse track selection from form.
+	audioLangs := c.FormValue("audio_langs")
+	subtitleLangs := c.FormValue("subtitle_langs")
+	keepForcedSubs := c.FormValue("keep_forced_subs") == "true"
+	keepLossless := c.FormValue("keep_lossless") == "true"
+
+	params.SelectionOpts = makemkv.NewSelectionOpts(audioLangs, subtitleLangs, keepForcedSubs, keepLossless)
 
 	result := s.orchestrator.ManualRip(params)
 

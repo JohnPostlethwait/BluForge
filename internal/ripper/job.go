@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
 // JobStatus represents the lifecycle state of a rip job.
@@ -43,6 +45,9 @@ type Job struct {
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
 	OnComplete func(job *Job, err error) `json:"-"`
+	// SelectionOpts holds optional track selection criteria for this job.
+	// Not serialized — used only during rip execution.
+	SelectionOpts *makemkv.SelectionOpts `json:"-"`
 	// cancel stops the rip in progress. Set by the engine when the job starts.
 	cancel context.CancelFunc `json:"-"`
 }

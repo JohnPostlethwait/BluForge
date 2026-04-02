@@ -19,7 +19,7 @@ import (
 // and creating a dummy .mkv file in the output directory (simulating MakeMKV).
 type mockRipExecutor struct{}
 
-func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDir string, onEvent func(makemkv.Event)) error {
+func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDir string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	// Simulate MakeMKV writing a .mkv file.
 	_ = os.WriteFile(filepath.Join(outputDir, "title_t00.mkv"), []byte("fake"), 0o644)
 	if onEvent != nil {

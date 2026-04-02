@@ -860,6 +860,55 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   color: var(--text-muted);
 }
 
+/* ── Track Selection ── */
+.track-selection-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.track-selection-header {
+  user-select: none;
+}
+
+.track-group-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.track-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.track-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.track-chip-selected {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+}
+
+.track-chip:hover {
+  border-color: var(--accent-blue);
+}
+
 /* ── Responsive — tablet and below ── */
 @media (max-width: 768px) {
   .container {
