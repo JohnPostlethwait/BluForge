@@ -21,13 +21,6 @@ const (
 	AttrMkvFlags     = 38 // "d" (default), "f" (forced), "df" (both)
 )
 
-// Stream type codec string prefixes as stored in the value of AttrType (attr 1).
-// MakeMKV encodes stream type in the codec ID prefix: V_ = video, A_ = audio, S_ = subtitle.
-const (
-	StreamTypeVideo    = "6201"
-	StreamTypeAudio    = "6202"
-	StreamTypeSubtitle = "6203"
-)
 
 // losslessCodecs is the set of codec short names considered lossless.
 var losslessCodecs = map[string]bool{

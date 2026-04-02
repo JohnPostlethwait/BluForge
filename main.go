@@ -158,19 +158,12 @@ func main() {
 				slog.Info("auto-rip triggered", "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 
 				// Build selection opts from config defaults.
-				var selOpts *makemkv.SelectionOpts
-				if snapCfg.PreferredAudioLangs != "" || snapCfg.PreferredSubtitleLangs != "" {
-					selOpts = &makemkv.SelectionOpts{
-						KeepForced:   snapCfg.KeepForcedSubtitles,
-						KeepLossless: snapCfg.KeepLosslessAudio,
-					}
-					if snapCfg.PreferredAudioLangs != "" {
-						selOpts.AudioLangs = strings.Split(snapCfg.PreferredAudioLangs, ",")
-					}
-					if snapCfg.PreferredSubtitleLangs != "" {
-						selOpts.SubtitleLangs = strings.Split(snapCfg.PreferredSubtitleLangs, ",")
-					}
-				}
+				selOpts := makemkv.NewSelectionOpts(
+					snapCfg.PreferredAudioLangs,
+					snapCfg.PreferredSubtitleLangs,
+					snapCfg.KeepForcedSubtitles,
+					snapCfg.KeepLosslessAudio,
+				)
 
 				autoErr := orch.AutoRip(context.Background(), ev.DriveIndex, workflow.AutoRipConfig{
 					OutputDir:       snapCfg.OutputDir,

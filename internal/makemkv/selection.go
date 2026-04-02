@@ -35,6 +35,35 @@ func (opts SelectionOpts) IsEmpty() bool {
 	return len(opts.AudioLangs) == 0 && len(opts.SubtitleLangs) == 0 && opts.KeepLossless
 }
 
+// NewSelectionOpts builds a SelectionOpts from comma-separated language code
+// strings (as stored in config or submitted by forms). Whitespace around each
+// code is trimmed. Returns nil when no filtering would be applied (both lang
+// strings empty), preserving backward-compatible "rip everything" behaviour.
+func NewSelectionOpts(audioLangs, subtitleLangs string, keepForced, keepLossless bool) *SelectionOpts {
+	if audioLangs == "" && subtitleLangs == "" {
+		return nil
+	}
+	opts := &SelectionOpts{
+		KeepForced:   keepForced,
+		KeepLossless: keepLossless,
+	}
+	if audioLangs != "" {
+		for _, code := range strings.Split(audioLangs, ",") {
+			if c := strings.TrimSpace(code); c != "" {
+				opts.AudioLangs = append(opts.AudioLangs, c)
+			}
+		}
+	}
+	if subtitleLangs != "" {
+		for _, code := range strings.Split(subtitleLangs, ",") {
+			if c := strings.TrimSpace(code); c != "" {
+				opts.SubtitleLangs = append(opts.SubtitleLangs, c)
+			}
+		}
+	}
+	return opts
+}
+
 // BuildSelectionString constructs a MakeMKV app_DefaultSelectionString value
 // from the given SelectionOpts. Rules are evaluated left-to-right by MakeMKV;
 // the last matching rule wins.

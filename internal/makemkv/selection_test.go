@@ -287,6 +287,56 @@ func mustContain(t *testing.T, s, substr string) {
 }
 
 // assertOrder verifies that the ordered elements in want appear in the same
+// --- NewSelectionOpts tests ---
+
+func TestNewSelectionOpts_BothEmpty(t *testing.T) {
+	got := NewSelectionOpts("", "", true, true)
+	if got != nil {
+		t.Fatal("expected nil when both lang strings empty")
+	}
+}
+
+func TestNewSelectionOpts_TrimsWhitespace(t *testing.T) {
+	got := NewSelectionOpts("eng, jpn , fra", " eng , deu ", true, false)
+	if got == nil {
+		t.Fatal("expected non-nil")
+	}
+	wantAudio := []string{"eng", "jpn", "fra"}
+	wantSub := []string{"eng", "deu"}
+	if len(got.AudioLangs) != len(wantAudio) {
+		t.Fatalf("AudioLangs: got %v, want %v", got.AudioLangs, wantAudio)
+	}
+	for i, code := range got.AudioLangs {
+		if code != wantAudio[i] {
+			t.Errorf("AudioLangs[%d]: got %q, want %q", i, code, wantAudio[i])
+		}
+	}
+	if len(got.SubtitleLangs) != len(wantSub) {
+		t.Fatalf("SubtitleLangs: got %v, want %v", got.SubtitleLangs, wantSub)
+	}
+	for i, code := range got.SubtitleLangs {
+		if code != wantSub[i] {
+			t.Errorf("SubtitleLangs[%d]: got %q, want %q", i, code, wantSub[i])
+		}
+	}
+	if !got.KeepForced {
+		t.Error("expected KeepForced=true")
+	}
+	if got.KeepLossless {
+		t.Error("expected KeepLossless=false")
+	}
+}
+
+func TestNewSelectionOpts_SkipsEmptyCodes(t *testing.T) {
+	got := NewSelectionOpts("eng,,fra", "", true, true)
+	if got == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(got.AudioLangs) != 2 {
+		t.Fatalf("expected 2 audio langs, got %v", got.AudioLangs)
+	}
+}
+
 // left-to-right order within the comma-separated string s.
 func assertOrder(t *testing.T, s string, want []string) {
 	t.Helper()
