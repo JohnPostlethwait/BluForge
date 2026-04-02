@@ -218,6 +218,10 @@ func (s *Server) handleActivityClearFiltered(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
 	}
 
+	if req.Search == "" && (req.Status == "" || req.Status == "all") {
+		return echo.NewHTTPError(http.StatusBadRequest, "at least one filter is required")
+	}
+
 	var excludeIDs []int64
 	if s.ripEngine != nil {
 		for _, j := range s.ripEngine.ActiveJobs() {

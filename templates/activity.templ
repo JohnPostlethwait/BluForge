@@ -128,6 +128,7 @@ async function clearFiltered(btn, search, status) {
 				const matchesStatus = status === 'all' || r.status === status
 				return !(matchesText && matchesStatus)
 			})
+			if (btn) btn.disabled = false
 		} else {
 			const data = await resp.json().catch(() => ({}))
 			alert('Clear failed: ' + (data.message || resp.statusText))
