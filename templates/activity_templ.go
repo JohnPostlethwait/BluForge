@@ -164,7 +164,7 @@ async function clearFiltered(btn, search, status) {
 			const store = Alpine.store('activity')
 			store.history = store.history.filter(r => {
 				const matchesText = !search || r.discName.toLowerCase().includes(search.toLowerCase()) || r.titleName.toLowerCase().includes(search.toLowerCase())
-				const matchesStatus = status === 'all' || !status || r.status === status
+				const matchesStatus = status === 'all' || r.status === status
 				return !(matchesText && matchesStatus)
 			})
 		} else {
