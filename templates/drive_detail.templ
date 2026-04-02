@@ -239,9 +239,10 @@ function ripHasErrors() {
 }
 
 function ripStatusBadgeClass(status) {
-	if (status === 'completed') return 'badge badge-detected'
-	if (status === 'failed') return 'badge badge-error'
+	if (status === 'completed') return 'badge badge-completed'
+	if (status === 'failed') return 'badge badge-failed'
 	if (status === 'ripping' || status === 'organizing') return 'badge badge-ripping'
+	if (status === 'skipped') return 'badge badge-pending'
 	return 'badge badge-empty'
 }
 
