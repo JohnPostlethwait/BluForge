@@ -165,6 +165,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob.ID = jobID
 	ripJob.TitleName = sel.TitleName
 	ripJob.ContentType = sel.ContentType
+	ripJob.SelectionOpts = params.SelectionOpts
 
 	// OnStart: create the per-title subdir inside the shared parent temp dir.
 	ripJob.OnStart = func(job *ripper.Job) error {
@@ -372,6 +373,7 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 		MediaTitle:      mediaTitle,
 		MediaYear:       mediaYear,
 		MediaType:       mediaType,
+		SelectionOpts:   cfg.SelectionOpts,
 	}
 
 	result := o.ManualRip(params)

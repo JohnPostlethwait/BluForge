@@ -3,6 +3,8 @@ package workflow
 import (
 	"fmt"
 	"strings"
+
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
 // TitleSelection represents a user's choice of which title to rip and its metadata.
@@ -34,12 +36,16 @@ type ManualRipParams struct {
 	MediaTitle  string
 	MediaYear   string
 	MediaType   string
+	// SelectionOpts holds disc-level track selection criteria (audio/subtitle
+	// language filtering). Nil means use makemkvcon defaults.
+	SelectionOpts *makemkv.SelectionOpts
 }
 
 // AutoRipConfig holds config values snapshotted at event time.
 type AutoRipConfig struct {
 	OutputDir       string
 	DuplicateAction string
+	SelectionOpts   *makemkv.SelectionOpts // from settings
 }
 
 // TitleResult reports the outcome of submitting a single title for ripping.

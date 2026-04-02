@@ -29,7 +29,7 @@ func (m *mockRipExecutor) release() {
 	close(m.block)
 }
 
-func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, _ func(makemkv.Event)) error {
+func (m *mockRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	atomic.AddInt32(&m.calls, 1)
 	// Block until released so we can observe concurrent state.
 	<-m.block
@@ -69,7 +69,7 @@ func TestEngineQueuesSecondRipOnSameDrive(t *testing.T) {
 // immediateRipExecutor is a test double that returns immediately with no error.
 type immediateRipExecutor struct{}
 
-func (m *immediateRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+func (m *immediateRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	if onEvent != nil {
 		onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Current: 65536, Total: 65536, Max: 65536}})
 	}
@@ -159,7 +159,7 @@ type progressRipExecutor struct {
 	progressValues []int // percentage values to fire as progress events
 }
 
-func (p *progressRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event)) error {
+func (p *progressRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	if onEvent != nil {
 		for _, pct := range p.progressValues {
 			onEvent(makemkv.Event{

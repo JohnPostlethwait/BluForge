@@ -9,7 +9,7 @@ import (
 
 // RipExecutor is the interface for starting a rip operation.
 type RipExecutor interface {
-	StartRip(ctx context.Context, driveIndex int, titleID int, outputDir string, onEvent func(makemkv.Event)) error
+	StartRip(ctx context.Context, driveIndex int, titleID int, outputDir string, onEvent func(makemkv.Event), selection *makemkv.SelectionOpts) error
 }
 
 // Engine manages concurrent rip jobs, enforcing one active rip per drive.
@@ -207,7 +207,7 @@ func (e *Engine) run(job *Job) {
 				}
 			}
 		}
-	})
+	}, job.SelectionOpts)
 
 	if err != nil {
 		job.Fail(err.Error())

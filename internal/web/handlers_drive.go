@@ -14,6 +14,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
@@ -300,6 +301,28 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		MediaYear:       c.FormValue("content_year"),
 		MediaType:       c.FormValue("content_type"),
 	}
+
+	// Parse track selection from form.
+	audioLangs := c.FormValue("audio_langs")
+	subtitleLangs := c.FormValue("subtitle_langs")
+	keepForcedSubs := c.FormValue("keep_forced_subs") == "true"
+	keepLossless := c.FormValue("keep_lossless") == "true"
+
+	// Build selection opts if any language filtering is configured.
+	var selOpts *makemkv.SelectionOpts
+	if audioLangs != "" || subtitleLangs != "" {
+		selOpts = &makemkv.SelectionOpts{
+			KeepForced:   keepForcedSubs,
+			KeepLossless: keepLossless,
+		}
+		if audioLangs != "" {
+			selOpts.AudioLangs = strings.Split(audioLangs, ",")
+		}
+		if subtitleLangs != "" {
+			selOpts.SubtitleLangs = strings.Split(subtitleLangs, ",")
+		}
+	}
+	params.SelectionOpts = selOpts
 
 	result := s.orchestrator.ManualRip(params)
 
