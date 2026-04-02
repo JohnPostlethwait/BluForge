@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -272,3 +273,157 @@ func TestHandleActivityCancel_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleActivityClearFiltered_StatusFilter(t *testing.T) {
+	srv, store := setupActivityServer(t)
+
+	completed := db.RipJob{DiscName: "Disc A", TitleName: "Title A", Status: "completed"}
+	idC, err := store.CreateJob(completed)
+	if err != nil {
+		t.Fatalf("CreateJob completed: %v", err)
+	}
+
+	failed := db.RipJob{DiscName: "Disc B", TitleName: "Title B", Status: "failed"}
+	idF, err := store.CreateJob(failed)
+	if err != nil {
+		t.Fatalf("CreateJob failed: %v", err)
+	}
+
+	e := echo.New()
+	body := `{"search":"","status":"failed"}`
+	req := httptest.NewRequest(http.MethodPost, "/activity/clear-filtered",
+		strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := srv.handleActivityClearFiltered(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := store.GetJob(idC)
+	if err != nil {
+		t.Fatalf("GetJob completed: %v", err)
+	}
+	if got == nil {
+		t.Error("completed job should still exist but was deleted")
+	}
+
+	got, err = store.GetJob(idF)
+	if err != nil {
+		t.Fatalf("GetJob failed: %v", err)
+	}
+	if got != nil {
+		t.Error("failed job should have been deleted but still exists")
+	}
+}
+
+func TestHandleActivityClearFiltered_SearchFilter(t *testing.T) {
+	srv, store := setupActivityServer(t)
+
+	batman := db.RipJob{DiscName: "Batman Begins", TitleName: "Feature", Status: "completed"}
+	idB, err := store.CreateJob(batman)
+	if err != nil {
+		t.Fatalf("CreateJob batman: %v", err)
+	}
+
+	other := db.RipJob{DiscName: "Superman", TitleName: "Feature", Status: "completed"}
+	idO, err := store.CreateJob(other)
+	if err != nil {
+		t.Fatalf("CreateJob other: %v", err)
+	}
+
+	e := echo.New()
+	body := `{"search":"batman","status":""}`
+	req := httptest.NewRequest(http.MethodPost, "/activity/clear-filtered",
+		strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := srv.handleActivityClearFiltered(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	got, err := store.GetJob(idB)
+	if err != nil {
+		t.Fatalf("GetJob batman: %v", err)
+	}
+	if got != nil {
+		t.Error("batman job should have been deleted but still exists")
+	}
+
+	got, err = store.GetJob(idO)
+	if err != nil {
+		t.Fatalf("GetJob other: %v", err)
+	}
+	if got == nil {
+		t.Error("other job should still exist but was deleted")
+	}
+}
+
+func TestHandleActivityClearFiltered_BothFilters(t *testing.T) {
+	srv, store := setupActivityServer(t)
+
+	j1 := db.RipJob{DiscName: "Batman", TitleName: "Feature", Status: "completed"}
+	id1, err := store.CreateJob(j1)
+	if err != nil {
+		t.Fatalf("CreateJob j1: %v", err)
+	}
+
+	j2 := db.RipJob{DiscName: "Batman Forever", TitleName: "Feature", Status: "failed"}
+	id2, err := store.CreateJob(j2)
+	if err != nil {
+		t.Fatalf("CreateJob j2: %v", err)
+	}
+
+	j3 := db.RipJob{DiscName: "Superman", TitleName: "Feature", Status: "completed"}
+	id3, err := store.CreateJob(j3)
+	if err != nil {
+		t.Fatalf("CreateJob j3: %v", err)
+	}
+
+	e := echo.New()
+	body := `{"search":"batman","status":"completed"}`
+	req := httptest.NewRequest(http.MethodPost, "/activity/clear-filtered",
+		strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := srv.handleActivityClearFiltered(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	got, err := store.GetJob(id1)
+	if err != nil {
+		t.Fatalf("GetJob j1: %v", err)
+	}
+	if got != nil {
+		t.Error("j1 should have been deleted but still exists")
+	}
+
+	got, err = store.GetJob(id2)
+	if err != nil {
+		t.Fatalf("GetJob j2: %v", err)
+	}
+	if got == nil {
+		t.Error("j2 should still exist but was deleted")
+	}
+
+	got, err = store.GetJob(id3)
+	if err != nil {
+		t.Fatalf("GetJob j3: %v", err)
+	}
+	if got == nil {
+		t.Error("j3 should still exist but was deleted")
+	}
+}

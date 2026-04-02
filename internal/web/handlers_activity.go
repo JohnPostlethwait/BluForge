@@ -206,3 +206,32 @@ func (s *Server) handleActivityClearHistory(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleActivityClearFiltered deletes rip jobs matching the provided search
+// and status filters, excluding any jobs currently active or queued in the
+// rip engine.
+func (s *Server) handleActivityClearFiltered(c echo.Context) error {
+	var req struct {
+		Search string `json:"search"`
+		Status string `json:"status"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	var excludeIDs []int64
+	if s.ripEngine != nil {
+		for _, j := range s.ripEngine.ActiveJobs() {
+			excludeIDs = append(excludeIDs, j.ID)
+		}
+		for _, j := range s.ripEngine.QueuedJobs() {
+			excludeIDs = append(excludeIDs, j.ID)
+		}
+	}
+
+	if err := s.store.DeleteJobsByFilter(req.Search, req.Status, excludeIDs); err != nil {
+		slog.Error("failed to clear filtered job history", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to clear history.")
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
