@@ -11,25 +11,31 @@ import (
 
 // AppConfig holds all application configuration values.
 type AppConfig struct {
-	Port             int    `yaml:"port"`
-	OutputDir        string `yaml:"output_dir"`
-	AutoRip          bool   `yaml:"auto_rip"`
-	MinTitleLength   int    `yaml:"min_title_length"`
-	PollInterval     int    `yaml:"poll_interval"`
-	GitHubClientID   string `yaml:"github_client_id"`
-	GitHubClientSecret string `yaml:"github_client_secret"`
-	DuplicateAction  string `yaml:"duplicate_action"`
+	Port                  int    `yaml:"port"`
+	OutputDir             string `yaml:"output_dir"`
+	AutoRip               bool   `yaml:"auto_rip"`
+	MinTitleLength        int    `yaml:"min_title_length"`
+	PollInterval          int    `yaml:"poll_interval"`
+	GitHubClientID        string `yaml:"github_client_id"`
+	GitHubClientSecret    string `yaml:"github_client_secret"`
+	DuplicateAction       string `yaml:"duplicate_action"`
+	PreferredAudioLangs   string `yaml:"preferred_audio_langs"`    // comma-separated ISO 639-2 codes, e.g. "eng,jpn"
+	PreferredSubtitleLangs string `yaml:"preferred_subtitle_langs"` // e.g. "eng"
+	KeepForcedSubtitles   bool   `yaml:"keep_forced_subtitles"`    // default: true
+	KeepLosslessAudio     bool   `yaml:"keep_lossless_audio"`      // default: true
 }
 
 // defaults returns an AppConfig populated with all default values.
 func defaults() AppConfig {
 	return AppConfig{
-		Port:           9160,
-		OutputDir:      "/output",
-		AutoRip:        false,
-		MinTitleLength: 120,
-		PollInterval:   5,
-		DuplicateAction: "skip",
+		Port:                9160,
+		OutputDir:           "/output",
+		AutoRip:             false,
+		MinTitleLength:      120,
+		PollInterval:        5,
+		DuplicateAction:     "skip",
+		KeepForcedSubtitles: true,
+		KeepLosslessAudio:   true,
 	}
 }
 
@@ -77,6 +83,26 @@ func LoadFromEnv() AppConfig {
 	}
 	if v := os.Getenv("BLUFORGE_DUPLICATE_ACTION"); v != "" {
 		cfg.DuplicateAction = v
+	}
+	if v := os.Getenv("BLUFORGE_PREFERRED_AUDIO_LANGS"); v != "" {
+		cfg.PreferredAudioLangs = v
+	}
+	if v := os.Getenv("BLUFORGE_PREFERRED_SUBTITLE_LANGS"); v != "" {
+		cfg.PreferredSubtitleLangs = v
+	}
+	if v := os.Getenv("BLUFORGE_KEEP_FORCED_SUBTITLES"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.KeepForcedSubtitles = b
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_KEEP_FORCED_SUBTITLES", "value", v)
+		}
+	}
+	if v := os.Getenv("BLUFORGE_KEEP_LOSSLESS_AUDIO"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.KeepLosslessAudio = b
+		} else {
+			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_KEEP_LOSSLESS_AUDIO", "value", v)
+		}
 	}
 
 	return cfg

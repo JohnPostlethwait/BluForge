@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -284,10 +285,15 @@ func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 // StartRip runs `makemkvcon -r mkv disc:N titleID outputDir` and calls
 // onEvent for each parsed Event line in real time. onEvent may be nil.
 //
+// When selection is non-nil and not empty (see SelectionOpts.IsEmpty), a
+// temporary HOME directory is created containing a MakeMKV settings.conf that
+// encodes the desired track selection string. HOME is overridden in the child
+// process environment so that makemkvcon reads the generated config.
+//
 // Unlike scan operations, rips use the caller's context directly — no
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
-func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event)) error {
+func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -297,6 +303,18 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 	slog.Info("makemkvcon: starting rip", "drive", driveIndex, "title", titleID, "output", outputDir)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
+
+	// Apply track selection via a temporary HOME directory when requested.
+	if selection != nil && !selection.IsEmpty() {
+		selStr := BuildSelectionString(*selection)
+		homeDir, cleanup, err := WriteTempHome(selStr)
+		if err != nil {
+			return fmt.Errorf("makemkv: prepare selection home: %w", err)
+		}
+		defer cleanup()
+		cmd.Env = append(os.Environ(), "HOME="+homeDir)
+		slog.Info("makemkvcon: using track selection", "selection_string", selStr, "temp_home", homeDir)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
