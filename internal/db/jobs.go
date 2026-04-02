@@ -168,6 +168,43 @@ func (s *Store) DeleteJobsExcept(excludeIDs []int64) error {
 	return nil
 }
 
+// DeleteJobsByFilter deletes rip jobs matching the given search and status
+// filters, excluding any IDs in excludeIDs. If a filter value is empty or
+// "all" it is not applied. Uses parameterized queries throughout.
+func (s *Store) DeleteJobsByFilter(search, status string, excludeIDs []int64) error {
+	var conditions []string
+	var args []any
+
+	if status != "" && status != "all" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, status)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		conditions = append(conditions, "(disc_name LIKE ? OR title_name LIKE ?)")
+		args = append(args, like, like)
+	}
+	if len(excludeIDs) > 0 {
+		placeholders := make([]string, len(excludeIDs))
+		for i, id := range excludeIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		conditions = append(conditions, "id NOT IN ("+strings.Join(placeholders, ",")+")")
+	}
+
+	q := "DELETE FROM rip_jobs"
+	if len(conditions) > 0 {
+		q += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	_, err := s.db.Exec(q, args...)
+	if err != nil {
+		return fmt.Errorf("delete jobs by filter: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) queryJobs(query string, args ...any) ([]RipJob, error) {
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
