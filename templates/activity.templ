@@ -113,6 +113,32 @@ async function clearHistory(btn) {
 	}
 }
 
+async function clearFiltered(btn, search, status) {
+	if (btn) btn.disabled = true
+	try {
+		const resp = await fetch('/activity/clear-filtered', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ search, status }),
+		})
+		if (resp.ok) {
+			const store = Alpine.store('activity')
+			store.history = store.history.filter(r => {
+				const matchesText = !search || r.discName.toLowerCase().includes(search.toLowerCase()) || r.titleName.toLowerCase().includes(search.toLowerCase())
+				const matchesStatus = status === 'all' || !status || r.status === status
+				return !(matchesText && matchesStatus)
+			})
+		} else {
+			const data = await resp.json().catch(() => ({}))
+			alert('Clear failed: ' + (data.message || resp.statusText))
+			if (btn) btn.disabled = false
+		}
+	} catch (e) {
+		alert('Clear failed: ' + e.message)
+		if (btn) btn.disabled = false
+	}
+}
+
 </script>`, data.StoreJSON))
 
 		<div class="page-header">
@@ -253,7 +279,8 @@ async function clearHistory(btn) {
 						<option value="failed">Failed</option>
 						<option value="ripping">Ripping</option>
 					</select>
-					<button class="btn btn-danger btn-sm" @click="clearHistory($el)">Clear Log</button>
+					<button class="btn btn-danger btn-sm" @click="clearHistory($el)">Clear All</button>
+					<button class="btn btn-danger btn-sm" @click="clearFiltered($el, filter, statusFilter)" :disabled="filter === '' && statusFilter === 'all'">Clear Visible</button>
 				</div>
 
 				<template x-if="$store.activity.history.length === 0">
