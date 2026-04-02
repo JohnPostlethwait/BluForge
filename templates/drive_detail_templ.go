@@ -441,11 +441,11 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<th scope=\"col\">Title</th>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<th scope=\"col\">Track</th><th scope=\"col\">Playlist</th>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Match</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -453,15 +453,11 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<th scope=\"col\">Source</th>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
 			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Output Filename</th></template>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<th scope=\"col\">Duration</th><th scope=\"col\">Size</th></tr></thead> <tbody><template x-for=\"t in sortedTitles()\" :key=\"t.index\"><tr><td style=\"display:flex; align-items:center; gap:0.25rem;\"><input type=\"checkbox\" :checked=\"t.selected\" x-on:change=\"t.selected = $el.checked\"><span x-show=\"t.matched\" class=\"match-icon\" title=\"Matched to TheDiscDB\">&#x2714;</span></td><td class=\"text-muted\" x-text=\"t.index\"></td>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<th scope=\"col\">Duration</th><th scope=\"col\">Size</th></tr></thead> <tbody><template x-for=\"t in sortedTitles()\" :key=\"t.index\"><tr><td style=\"display:flex; align-items:center; gap:0.25rem;\"><input type=\"checkbox\" :checked=\"t.selected\" x-on:change=\"t.selected = $el.checked\"><span x-show=\"t.matched\" class=\"match-icon\" title=\"Matched to TheDiscDB\">&#x2714;</span></td><td class=\"text-muted\" x-text=\"t.index\"></td><td class=\"text-muted\" x-text=\"t.sourceFile\"></td>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -473,15 +469,11 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<td class=\"text-muted\" x-text=\"t.sourceFile\"></td>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
 			templ_7745c5c3_Err = templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td></tr></template></tbody></table></div></div></template><template x-if=\"$store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles found on this disc.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<td class=\"text-secondary\" x-text=\"t.duration\"></td><td class=\"text-secondary\" x-text=\"t.size\"></td></tr></template></tbody></table></div></div></template><template x-if=\"$store.drive.titles.length === 0\"><div class=\"empty-state\"><p>No titles found on this disc.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -489,7 +481,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div></template><div class=\"mt-3\" style=\"display:flex; justify-content:flex-end;\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div></template><div class=\"mt-3\" style=\"display:flex; justify-content:flex-end;\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -497,7 +489,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div></div></div><!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ --> <div x-data x-show=\"$store.drive.currentStep === 5\" x-cloak class=\"step-content\"><div class=\"card\"><!-- Pre-rip confirmation (no jobs submitted yet) --><template x-if=\"$store.drive.ripJobs.length === 0\"><div><h2 class=\"section-title\">Confirm &amp; Rip</h2><p class=\"text-secondary\">Ripping <strong x-text=\"selectedTitleCount()\"></strong> title(s) from <strong x-text=\"$store.drive.discName\"></strong></p><template x-if=\"$store.drive.selectedRelease\"><p class=\"text-secondary mt-2\" style=\"font-size: 0.85rem;\">Organizing as: <strong x-text=\"$store.drive.selectedRelease.title\"></strong> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) &mdash; <span x-text=\"$store.drive.selectedRelease.type\"></span></p></template><!-- Selected titles summary --><ul class=\"rip-summary-list mt-3\"><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><li><span class=\"text-primary\" x-text=\"t.outputName || t.sourceFile\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.duration\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.size\"></span></li></template></ul><!-- Hidden form for actual submission --><form method=\"POST\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div></div></div><!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ --> <div x-data x-show=\"$store.drive.currentStep === 5\" x-cloak class=\"step-content\"><div class=\"card\"><!-- Pre-rip confirmation (no jobs submitted yet) --><template x-if=\"$store.drive.ripJobs.length === 0\"><div><h2 class=\"section-title\">Confirm &amp; Rip</h2><p class=\"text-secondary\">Ripping <strong x-text=\"selectedTitleCount()\"></strong> title(s) from <strong x-text=\"$store.drive.discName\"></strong></p><template x-if=\"$store.drive.selectedRelease\"><p class=\"text-secondary mt-2\" style=\"font-size: 0.85rem;\">Organizing as: <strong x-text=\"$store.drive.selectedRelease.title\"></strong> (<span x-text=\"$store.drive.selectedRelease.year\"></span>) &mdash; <span x-text=\"$store.drive.selectedRelease.type\"></span></p></template><!-- Selected titles summary --><ul class=\"rip-summary-list mt-3\"><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><li><span class=\"text-primary\" x-text=\"t.outputName || t.sourceFile\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.duration\"></span> <span class=\"text-muted\" style=\"margin-left: 0.5rem;\" x-text=\"t.size\"></span></li></template></ul><!-- Hidden form for actual submission --><form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -510,7 +502,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"><input type=\"hidden\" name=\"_csrf\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\"><input type=\"hidden\" name=\"_csrf\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -523,7 +515,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\"> <input type=\"hidden\" name=\"disc_name\" x-bind:value=\"$store.drive.discName\"> <input type=\"hidden\" name=\"media_item_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''\"> <input type=\"hidden\" name=\"release_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''\"> <input type=\"hidden\" name=\"disc_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.discID : ''\"> <input type=\"hidden\" name=\"content_title\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''\"> <input type=\"hidden\" name=\"content_year\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''\"> <input type=\"hidden\" name=\"content_type\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''\"><!-- Per-title hidden fields --><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\"> <input type=\"hidden\" name=\"disc_name\" x-bind:value=\"$store.drive.discName\"> <input type=\"hidden\" name=\"media_item_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''\"> <input type=\"hidden\" name=\"release_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''\"> <input type=\"hidden\" name=\"disc_id\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.discID : ''\"> <input type=\"hidden\" name=\"content_title\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''\"> <input type=\"hidden\" name=\"content_year\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''\"> <input type=\"hidden\" name=\"content_type\" x-bind:value=\"$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''\"><!-- Per-title hidden fields --><template x-for=\"t in $store.drive.titles.filter(t => t.selected)\" :key=\"t.index\"><div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -555,7 +547,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></template><!-- Duplicate handling --><div class=\"mt-3\" style=\"display:flex; align-items:center; gap:0.75rem;\"><label style=\"margin-bottom:0; white-space:nowrap;\" class=\"text-secondary\">If file already exists:</label> <select name=\"duplicate_action\" style=\"width:auto; min-width:140px;\"><option value=\"skip\" selected>Skip</option> <option value=\"overwrite\">Overwrite</option></select></div><div class=\"mt-4\" style=\"display:flex; gap:0.75rem; justify-content:flex-end;\"><button type=\"button\" class=\"btn btn-secondary\" x-on:click=\"goToStep(4)\">&larr; Back to Titles</button> <button type=\"submit\" class=\"btn btn-primary\" style=\"padding: 0.5rem 1.5rem;\">Start Rip</button></div></form></div></template><div x-show=\"$store.drive.ripJobs.length !== 0\" x-cloak aria-live=\"polite\"><h2 class=\"section-title\"><span x-show=\"!allRipJobsDone()\">Ripping in Progress</span> <span x-show=\"allRipJobsDone() && !ripHasErrors()\" x-cloak>Rip Complete</span> <span x-show=\"allRipJobsDone() && ripHasErrors()\" x-cloak>Rip Complete (with errors)</span></h2><div style=\"display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;\"><template x-for=\"job in $store.drive.ripJobs\" :key=\"job.ID\"><div style=\"border:1px solid var(--border); border-radius:6px; padding:0.75rem 1rem;\"><div style=\"display:flex; justify-content:space-between; align-items:center;\"><span class=\"text-secondary\" x-text=\"job.TitleName || job.DiscName\"></span> <span :class=\"ripStatusBadgeClass(job.Status)\" x-text=\"job.Status\"></span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div></template><!-- Duplicate handling --><div class=\"mt-3\" style=\"display:flex; align-items:center; gap:0.75rem;\"><label style=\"margin-bottom:0; white-space:nowrap;\" class=\"text-secondary\">If file already exists:</label> <select name=\"duplicate_action\" style=\"width:auto; min-width:140px;\"><option value=\"skip\" selected>Skip</option> <option value=\"overwrite\">Overwrite</option></select></div><div class=\"mt-4\" style=\"display:flex; gap:0.75rem; justify-content:flex-end;\"><button type=\"button\" class=\"btn btn-secondary\" x-on:click=\"goToStep(4)\">&larr; Back to Titles</button> <button type=\"submit\" class=\"btn btn-primary\" style=\"padding: 0.5rem 1.5rem;\">Start Rip</button></div></form></div></template><div x-show=\"$store.drive.ripJobs.length !== 0\" x-cloak aria-live=\"polite\"><h2 class=\"section-title\"><span x-show=\"!allRipJobsDone()\">Ripping in Progress</span> <span x-show=\"allRipJobsDone() && !ripHasErrors()\" x-cloak>Rip Complete</span> <span x-show=\"allRipJobsDone() && ripHasErrors()\" x-cloak>Rip Complete (with errors)</span></h2><div style=\"display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;\"><template x-for=\"job in $store.drive.ripJobs\" :key=\"job.ID\"><div style=\"border:1px solid var(--border); border-radius:6px; padding:0.75rem 1rem;\"><div style=\"display:flex; justify-content:space-between; align-items:center;\"><span class=\"text-secondary\" x-text=\"job.TitleName || job.DiscName\"></span> <span :class=\"ripStatusBadgeClass(job.Status)\" x-text=\"job.Status\"></span></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -567,7 +559,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</div></template></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</div></template></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -579,7 +571,7 @@ async function scanDisc(driveIndex) {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</div></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

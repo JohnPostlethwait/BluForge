@@ -540,10 +540,10 @@ async function scanDisc(driveIndex) {
 								<thead>
 									<tr>
 										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
-										<th scope="col">Title</th>
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Match</th></template>`)
+										<th scope="col">Track</th>
+										<th scope="col">Playlist</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Type</th></template>`)
-										<th scope="col">Source</th>
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Output Filename</th></template>`)
 										<th scope="col">Duration</th>
 										<th scope="col">Size</th>
@@ -554,9 +554,9 @@ async function scanDisc(driveIndex) {
 										<tr>
 											<td style="display:flex; align-items:center; gap:0.25rem;"><input type="checkbox" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
 											<td class="text-muted" x-text="t.index"></td>
+											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`)
-											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
 											<td class="text-secondary" x-text="t.duration"></td>
 											<td class="text-secondary" x-text="t.size"></td>
