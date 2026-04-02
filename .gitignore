@@ -2,3 +2,5 @@
 bluforge
 .superpowers/
 .worktrees/
+docs/superpowers/
+.claude/settings.local.json
