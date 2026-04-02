@@ -303,6 +303,14 @@ func TestHandleActivityClearFiltered_StatusFilter(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
+	var respBody map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if respBody["status"] != "ok" {
+		t.Errorf(`expected status="ok", got %q`, respBody["status"])
+	}
+
 	got, err := store.GetJob(idC)
 	if err != nil {
 		t.Fatalf("GetJob completed: %v", err)
@@ -348,6 +356,14 @@ func TestHandleActivityClearFiltered_SearchFilter(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var respBody map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if respBody["status"] != "ok" {
+		t.Errorf(`expected status="ok", got %q`, respBody["status"])
 	}
 
 	got, err := store.GetJob(idB)
@@ -403,6 +419,14 @@ func TestHandleActivityClearFiltered_BothFilters(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 
+	var respBody map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if respBody["status"] != "ok" {
+		t.Errorf(`expected status="ok", got %q`, respBody["status"])
+	}
+
 	got, err := store.GetJob(id1)
 	if err != nil {
 		t.Fatalf("GetJob j1: %v", err)
@@ -426,4 +450,79 @@ func TestHandleActivityClearFiltered_BothFilters(t *testing.T) {
 	if got == nil {
 		t.Error("j3 should still exist but was deleted")
 	}
+}
+
+func TestHandleActivityClearFiltered_ActiveJobNotDeleted(t *testing.T) {
+	blocker := &blockingRipExecutor{block: make(chan struct{})}
+	engine := ripper.NewEngine(blocker)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	store, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	outputDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outputDir, 0o755)
+
+	// Submit a job to the engine so it becomes active.
+	activeJob := ripper.NewJob(0, 0, "Batman Begins", filepath.Join(tmpDir, "out"))
+	activeJob.ID = 99
+	os.MkdirAll(activeJob.OutputDir, 0o755)
+	engine.Submit(activeJob)
+
+	// Wait for job to start.
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&blocker.started) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for job to start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Insert a DB record with the same ID to simulate the active job in the DB.
+	dbJob := db.RipJob{DiscName: "Batman Begins", TitleName: "Feature", Status: "ripping"}
+	id, err := store.CreateJob(dbJob)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	// Override the engine job ID to match the DB record.
+	activeJob.ID = id
+
+	srv := &Server{
+		echo:          echo.New(),
+		store:         store,
+		ripEngine:     engine,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+	}
+
+	e := echo.New()
+	body := `{"search":"batman","status":""}`
+	req := httptest.NewRequest(http.MethodPost, "/activity/clear-filtered",
+		strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := srv.handleActivityClearFiltered(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// The active job's DB record should still exist (it was excluded).
+	got, err := store.GetJob(id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got == nil {
+		t.Error("active job should not have been deleted but was")
+	}
+
+	// Release the blocker to allow cleanup.
+	close(blocker.block)
 }
