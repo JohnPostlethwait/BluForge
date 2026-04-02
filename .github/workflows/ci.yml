@@ -19,6 +19,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1001
+
+      - name: Generate templ files
+        run: templ generate
+
       - name: Vet
         run: go vet ./...
 
