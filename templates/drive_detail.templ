@@ -373,14 +373,18 @@ async function scanDisc(driveIndex) {
 								<span class="text-secondary" x-text="$store.drive.discPickerRelease.releaseTitle"></span>
 							</div>
 						</div>
-						@templ.Raw(fmt.Sprintf(`<div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
-							<template x-for="disc in $store.drive.discPickerRelease.discs" :key="disc.id">
-								<button class="btn btn-primary" style="min-width:120px; padding:0.75rem 1.25rem;"
-									x-on:click="selectDisc(%d, $store.drive.discPickerRelease, disc)"
-									x-bind:disabled="$store.drive.selecting">
-									<span x-text="disc.name || ('Disc ' + (disc.index + 1))"></span>
-								</button>
-							</template>
+						@templ.Raw(fmt.Sprintf(`<div x-data="{ selectedDiscIndex: 0 }" style="display:flex; gap:0.75rem; align-items:center; margin-top:1rem;">
+							<select x-model="selectedDiscIndex" class="form-select" x-bind:disabled="$store.drive.selecting">
+								<template x-for="(disc, i) in $store.drive.discPickerRelease.discs" :key="disc.id">
+									<option x-bind:value="i" x-text="disc.name || ('Disc ' + (disc.index + 1))"></option>
+								</template>
+							</select>
+							<button class="btn btn-primary"
+								x-on:click="selectDisc(%d, $store.drive.discPickerRelease, $store.drive.discPickerRelease.discs[selectedDiscIndex])"
+								x-bind:disabled="$store.drive.selecting">
+								<span x-show="!$store.drive.selecting">Confirm</span>
+								<span x-show="$store.drive.selecting" x-cloak>…</span>
+							</button>
 						</div>`, data.DriveIndex))
 						<div class="mt-3">
 							<button type="button" class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</button>
