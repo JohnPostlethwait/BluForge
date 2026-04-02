@@ -7,6 +7,7 @@ WORKDIR /build
 COPY go.mod go.sum* ./
 RUN go mod download 2>/dev/null || true
 COPY . .
+RUN go install github.com/a-h/templ/cmd/templ@v0.3.1001 && templ generate
 RUN CGO_ENABLED=0 go build -o bluforge .
 
 # Stage 2: Build MakeMKV
