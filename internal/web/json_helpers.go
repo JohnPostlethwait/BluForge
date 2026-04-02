@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -23,12 +24,17 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 
 	titles := make([]TitleJSON, 0, len(scan.Titles))
 	for _, t := range scan.Titles {
+		var streams []StreamJSON
+		for i := range t.Streams {
+			streams = append(streams, streamToJSON(&t.Streams[i]))
+		}
 		tj := TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),
 			Duration:   t.Duration(),
 			Size:       t.SizeHuman(),
 			SourceFile: t.SourceFile(),
+			Streams:    streams,
 		}
 		if m, ok := matchByIndex[t.Index]; ok && m.Matched {
 			tj.Matched = true
@@ -88,20 +94,40 @@ type DriveJSON struct {
 	RipProgress  int    `json:"ripProgress"`  // -1=not ripping, 0-100=progress
 }
 
+// StreamJSON is the JSON representation of a single audio/video/subtitle stream.
+type StreamJSON struct {
+	StreamIndex int    `json:"streamIndex"`
+	Type        string `json:"type"`               // "video", "audio", "subtitle"
+	LangCode    string `json:"langCode"`
+	LangName    string `json:"langName"`
+	Codec       string `json:"codec"`              // short name like "TrueHD", "AC3"
+	Channels    string `json:"channels,omitempty"` // audio only
+	IsDefault   bool   `json:"isDefault"`
+	IsForced    bool   `json:"isForced"`
+}
+
+// LangOptionJSON represents a language choice at the disc level.
+type LangOptionJSON struct {
+	Code     string `json:"code"`     // ISO 639-2 (e.g., "eng")
+	Name     string `json:"name"`     // Human readable (e.g., "English")
+	Selected bool   `json:"selected"` // pre-checked based on settings defaults
+}
+
 // TitleJSON is the JSON representation of a disc title for Alpine.js stores.
 type TitleJSON struct {
-	Index        int    `json:"index"`
-	Name         string `json:"name"`
-	Duration     string `json:"duration"`
-	Size         string `json:"size"`
-	SourceFile   string `json:"sourceFile"`
-	OutputName   string `json:"outputName,omitempty"`
-	Selected     bool   `json:"selected"`
-	Matched      bool   `json:"matched"`
-	ContentTitle string `json:"contentTitle,omitempty"`
-	ContentType  string `json:"contentType,omitempty"`
-	Season       string `json:"season,omitempty"`
-	Episode      string `json:"episode,omitempty"`
+	Index        int          `json:"index"`
+	Name         string       `json:"name"`
+	Duration     string       `json:"duration"`
+	Size         string       `json:"size"`
+	SourceFile   string       `json:"sourceFile"`
+	OutputName   string       `json:"outputName,omitempty"`
+	Selected     bool         `json:"selected"`
+	Matched      bool         `json:"matched"`
+	ContentTitle string       `json:"contentTitle,omitempty"`
+	ContentType  string       `json:"contentType,omitempty"`
+	Season       string       `json:"season,omitempty"`
+	Episode      string       `json:"episode,omitempty"`
+	Streams      []StreamJSON `json:"streams,omitempty"`
 }
 
 // buildOutputName returns a human-readable preview of the output filename
@@ -182,21 +208,26 @@ func ripJobToJSON(j *ripper.Job) RipJobJSON {
 
 // DriveStoreJSON is the full Alpine.store('drive') shape for the drive detail page.
 type DriveStoreJSON struct {
-	DriveIndex      int                  `json:"driveIndex"`
-	DriveName       string               `json:"driveName"`
-	DiscName        string               `json:"discName"`
-	State           string               `json:"state"`
-	CurrentStep     int                  `json:"currentStep"`
-	Scanning        bool                 `json:"scanning"`
-	ScanError       string               `json:"scanError"`
-	HasMapping      bool                 `json:"hasMapping"`
-	MatchedMedia    string               `json:"matchedMedia"`
-	MatchedRelease  string               `json:"matchedRelease"`
-	MatchedDiscID   string               `json:"matchedDiscID"`
-	Titles          []TitleJSON          `json:"titles"`
-	SelectedRelease *SelectedReleaseJSON `json:"selectedRelease"`
-	SearchResults   []SearchResultJSON   `json:"searchResults"`
-	RipJobs         []RipJobJSON         `json:"ripJobs"`
+	DriveIndex        int                  `json:"driveIndex"`
+	DriveName         string               `json:"driveName"`
+	DiscName          string               `json:"discName"`
+	State             string               `json:"state"`
+	CurrentStep       int                  `json:"currentStep"`
+	Scanning          bool                 `json:"scanning"`
+	ScanError         string               `json:"scanError"`
+	HasMapping        bool                 `json:"hasMapping"`
+	MatchedMedia      string               `json:"matchedMedia"`
+	MatchedRelease    string               `json:"matchedRelease"`
+	MatchedDiscID     string               `json:"matchedDiscID"`
+	Titles            []TitleJSON          `json:"titles"`
+	SelectedRelease   *SelectedReleaseJSON `json:"selectedRelease"`
+	SearchResults     []SearchResultJSON   `json:"searchResults"`
+	RipJobs           []RipJobJSON         `json:"ripJobs"`
+	AudioLanguages    []LangOptionJSON     `json:"audioLanguages"`
+	SubtitleLanguages []LangOptionJSON     `json:"subtitleLanguages"`
+	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
+	KeepForcedSubs    bool                 `json:"keepForcedSubs"`
+	KeepLossless      bool                 `json:"keepLossless"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.
@@ -257,10 +288,28 @@ func mediaItemsToSearchJSON(items []discdb.MediaItem) []SearchResultJSON {
 	return rows
 }
 
+// streamToJSON converts a makemkv.StreamInfo to a StreamJSON value.
+func streamToJSON(s *makemkv.StreamInfo) StreamJSON {
+	return StreamJSON{
+		StreamIndex: s.StreamIndex,
+		Type:        s.Type(),
+		LangCode:    s.LangCode(),
+		LangName:    s.LangName(),
+		Codec:       s.CodecShort(),
+		Channels:    s.Channels(),
+		IsDefault:   s.IsDefault(),
+		IsForced:    s.IsForced(),
+	}
+}
+
 // scanToTitleJSON converts a makemkv.DiscScan's titles into TitleJSON slices.
 func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
 	titles := make([]TitleJSON, 0, len(scan.Titles))
 	for _, t := range scan.Titles {
+		var streams []StreamJSON
+		for i := range t.Streams {
+			streams = append(streams, streamToJSON(&t.Streams[i]))
+		}
 		titles = append(titles, TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),
@@ -268,8 +317,87 @@ func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
 			Size:       t.SizeHuman(),
 			SourceFile: t.SourceFile(),
 			Selected:   true,
+			Streams:    streams,
 		})
 	}
 	return titles
+}
+
+// extractDiscLanguages aggregates unique audio and subtitle languages across all
+// titles in scan. The Selected field is set to true for languages that appear in
+// preferredLangs (a comma-separated list of ISO 639-2 codes).
+func extractDiscLanguages(scan *makemkv.DiscScan, preferredAudio, preferredSubtitle string) (audio, subtitle []LangOptionJSON) {
+	seenAudio := make(map[string]bool)
+	seenSub := make(map[string]bool)
+
+	// Build lookup sets for preferred languages.
+	preferAudioSet := make(map[string]bool)
+	for _, code := range splitLangCodes(preferredAudio) {
+		preferAudioSet[code] = true
+	}
+	preferSubSet := make(map[string]bool)
+	for _, code := range splitLangCodes(preferredSubtitle) {
+		preferSubSet[code] = true
+	}
+
+	for i := range scan.Titles {
+		t := &scan.Titles[i]
+		for j := range t.Streams {
+			s := &t.Streams[j]
+			lc := s.LangCode()
+			if lc == "" {
+				continue
+			}
+			switch {
+			case s.IsAudio() && !seenAudio[lc]:
+				seenAudio[lc] = true
+				audio = append(audio, LangOptionJSON{
+					Code:     lc,
+					Name:     s.LangName(),
+					Selected: preferAudioSet[lc],
+				})
+			case s.IsSubtitle() && !seenSub[lc]:
+				seenSub[lc] = true
+				subtitle = append(subtitle, LangOptionJSON{
+					Code:     lc,
+					Name:     s.LangName(),
+					Selected: preferSubSet[lc],
+				})
+			}
+		}
+	}
+
+	if audio == nil {
+		audio = []LangOptionJSON{}
+	}
+	if subtitle == nil {
+		subtitle = []LangOptionJSON{}
+	}
+	return audio, subtitle
+}
+
+// splitLangCodes splits a comma-separated list of language codes into a slice,
+// trimming whitespace and dropping empty entries.
+func splitLangCodes(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if code := strings.TrimSpace(part); code != "" {
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+// discHasLosslessAudio reports whether any title in scan has lossless audio.
+func discHasLosslessAudio(scan *makemkv.DiscScan) bool {
+	for i := range scan.Titles {
+		if scan.Titles[i].HasLosslessAudio() {
+			return true
+		}
+	}
+	return false
 }
 

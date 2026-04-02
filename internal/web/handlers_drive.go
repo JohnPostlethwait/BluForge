@@ -43,16 +43,22 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		CSRFToken:  csrfToken(c),
 	}
 
+	cfg := s.GetConfig()
+
 	// Build Alpine store hydration JSON.
 	driveStore := DriveStoreJSON{
-		DriveIndex:    idx,
-		DriveName:     drv.DriveName(),
-		DiscName:      drv.DiscName(),
-		State:         string(drv.State()),
-		CurrentStep:   1,
-		Titles:        make([]TitleJSON, 0),
-		SearchResults: make([]SearchResultJSON, 0),
-		RipJobs:       make([]RipJobJSON, 0),
+		DriveIndex:        idx,
+		DriveName:         drv.DriveName(),
+		DiscName:          drv.DiscName(),
+		State:             string(drv.State()),
+		CurrentStep:       1,
+		Titles:            make([]TitleJSON, 0),
+		SearchResults:     make([]SearchResultJSON, 0),
+		RipJobs:           make([]RipJobJSON, 0),
+		AudioLanguages:    make([]LangOptionJSON, 0),
+		SubtitleLanguages: make([]LangOptionJSON, 0),
+		KeepForcedSubs:    cfg.KeepForcedSubtitles,
+		KeepLossless:      cfg.KeepLosslessAudio,
 	}
 
 	// Check for an existing disc mapping (from a previous rip of this disc).
@@ -96,6 +102,16 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 					driveStore.Titles = enrichTitlesWithMatches(scan, *disc)
 				}
 			}
+		}
+	}
+
+	// Populate disc-level language aggregates and lossless flag from cached scan.
+	if s.orchestrator != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			audioLangs, subLangs := extractDiscLanguages(scan, cfg.PreferredAudioLangs, cfg.PreferredSubtitleLangs)
+			driveStore.AudioLanguages = audioLangs
+			driveStore.SubtitleLanguages = subLangs
+			driveStore.HasLosslessAudio = discHasLosslessAudio(scan)
 		}
 	}
 
