@@ -193,10 +193,11 @@ func (s *Store) DeleteJobsByFilter(search, status string, excludeIDs []int64) er
 		conditions = append(conditions, "id NOT IN ("+strings.Join(placeholders, ",")+")")
 	}
 
-	q := "DELETE FROM rip_jobs"
-	if len(conditions) > 0 {
-		q += " WHERE " + strings.Join(conditions, " AND ")
+	if len(conditions) == 0 {
+		return fmt.Errorf("DeleteJobsByFilter: at least one filter must be provided")
 	}
+
+	q := "DELETE FROM rip_jobs WHERE " + strings.Join(conditions, " AND ")
 
 	_, err := s.db.Exec(q, args...)
 	if err != nil {

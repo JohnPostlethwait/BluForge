@@ -485,6 +485,18 @@ func TestDeleteJobsByFilter_RespectsExcludeIDs(t *testing.T) {
 	}
 }
 
+func TestDeleteJobsByFilter_EmptyFiltersReturnsError(t *testing.T) {
+	store := openTestDB(t)
+
+	if err := store.DeleteJobsByFilter("", "", nil); err == nil {
+		t.Error("expected error when no filters provided, got nil")
+	}
+
+	if err := store.DeleteJobsByFilter("", "all", nil); err == nil {
+		t.Error("expected error when status is 'all' and no other filters, got nil")
+	}
+}
+
 func TestDeleteJobsByFilter_TitleNameSearch(t *testing.T) {
 	store := openTestDB(t)
 
