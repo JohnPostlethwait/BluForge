@@ -12,6 +12,7 @@ services:
     environment:
       - MAKEMKV_ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
       - MAKEMKV_VERSION=1.18.3    # MakeMKV version to install. Tested: 1.18.3
+      # - MAKEMKV_KEY=your_key_here  # Optional: MakeMKV registration key. Free beta key: https://www.makemkv.com/forum/viewtopic.php?t=1053
       - BLUFORGE_AUTO_RIP=false
       - USER_ID=1000
       - GROUP_ID=1000

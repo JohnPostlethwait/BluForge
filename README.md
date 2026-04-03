@@ -86,6 +86,7 @@ BluForge loads configuration from `/config/config.yaml` with environment variabl
 |---------|---------|---------|-------------|
 | *(required)* | `MAKEMKV_ACCEPT_EULA` | *(none)* | Must be `yes` to confirm acceptance of the [MakeMKV EULA](https://www.makemkv.com/eula/) and allow the container to start |
 | *(install)* | `MAKEMKV_VERSION` | `1.18.3` | MakeMKV version to download and compile at first startup. Tested version: `1.18.3` |
+| *(optional)* | `MAKEMKV_KEY` | *(none)* | MakeMKV registration key. Can also be set at runtime via the Settings page. Free beta key available at the [MakeMKV forum](https://www.makemkv.com/forum/viewtopic.php?t=1053). |
 | `port` | `BLUFORGE_PORT` | `9160` | HTTP server port |
 | `output_dir` | `BLUFORGE_OUTPUT_DIR` | `/output` | Ripped content destination |
 | `auto_rip` | `BLUFORGE_AUTO_RIP` | `false` | Rip automatically on disc insert |
