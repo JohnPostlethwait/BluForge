@@ -43,7 +43,7 @@ services:
       - /dev/sr0:/dev/sr0
       - /dev/sg0:/dev/sg0
     environment:
-      - MAKEMKV_ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
+      - MAKEMKV_ACCEPT_EULA=yes           # Required: must be "yes" to confirm acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
       - MAKEMKV_VERSION=1.18.3    # MakeMKV version to install. Tested: 1.18.3
       - BLUFORGE_AUTO_RIP=false
 ```
