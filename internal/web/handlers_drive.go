@@ -300,8 +300,7 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return redirectDriveError(c, idx, result.ErrorSummary())
 	}
 
-	c.Response().Header().Set("HX-Redirect", "/activity?flash=Rip+started+successfully")
-	return c.NoContent(http.StatusNoContent)
+	return c.Redirect(http.StatusSeeOther, "/activity?flash=Rip+started+successfully")
 }
 
 // handleDriveScan runs a disc scan synchronously and returns the titles as JSON.
