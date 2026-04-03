@@ -64,7 +64,7 @@ templ Settings(data SettingsData) {
 				</p>
 				<div class="form-group">
 					<label for="makemkv_key">Registration Key</label>
-					<input type="password" id="makemkv_key" name="makemkv_key" value={ maskSecret(data.MakeMKVKey) } placeholder="Optional"/>
+					<input type="password" id="makemkv_key" name="makemkv_key" value={ maskSecret(data.MakeMKVKey) } placeholder="Optional" autocomplete="off"/>
 					<p class="text-muted mt-1" style="font-size: 0.8rem;">A free beta key is available at the <a href="https://www.makemkv.com/forum/viewtopic.php?t=1053" target="_blank" rel="noopener">MakeMKV forum</a>.</p>
 				</div>
 			</div>

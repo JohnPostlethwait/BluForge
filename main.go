@@ -331,10 +331,6 @@ func writeMakeMKVSettings(path string, settings map[string]string) {
 // applyMakeMKVKey writes the given registration key to MakeMKV's settings.conf.
 // An empty key removes app_Key from the file, reverting to trial mode.
 func applyMakeMKVKey(configDir, key string) {
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/root"
-	}
 	settingsPath := filepath.Join(configDir, ".MakeMKV", "settings.conf")
 	writeMakeMKVSettings(settingsPath, map[string]string{"app_Key": key})
 }

@@ -90,7 +90,7 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	}
 
 	if makemkvKey != "••••••••" && s.onMakeMKVKeyChange != nil {
-		s.onMakeMKVKeyChange(makemkvKey)
+		s.onMakeMKVKeyChange(s.GetConfig().MakeMKVKey)
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/settings")
