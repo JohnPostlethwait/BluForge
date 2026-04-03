@@ -43,7 +43,7 @@ services:
       - /dev/sr0:/dev/sr0
       - /dev/sg0:/dev/sg0
     environment:
-      - ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
+      - MAKEMKV_ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
       - MAKEMKV_VERSION=1.18.3    # MakeMKV version to install. Tested: 1.18.3
       - BLUFORGE_AUTO_RIP=false
 ```
@@ -84,7 +84,7 @@ BluForge loads configuration from `/config/config.yaml` with environment variabl
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| *(required)* | `ACCEPT_EULA` | *(none)* | Must be `yes` to confirm acceptance of the [MakeMKV EULA](https://www.makemkv.com/eula/) and allow the container to start |
+| *(required)* | `MAKEMKV_ACCEPT_EULA` | *(none)* | Must be `yes` to confirm acceptance of the [MakeMKV EULA](https://www.makemkv.com/eula/) and allow the container to start |
 | *(install)* | `MAKEMKV_VERSION` | `1.18.3` | MakeMKV version to download and compile at first startup. Tested version: `1.18.3` |
 | `port` | `BLUFORGE_PORT` | `9160` | HTTP server port |
 | `output_dir` | `BLUFORGE_OUTPUT_DIR` | `/output` | Ripped content destination |
@@ -166,7 +166,7 @@ docker build -t bluforge:dev .
 
 ## Requirements
 
-- **MakeMKV** (`makemkvcon`) is downloaded and compiled at first container startup — set `ACCEPT_EULA=yes` and ensure outbound internet access on first run
+- **MakeMKV** (`makemkvcon`) is downloaded and compiled at first container startup — set `MAKEMKV_ACCEPT_EULA=yes` and ensure outbound internet access on first run
 - An optical drive (Blu-ray or DVD) accessible at `/dev/sr0` (or configured device path)
 - For Docker: the drive device must be passed through with `--device`
 
@@ -176,6 +176,6 @@ BluForge is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). 
 
 It does **not** bundle or distribute MakeMKV.
 
-**MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) It is not included in the BluForge image. Instead, it is downloaded from [makemkv.com](https://www.makemkv.com/) and compiled at first container startup. Setting `ACCEPT_EULA=yes` confirms that you have read and accepted the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). The compiled binaries are cached to your `/config` volume to avoid recompilation on subsequent starts.
+**MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) It is not included in the BluForge image. Instead, it is downloaded from [makemkv.com](https://www.makemkv.com/) and compiled at first container startup. Setting `MAKEMKV_ACCEPT_EULA=yes` confirms that you have read and accepted the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). The compiled binaries are cached to your `/config` volume to avoid recompilation on subsequent starts.
 
 **TheDiscDB** disc metadata is provided by [TheDiscDB](https://thediscdb.com/), an open-source community project by Luke Foust. The underlying data is licensed under the [MIT License](https://github.com/TheDiscDb/data). BluForge queries the live API and does not bundle any TheDiscDB data.

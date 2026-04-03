@@ -3,10 +3,10 @@ set -e
 
 # --- NEW: EULA gate -----------------------------------------------------------
 # Must be checked before anything else — even before the root/non-root split.
-if [ "$ACCEPT_EULA" != "yes" ]; then
+if [ "$MAKEMKV_ACCEPT_EULA" != "yes" ]; then
     echo "[entrypoint] ERROR: You must accept the MakeMKV End User License Agreement."
     echo "[entrypoint] Read the EULA at: https://www.makemkv.com/eula/"
-    echo "[entrypoint] Once accepted, set the environment variable: ACCEPT_EULA=yes"
+    echo "[entrypoint] Once accepted, set the environment variable: MAKEMKV_ACCEPT_EULA=yes"
     exit 1
 fi
 # ------------------------------------------------------------------------------
