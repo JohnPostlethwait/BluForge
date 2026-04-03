@@ -38,18 +38,18 @@ type ServerDeps struct {
 
 // Server wraps an Echo instance and all application dependencies.
 type Server struct {
-	echo         *echo.Echo
-	cfgMu        sync.RWMutex
-	cfg          *config.AppConfig
-	configPath   string
-	store        *db.Store
-	driveMgr     *drivemanager.Manager
-	ripEngine    *ripper.Engine
-	discdbClient *discdb.Client
-	discdbCache  *discdb.Cache
-	sseHub        *SSEHub
-	orchestrator  *workflow.Orchestrator
-	driveSessions *DriveSessionStore
+	echo               *echo.Echo
+	cfgMu              sync.RWMutex
+	cfg                *config.AppConfig
+	configPath         string
+	store              *db.Store
+	driveMgr           *drivemanager.Manager
+	ripEngine          *ripper.Engine
+	discdbClient       *discdb.Client
+	discdbCache        *discdb.Cache
+	sseHub             *SSEHub
+	orchestrator       *workflow.Orchestrator
+	driveSessions      *DriveSessionStore
 	onMakeMKVKeyChange func(string)
 }
 
@@ -120,17 +120,17 @@ func NewServer(deps ServerDeps) *Server {
 	}))
 
 	s := &Server{
-		echo:         e,
-		cfg:          deps.Config,
-		configPath:   deps.ConfigPath,
-		store:        deps.Store,
-		driveMgr:     deps.DriveMgr,
-		ripEngine:    deps.RipEngine,
-		discdbClient: deps.DiscDBClient,
-		discdbCache:  deps.DiscDBCache,
-		sseHub:        deps.SSEHub,
-		orchestrator:  deps.Orchestrator,
-		driveSessions: NewDriveSessionStore(),
+		echo:               e,
+		cfg:                deps.Config,
+		configPath:         deps.ConfigPath,
+		store:              deps.Store,
+		driveMgr:           deps.DriveMgr,
+		ripEngine:          deps.RipEngine,
+		discdbClient:       deps.DiscDBClient,
+		discdbCache:        deps.DiscDBCache,
+		sseHub:             deps.SSEHub,
+		orchestrator:       deps.Orchestrator,
+		driveSessions:      NewDriveSessionStore(),
 		onMakeMKVKeyChange: deps.OnMakeMKVKeyChange,
 	}
 
@@ -139,7 +139,7 @@ func NewServer(deps ServerDeps) *Server {
 
 	// Routes
 	e.GET("/", s.handleDashboard)
-e.GET("/drives/:id", s.handleDriveDetail)
+	e.GET("/drives/:id", s.handleDriveDetail)
 	e.POST("/drives/:id/search", s.handleDriveSearch)
 	e.POST("/drives/:id/select", s.handleDriveSelectAlpine)
 	e.POST("/drives/:id/scan", s.handleDriveScan)

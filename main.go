@@ -138,7 +138,7 @@ func main() {
 			})
 		}
 		driveUpdatePayload := struct {
-			Ready bool           `json:"ready"`
+			Ready bool            `json:"ready"`
 			List  []web.DriveJSON `json:"list"`
 		}{Ready: driveMgr.Ready(), List: driveList}
 		driveUpdateData, err := json.Marshal(driveUpdatePayload)
