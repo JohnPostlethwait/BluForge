@@ -168,7 +168,9 @@ docker build -t bluforge:dev .
 
 ## License & Third-Party Software
 
-BluForge is open source software. It does **not** bundle or distribute MakeMKV.
+BluForge is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). Free for personal and non-commercial use; commercial use requires explicit permission from the author.
+
+It does **not** bundle or distribute MakeMKV.
 
 **MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) and must be installed separately by the user. Use of MakeMKV is subject to the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). Users are responsible for their own compliance with that license.
 
