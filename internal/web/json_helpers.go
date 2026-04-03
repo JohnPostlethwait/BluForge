@@ -354,14 +354,14 @@ func extractDiscLanguages(scan *makemkv.DiscScan, preferredAudio, preferredSubti
 				audio = append(audio, LangOptionJSON{
 					Code:     lc,
 					Name:     s.LangName(),
-					Selected: preferAudioSet[lc],
+					Selected: len(preferAudioSet) == 0 || preferAudioSet[lc],
 				})
 			case s.IsSubtitle() && !seenSub[lc]:
 				seenSub[lc] = true
 				subtitle = append(subtitle, LangOptionJSON{
 					Code:     lc,
 					Name:     s.LangName(),
-					Selected: preferSubSet[lc],
+					Selected: len(preferSubSet) == 0 || preferSubSet[lc],
 				})
 			}
 		}

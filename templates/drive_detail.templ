@@ -29,7 +29,6 @@ document.addEventListener('alpine:init', () => {
 	store.subtitleLangs = store.subtitleLanguages || []
 	store.keepLossless = store.keepLossless !== undefined ? store.keepLossless : true
 	store.keepForcedSubs = store.keepForcedSubs !== undefined ? store.keepForcedSubs : true
-	store.trackSelectionExpanded = false
 	Alpine.store('drive', store)
 
 	const evtSource = new EventSource('/events')
@@ -572,50 +571,40 @@ async function scanDisc(driveIndex) {
 				<!-- Track Selection (disc-level) -->
 				@templ.Raw(`<template x-if="$store.drive.audioLangs.length > 0 || $store.drive.subtitleLangs.length > 0">
 					<div class="track-selection-card mt-3">
-						<div class="track-selection-header" x-on:click="$store.drive.trackSelectionExpanded = !$store.drive.trackSelectionExpanded" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-							<h3 style="margin:0; font-size:0.95rem;">
-								<span x-text="$store.drive.trackSelectionExpanded ? '▼' : '▶'"></span>
-								Track Selection
-							</h3>
-							<span x-show="!$store.drive.trackSelectionExpanded" class="text-muted" style="font-size:0.8rem;"
-								x-text="'Audio: ' + ($store.drive.audioLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All') + ' | Subtitles: ' + ($store.drive.subtitleLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All')">
-							</span>
-						</div>
-						<div x-show="$store.drive.trackSelectionExpanded" x-cloak class="mt-2">
-							<div class="track-group">
-								<label class="track-group-label">Audio Languages</label>
-								<div class="track-chips">
-									<template x-for="lang in $store.drive.audioLangs" :key="lang.code">
-										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
-											<span x-text="(lang.name || lang.code)"></span>
-										</label>
-									</template>
-								</div>
-							</div>
-							<div class="track-group mt-2">
-								<label class="track-group-label">Subtitle Languages</label>
-								<div class="track-chips">
-									<template x-for="lang in $store.drive.subtitleLangs" :key="lang.code">
-										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
-											<span x-text="(lang.name || lang.code)"></span>
-										</label>
-									</template>
-								</div>
-							</div>
-							<div class="mt-2" style="display:flex; gap:1.5rem; flex-wrap:wrap;">
-								<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
-									<input type="checkbox" :checked="$store.drive.keepForcedSubs" x-on:change="$store.drive.keepForcedSubs = $el.checked" style="width:auto;"/>
-									Keep forced subtitles
-								</label>
-								<template x-if="hasLosslessAudio()">
-									<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
-										<input type="checkbox" :checked="$store.drive.keepLossless" x-on:change="$store.drive.keepLossless = $el.checked" style="width:auto;"/>
-										Keep lossless audio (TrueHD, DTS-HD MA)
+						<h3 style="margin:0 0 0.5rem; font-size:0.95rem;">Track Selection</h3>
+						<div class="track-group">
+							<label class="track-group-label">Audio Languages</label>
+							<div class="track-chips">
+								<template x-for="lang in $store.drive.audioLangs" :key="lang.code">
+									<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
+										<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+										<span x-text="(lang.name || lang.code)"></span>
 									</label>
 								</template>
 							</div>
+						</div>
+						<div class="track-group mt-2">
+							<label class="track-group-label">Subtitle Languages</label>
+							<div class="track-chips">
+								<template x-for="lang in $store.drive.subtitleLangs" :key="lang.code">
+									<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
+										<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+										<span x-text="(lang.name || lang.code)"></span>
+									</label>
+								</template>
+							</div>
+						</div>
+						<div class="mt-2" style="display:flex; gap:1.5rem; flex-wrap:wrap;">
+							<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
+								<input type="checkbox" :checked="$store.drive.keepForcedSubs" x-on:change="$store.drive.keepForcedSubs = $el.checked" style="width:auto;"/>
+								Keep forced subtitles
+							</label>
+							<template x-if="hasLosslessAudio()">
+								<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
+									<input type="checkbox" :checked="$store.drive.keepLossless" x-on:change="$store.drive.keepLossless = $el.checked" style="width:auto;"/>
+									Keep lossless audio (TrueHD, DTS-HD MA)
+								</label>
+							</template>
 						</div>
 					</div>
 				</template>`)
