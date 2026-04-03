@@ -218,8 +218,8 @@ async function clearFiltered(btn, search, status) {
 								</div>
 								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
 									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
-									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + j.audioTracks.map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
-									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + j.subtitleLanguages.join(', ')"></span>
+									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + (j.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
+									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + (j.subtitleLanguages || []).join(', ')"></span>
 								</div>
 								<div style="display:flex; align-items:center; gap:0.5rem;">
 									<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
@@ -316,8 +316,8 @@ async function clearFiltered(btn, search, status) {
 								</div>
 								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.4rem;" x-show="r.sizeHuman || r.duration || (r.audioTracks && r.audioTracks.length) || (r.subtitleLanguages && r.subtitleLanguages.length)">
 									<span x-show="r.sizeHuman || r.duration" x-text="[r.sizeHuman, r.duration].filter(Boolean).join(' · ')"></span>
-									<span x-show="r.audioTracks && r.audioTracks.length" x-text="(r.sizeHuman || r.duration ? ' · ' : '') + r.audioTracks.map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
-									<span x-show="r.subtitleLanguages && r.subtitleLanguages.length" x-text="' · Subs: ' + r.subtitleLanguages.join(', ')"></span>
+									<span x-show="r.audioTracks && r.audioTracks.length" x-text="(r.sizeHuman || r.duration ? ' · ' : '') + (r.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
+									<span x-show="r.subtitleLanguages && r.subtitleLanguages.length" x-text="' · Subs: ' + (r.subtitleLanguages || []).join(', ')"></span>
 								</div>
 								<div class="text-muted" style="font-size:0.8em;">
 									<span x-text="r.createdAt"></span>
