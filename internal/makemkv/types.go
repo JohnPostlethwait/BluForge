@@ -3,8 +3,6 @@ package makemkv
 // DriveInfo represents a physical disc drive detected by MakeMKV.
 type DriveInfo struct {
 	Index      int
-	Visible    int
-	Enabled    int
 	Flags      int
 	DriveName  string
 	DiscName   string

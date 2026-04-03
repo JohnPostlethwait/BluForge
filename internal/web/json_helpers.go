@@ -7,7 +7,6 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
-	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
 // enrichTitlesWithMatches builds TitleJSON entries for all titles in scan,
@@ -177,35 +176,6 @@ type SearchResultJSON struct {
 	MediaItemID  string     `json:"mediaItemID"`
 }
 
-// RipJobJSON is a snapshot of a single rip job for the Alpine store.
-type RipJobJSON struct {
-	ID          int64  `json:"ID"`
-	DriveIndex  int    `json:"DriveIndex"`
-	TitleIndex  int    `json:"TitleIndex"`
-	DiscName    string `json:"DiscName"`
-	TitleName   string `json:"TitleName"`
-	ContentType string `json:"ContentType,omitempty"`
-	Status      string `json:"Status"`
-	Progress    int    `json:"Progress"`
-	Error       string `json:"Error,omitempty"`
-}
-
-// ripJobToJSON converts a live ripper.Job to a serialisable RipJobJSON snapshot.
-func ripJobToJSON(j *ripper.Job) RipJobJSON {
-	snap := j.Snapshot()
-	return RipJobJSON{
-		ID:          snap.ID,
-		DriveIndex:  snap.DriveIndex,
-		TitleIndex:  snap.TitleIndex,
-		DiscName:    snap.DiscName,
-		TitleName:   snap.TitleName,
-		ContentType: normalizeContentType(snap.ContentType),
-		Status:      string(snap.Status),
-		Progress:    snap.Progress,
-		Error:       snap.Error,
-	}
-}
-
 // DriveStoreJSON is the full Alpine.store('drive') shape for the drive detail page.
 type DriveStoreJSON struct {
 	DriveIndex        int                  `json:"driveIndex"`
@@ -222,7 +192,6 @@ type DriveStoreJSON struct {
 	Titles            []TitleJSON          `json:"titles"`
 	SelectedRelease   *SelectedReleaseJSON `json:"selectedRelease"`
 	SearchResults     []SearchResultJSON   `json:"searchResults"`
-	RipJobs           []RipJobJSON         `json:"ripJobs"`
 	AudioLanguages    []LangOptionJSON     `json:"audioLanguages"`
 	SubtitleLanguages []LangOptionJSON     `json:"subtitleLanguages"`
 	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`

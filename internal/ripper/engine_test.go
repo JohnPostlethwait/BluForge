@@ -12,7 +12,6 @@ import (
 
 // mockRipExecutor is a test double for RipExecutor.
 type mockRipExecutor struct {
-	mu    sync.Mutex
 	calls int32
 	// block controls whether StartRip blocks until released.
 	block chan struct{}

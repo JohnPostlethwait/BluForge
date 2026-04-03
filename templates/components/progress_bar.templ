@@ -2,21 +2,6 @@ package components
 
 import "fmt"
 
-// ProgressBar renders a static progress bar with a known integer percent.
-templ ProgressBar(jobID string, percent int) {
-	<div
-		class="progress-bar"
-		id={ fmt.Sprintf("progress-%s", jobID) }
-		role="progressbar"
-		aria-valuenow={ fmt.Sprintf("%d", percent) }
-		aria-valuemin="0"
-		aria-valuemax="100"
-		aria-label="Rip progress"
-	>
-		<div class="progress-fill" style={ fmt.Sprintf("width: %d%%", percent) }></div>
-	</div>
-}
-
 // ProgressBarDynamic renders a progress bar whose fill width is driven by an
 // Alpine.js expression (e.g. "j.progress"). The caller supplies the expression
 // string that will be placed in :style and :aria-valuenow bindings.

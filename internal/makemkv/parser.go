@@ -114,8 +114,6 @@ func parseDRV(s string) (Event, error) {
 	}
 	d := &DriveInfo{
 		Index:      mustAtoi(parts[0]),
-		Visible:    mustAtoi(parts[1]),
-		Enabled:    mustAtoi(parts[2]),
 		Flags:      mustAtoi(parts[3]),
 		DriveName:  parts[4],
 		DiscName:   parts[5],

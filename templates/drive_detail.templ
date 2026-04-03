@@ -48,7 +48,6 @@ document.addEventListener('alpine:init', () => {
 				Alpine.store('drive').scanError = ''
 				Alpine.store('drive').searchError = ''
 				Alpine.store('drive').discPickerRelease = null
-				Alpine.store('drive').ripJobs = []
 				Alpine.store('drive').hasMapping = false
 				Alpine.store('drive').currentStep = 1
 			}
@@ -58,15 +57,6 @@ document.addEventListener('alpine:init', () => {
 	evtSource.addEventListener('rip-update', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
-			const jobs = [...Alpine.store('drive').ripJobs]
-			const idx = jobs.findIndex(j => j.ID === update.ID)
-			if (idx >= 0) {
-				jobs[idx] = update
-			} else {
-				jobs.push(update)
-			}
-			jobs.sort((a, b) => a.ID - b.ID)
-			Alpine.store('drive').ripJobs = jobs
 			if (Alpine.store('drive').currentStep !== 5) {
 				Alpine.store('drive').currentStep = 5
 			}

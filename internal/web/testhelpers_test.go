@@ -32,8 +32,6 @@ func (e *driveWithDiscExecutor) ListDrives(ctx context.Context) ([]makemkv.Drive
 	return []makemkv.DriveInfo{
 		{
 			Index:      0,
-			Visible:    2,
-			Enabled:    999,
 			Flags:      12,
 			DriveName:  "Test Drive",
 			DiscName:   e.discName,

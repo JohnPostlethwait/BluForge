@@ -138,22 +138,12 @@ nav {
   color: var(--text-muted);
 }
 
-.badge-detected {
-  background-color: #1e3a5f;
-  color: #7db8fc;
-}
-
 .badge-identified {
   background-color: #1e4620;
   color: #86efac;
 }
 
 .badge-ripping {
-  background-color: #3b2300;
-  color: var(--warning);
-}
-
-.badge-organizing {
   background-color: #3b2300;
   color: var(--warning);
 }
@@ -421,13 +411,6 @@ tbody td {
 
 /* Enhanced focus-visible styles */
 :focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 2px;
-}
-
-.btn:focus-visible,
-.tab-btn:focus-visible,
-.nav-links a:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
 }
@@ -848,16 +831,6 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .badge-episode {
   background-color: #1a3a4a;
   color: #67e8f9;
-}
-
-.badge-extra {
-  background-color: #3b2300;
-  color: #fbbf24;
-}
-
-.badge-unknown {
-  background-color: var(--bg-tertiary);
-  color: var(--text-muted);
 }
 
 /* ── Track Selection ── */

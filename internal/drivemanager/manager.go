@@ -113,8 +113,6 @@ func (m *Manager) PollOnce(ctx context.Context) {
 				"disc_name", info.DiscName,
 				"device", info.DevicePath,
 				"flags", info.Flags,
-				"visible", info.Visible,
-				"enabled", info.Enabled,
 			)
 		}
 

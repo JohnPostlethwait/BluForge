@@ -55,7 +55,6 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		CurrentStep:       1,
 		Titles:            make([]TitleJSON, 0),
 		SearchResults:     make([]SearchResultJSON, 0),
-		RipJobs:           make([]RipJobJSON, 0),
 		AudioLanguages:    make([]LangOptionJSON, 0),
 		SubtitleLanguages: make([]LangOptionJSON, 0),
 		KeepForcedSubs:    cfg.KeepForcedSubtitles,
