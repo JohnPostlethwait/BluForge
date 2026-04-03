@@ -195,6 +195,9 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 
 	flash := c.QueryParam("flash")
+	if len(flash) > 200 {
+		flash = flash[:200]
+	}
 
 	return templates.Activity(templates.ActivityPageData{
 		StoreJSON: string(storeBytes),

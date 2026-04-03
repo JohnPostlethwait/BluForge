@@ -157,7 +157,10 @@ async function clearFiltered(btn, search, status) {
 		</div>
 
 		if data.Flash != "" {
-			@templ.Raw(fmt.Sprintf(`<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success" role="status" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;"><span>%s</span><button class="btn btn-sm" style="padding:0.1rem 0.5rem;" @click="show=false" aria-label="Dismiss">&times;</button></div>`, data.Flash))
+			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success" role="status" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+				<span>{ data.Flash }</span>
+				<button class="btn btn-sm" style="padding:0.1rem 0.5rem;" @click="show = false" aria-label="Dismiss">&times;</button>
+			</div>
 		}
 
 		<!-- Tab Bar -->
@@ -203,7 +206,7 @@ async function clearFiltered(btn, search, status) {
 				<template x-if="$store.activity.active.length > 0">
 					<div>
 						<template x-for="j in $store.activity.active" :key="j.id">
-							<div class="card" style="margin-bottom:0.75rem;">
+							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Rip job: ' + j.titleName">
 								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
 									<div>
 										<div style="font-weight:600;" x-text="j.titleName"></div>
@@ -240,7 +243,7 @@ async function clearFiltered(btn, search, status) {
 				<template x-if="$store.activity.pending.length > 0">
 					<div>
 						<template x-for="j in $store.activity.pending" :key="j.id">
-							<div class="card" style="margin-bottom:0.75rem;">
+							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Queued job: ' + j.titleName">
 								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
 									<div>
 										<div style="font-weight:600;" x-text="j.titleName"></div>
