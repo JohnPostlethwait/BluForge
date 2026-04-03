@@ -9,7 +9,7 @@ import (
 
 const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
 	       output_path, status, progress, error_message, size_bytes, duration,
-	       created_at, updated_at`
+	       created_at, updated_at, track_metadata`
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
@@ -27,6 +27,7 @@ type RipJob struct {
 	Duration     string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	TrackMetadata string // raw JSON, may be empty
 }
 
 // CreateJob inserts a new rip job and returns the generated ID.
@@ -34,8 +35,9 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 	const q = `
 		INSERT INTO rip_jobs
 			(drive_index, disc_name, title_index, title_name, content_type,
-			 output_path, status, progress, error_message, size_bytes, duration)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			 output_path, status, progress, error_message, size_bytes, duration,
+			 track_metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	status := job.Status
 	if status == "" {
@@ -46,6 +48,7 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 		job.DriveIndex, job.DiscName, job.TitleIndex, job.TitleName,
 		job.ContentType, job.OutputPath, status, job.Progress,
 		job.ErrorMessage, job.SizeBytes, job.Duration,
+		job.TrackMetadata,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create job: %w", err)
@@ -228,7 +231,7 @@ func scanJob(s scanner) (*RipJob, error) {
 		&job.ID, &job.DriveIndex, &job.DiscName, &job.TitleIndex, &job.TitleName,
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
-		&job.CreatedAt, &job.UpdatedAt,
+		&job.CreatedAt, &job.UpdatedAt, &job.TrackMetadata,
 	)
 	if err != nil {
 		return nil, err

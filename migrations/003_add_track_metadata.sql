@@ -1,0 +1,1 @@
+ALTER TABLE rip_jobs ADD COLUMN track_metadata TEXT DEFAULT NULL;
