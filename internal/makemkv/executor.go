@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/johnpostlethwait/bluforge/internal/mpls"
 )
 
 // CmdRunner is the interface for running makemkvcon commands. It receives the
@@ -145,6 +148,10 @@ func drivesFromEvents(events []Event) []DriveInfo {
 func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
 	slog.Info("executor: starting disc scan", "drive_index", driveIndex)
 
+	// Pre-lookup: get the device path for MPLS enrichment.  This is a separate,
+	// lightweight lock acquisition that completes before the main scan starts.
+	devicePath := e.devicePathForDrive(ctx, driveIndex)
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -197,7 +204,120 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 
 	slog.Info("executor: disc scan completed", "drive_index", driveIndex,
 		"disc_name", scan.DiscName, "title_count", len(scan.Titles))
+
+	// Enrich stream language codes from MPLS playlist files, which are the
+	// authoritative source for language metadata on both standard BD and UHD.
+	// CLPI files (what makemkvcon reads in robot info mode) often omit language
+	// codes for UHD disc authorings.
+	if devicePath != "" {
+		enrichScanFromMPLS(scan, devicePath)
+	}
+
 	return scan, nil
+}
+
+// devicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex
+// by running a lightweight ListDrives call.  Returns "" on any error; callers
+// treat a missing path as a non-fatal condition.
+func (e *Executor) devicePathForDrive(ctx context.Context, driveIndex int) string {
+	drives, err := e.ListDrives(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, d := range drives {
+		if d.Index == driveIndex {
+			return d.DevicePath
+		}
+	}
+	return ""
+}
+
+// enrichScanFromMPLS reads MPLS playlist files from the disc at devicePath and
+// writes language codes into the streams of scan.  Each scan title's SourceFile
+// attribute (TINFO attr 16) names the corresponding MPLS file (e.g.
+// "00300.mpls"); streams are matched by type and position within each title.
+//
+// Non-fatal: any error is logged at debug level and enrichment is skipped.
+func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
+	// Collect the unique MPLS filenames referenced by this scan's titles.
+	sourceFiles := collectMPLSFilenames(scan)
+	if len(sourceFiles) == 0 {
+		slog.Debug("executor: no MPLS source files in scan, skipping enrichment",
+			"drive_index", scan.DriveIndex)
+		return
+	}
+
+	langs, err := mpls.ReadDiscLanguages(devicePath, sourceFiles)
+	if err != nil {
+		slog.Debug("executor: mpls enrichment unavailable",
+			"drive_index", scan.DriveIndex, "error", err)
+		return
+	}
+
+	applied := 0
+	for i := range scan.Titles {
+		srcFile := scan.Titles[i].SourceFile()
+		tl, ok := langs[srcFile]
+		if !ok {
+			continue
+		}
+		applied += applyMPLSLanguages(&scan.Titles[i], tl)
+	}
+	slog.Debug("executor: mpls enrichment applied",
+		"drive_index", scan.DriveIndex, "streams_updated", applied)
+}
+
+// collectMPLSFilenames returns the deduplicated list of MPLS filenames
+// (e.g. "00300.mpls") referenced by scan titles via their SourceFile attribute.
+// Titles whose SourceFile does not end in ".mpls" are skipped — those are
+// standard BD segment maps, not playlist filenames.
+func collectMPLSFilenames(scan *DiscScan) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for i := range scan.Titles {
+		sf := scan.Titles[i].SourceFile()
+		if sf == "" || !strings.EqualFold(filepath.Ext(sf), ".mpls") {
+			continue
+		}
+		if !seen[sf] {
+			seen[sf] = true
+			out = append(out, sf)
+		}
+	}
+	return out
+}
+
+// applyMPLSLanguages writes language codes from tl into the audio and subtitle
+// streams of title, matching by stream type and position within each type.
+// Returns the number of streams updated.
+func applyMPLSLanguages(title *TitleInfo, tl mpls.PlayItemLanguages) int {
+	updated := 0
+	audioIdx := 0
+	subIdx := 0
+	for j := range title.Streams {
+		s := &title.Streams[j]
+		switch {
+		case s.IsAudio():
+			if audioIdx < len(tl.Audio) && tl.Audio[audioIdx] != "" {
+				if s.Attributes == nil {
+					s.Attributes = make(map[int]string)
+				}
+				s.Attributes[AttrLangCode] = tl.Audio[audioIdx]
+				updated++
+			}
+			audioIdx++
+		case s.IsSubtitle():
+			if subIdx < len(tl.Subtitle) && tl.Subtitle[subIdx] != "" {
+				if s.Attributes == nil {
+					s.Attributes = make(map[int]string)
+				}
+				s.Attributes[AttrLangCode] = tl.Subtitle[subIdx]
+				updated++
+			}
+			subIdx++
+		}
+	}
+	return updated
 }
 
 // buildDiscScan aggregates parsed events into a DiscScan result.

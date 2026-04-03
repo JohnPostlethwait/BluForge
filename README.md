@@ -165,3 +165,9 @@ docker build -t bluforge:dev .
 - **MakeMKV** (`makemkvcon`) must be available in the runtime environment
 - An optical drive (Blu-ray or DVD) accessible at `/dev/sr0` (or configured device path)
 - For Docker: the drive device must be passed through with `--device`
+
+## License & Third-Party Software
+
+BluForge is open source software. It does **not** bundle or distribute MakeMKV.
+
+**MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) and must be installed separately by the user. Use of MakeMKV is subject to the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). Users are responsible for their own compliance with that license.
