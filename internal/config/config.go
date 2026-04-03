@@ -23,6 +23,7 @@ type AppConfig struct {
 	PreferredSubtitleLangs string `yaml:"preferred_subtitle_langs"` // e.g. "eng"
 	KeepForcedSubtitles   bool   `yaml:"keep_forced_subtitles"`    // default: true
 	KeepLosslessAudio     bool   `yaml:"keep_lossless_audio"`      // default: true
+	MakeMKVKey            string `yaml:"makemkv_key"`
 }
 
 // defaults returns an AppConfig populated with all default values.
@@ -103,6 +104,9 @@ func LoadFromEnv() AppConfig {
 		} else {
 			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_KEEP_LOSSLESS_AUDIO", "value", v)
 		}
+	}
+	if v := os.Getenv("MAKEMKV_KEY"); v != "" {
+		cfg.MakeMKVKey = v
 	}
 
 	return cfg

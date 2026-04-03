@@ -18,6 +18,7 @@ func clearEnv(t *testing.T) {
 		"BLUFORGE_GITHUB_CLIENT_ID",
 		"BLUFORGE_GITHUB_CLIENT_SECRET",
 		"BLUFORGE_DUPLICATE_ACTION",
+		"MAKEMKV_KEY",
 	}
 	for _, v := range vars {
 		t.Setenv(v, "") // registers cleanup; set empty so Getenv returns ""
@@ -59,6 +60,9 @@ func TestLoadReturnsDefaults(t *testing.T) {
 	}
 	if cfg.DuplicateAction != "skip" {
 		t.Errorf("DuplicateAction: want skip, got %s", cfg.DuplicateAction)
+	}
+	if cfg.MakeMKVKey != "" {
+		t.Errorf("MakeMKVKey: want empty, got %q", cfg.MakeMKVKey)
 	}
 }
 
@@ -174,5 +178,45 @@ func TestSave_InvalidPath(t *testing.T) {
 	err := Save(AppConfig{}, "/nonexistent/dir/config.yaml")
 	if err == nil {
 		t.Fatal("expected error for invalid path, got nil")
+	}
+}
+
+func TestLoadMakeMKVKeyFromEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MAKEMKV_KEY", "T-abc123def456")
+
+	cfg, err := Load(filepath.Join(t.TempDir(), "nonexistent.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+
+	if cfg.MakeMKVKey != "T-abc123def456" {
+		t.Errorf("MakeMKVKey: want %q, got %q", "T-abc123def456", cfg.MakeMKVKey)
+	}
+}
+
+func TestSave_RoundTrip_MakeMKVKey(t *testing.T) {
+	cfg := AppConfig{
+		Port:            9160,
+		OutputDir:       "/output",
+		MakeMKVKey:      "T-abc123def456",
+		PollInterval:    5,
+		DuplicateAction: "skip",
+	}
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Save(cfg, configPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	clearEnv(t)
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if loaded.MakeMKVKey != cfg.MakeMKVKey {
+		t.Errorf("MakeMKVKey: want %q, got %q", cfg.MakeMKVKey, loaded.MakeMKVKey)
 	}
 }
