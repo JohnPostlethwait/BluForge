@@ -10,6 +10,8 @@ services:
       - /mnt/user/appdata/bluforge:/config
       - /mnt/user/media:/output
     environment:
+      - ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
+      - MAKEMKV_VERSION=1.18.3    # MakeMKV version to install. Tested: 1.18.3
       - BLUFORGE_AUTO_RIP=false
       - USER_ID=99
       - GROUP_ID=100
