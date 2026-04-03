@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,10 +24,51 @@ import (
 func ReadDiscLanguages(devicePath string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
 	mp, err := findMountPoint(devicePath)
 	if err != nil {
-		return nil, fmt.Errorf("mpls: disc at %s not accessible: %w", devicePath, err)
+		// Device not mounted — try to mount it temporarily. This relies on
+		// fstab entries created by the entrypoint (with the "user" option)
+		// so the non-root process can mount optical devices.
+		slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
+		mp, cleanup, mountErr := tryMount(devicePath)
+		if mountErr != nil {
+			return nil, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
+		}
+		defer cleanup()
+		slog.Info("mpls: auto-mounted disc for language enrichment", "device", devicePath, "mount_point", mp)
+		return readFromMountPoint(mp, sourceFiles)
 	}
 	slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
 	return readFromMountPoint(mp, sourceFiles)
+}
+
+// tryMount attempts to mount devicePath at the conventional mount point
+// /mnt/<devname> (e.g. /mnt/sr0). This relies on an fstab entry with the
+// "user" option, which the Docker entrypoint creates for each /dev/sr*
+// device so the non-root bluforge process can mount optical drives.
+//
+// Returns the mount point path and a cleanup function that unmounts the
+// device. The cleanup function is safe to call even if unmount fails.
+func tryMount(devicePath string) (string, func(), error) {
+	devName := filepath.Base(devicePath)
+	mp := filepath.Join("/mnt", devName)
+
+	// Ensure mount point exists (best effort — entrypoint should have created it).
+	if err := os.MkdirAll(mp, 0o755); err != nil {
+		return "", nil, fmt.Errorf("mpls: create mount point %s: %w", mp, err)
+	}
+
+	// Use "mount <device>" which consults fstab for options and mount point.
+	cmd := exec.Command("mount", devicePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, err, strings.TrimSpace(string(out)))
+	}
+
+	cleanup := func() {
+		if err := exec.Command("umount", mp).Run(); err != nil {
+			slog.Debug("mpls: umount failed (may already be unmounted)", "mount_point", mp, "error", err)
+		}
+	}
+
+	return mp, cleanup, nil
 }
 
 // findMountPoint returns the filesystem path where devicePath is mounted.

@@ -211,7 +211,29 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	// codes for UHD disc authorings.
 	if devicePath != "" {
 		enrichScanFromMPLS(scan, devicePath)
+	} else {
+		slog.Warn("executor: no device path for drive, skipping MPLS enrichment",
+			"drive_index", driveIndex)
 	}
+
+	// Log stream language status to aid debugging when track selection shows
+	// "Language information not available" in the UI.
+	audioLangs, subLangs := 0, 0
+	for i := range scan.Titles {
+		for j := range scan.Titles[i].Streams {
+			s := &scan.Titles[i].Streams[j]
+			if s.IsAudio() && s.LangCode() != "" {
+				audioLangs++
+			}
+			if s.IsSubtitle() && s.LangCode() != "" {
+				subLangs++
+			}
+		}
+	}
+	slog.Info("executor: stream language summary",
+		"drive_index", driveIndex,
+		"audio_streams_with_lang", audioLangs,
+		"subtitle_streams_with_lang", subLangs)
 
 	return scan, nil
 }

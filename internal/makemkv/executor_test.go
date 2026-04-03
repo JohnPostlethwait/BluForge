@@ -154,6 +154,109 @@ func TestExecutorScanDisc(t *testing.T) {
 	}
 }
 
+// TestScanDiscStreamLanguages verifies that multiple SINFO attributes for the
+// same stream (codec, langCode, langName, channels, etc.) are accumulated
+// correctly in buildDiscScan. This is the critical path for the frontend's
+// audio/subtitle language selection chips.
+func TestScanDiscStreamLanguages(t *testing.T) {
+	const output = `TCOUT:1
+CINFO:2,0,"SEINFELD_S8D1"
+CINFO:1,0,"DVD disc"
+TINFO:0,2,0,"Episode 1"
+TINFO:0,9,0,"0:22:00"
+TINFO:0,10,0,"1.2 GB"
+TINFO:0,16,0,"title_t00.vts"
+TINFO:0,27,0,"title_t00.mkv"
+TINFO:0,33,0,"/dev/sr0"
+SINFO:0,0,1,0,"V_MPEG2"
+SINFO:0,0,6,0,"Mpeg2"
+SINFO:0,1,1,0,"A_AC3"
+SINFO:0,1,3,0,"eng"
+SINFO:0,1,4,0,"English"
+SINFO:0,1,6,0,"AC3"
+SINFO:0,1,14,0,"2.0"
+SINFO:0,2,1,0,"A_AC3"
+SINFO:0,2,3,0,"fra"
+SINFO:0,2,4,0,"French"
+SINFO:0,2,6,0,"AC3"
+SINFO:0,2,14,0,"2.0"
+SINFO:0,3,1,0,"S_VOBSUB"
+SINFO:0,3,3,0,"eng"
+SINFO:0,3,4,0,"English"
+SINFO:0,4,1,0,"S_VOBSUB"
+SINFO:0,4,3,0,"spa"
+SINFO:0,4,4,0,"Spanish"
+MSG:1005,0,1,"Operation successfully completed","",""
+`
+	mock := &mockCmdRunner{output: output}
+	ex := NewExecutor(WithRunner(mock))
+
+	scan, err := ex.ScanDisc(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ScanDisc returned unexpected error: %v", err)
+	}
+
+	if len(scan.Titles) != 1 {
+		t.Fatalf("expected 1 title, got %d", len(scan.Titles))
+	}
+	title := &scan.Titles[0]
+
+	// 1 video + 2 audio + 2 subtitle = 5 streams.
+	if len(title.Streams) != 5 {
+		t.Fatalf("expected 5 streams, got %d", len(title.Streams))
+	}
+
+	// Verify that multi-attribute SINFO accumulation works: each stream should
+	// have ALL its attributes (type, langCode, langName, codec, channels).
+	audioLangs := title.AudioLanguages()
+	if len(audioLangs) != 2 {
+		t.Errorf("expected 2 audio languages, got %v", audioLangs)
+	}
+	wantAudio := map[string]bool{"eng": true, "fra": true}
+	for _, lc := range audioLangs {
+		if !wantAudio[lc] {
+			t.Errorf("unexpected audio lang %q", lc)
+		}
+	}
+
+	subLangs := title.SubtitleLanguages()
+	if len(subLangs) != 2 {
+		t.Errorf("expected 2 subtitle languages, got %v", subLangs)
+	}
+	wantSub := map[string]bool{"eng": true, "spa": true}
+	for _, lc := range subLangs {
+		if !wantSub[lc] {
+			t.Errorf("unexpected subtitle lang %q", lc)
+		}
+	}
+
+	// Verify individual stream attributes are fully populated.
+	for _, s := range title.Streams {
+		if s.Type() == "audio" {
+			if s.LangCode() == "" {
+				t.Errorf("audio stream %d: LangCode is empty", s.StreamIndex)
+			}
+			if s.LangName() == "" {
+				t.Errorf("audio stream %d: LangName is empty", s.StreamIndex)
+			}
+			if s.CodecShort() == "" {
+				t.Errorf("audio stream %d: CodecShort is empty", s.StreamIndex)
+			}
+			if s.Channels() == "" {
+				t.Errorf("audio stream %d: Channels is empty", s.StreamIndex)
+			}
+		}
+		if s.Type() == "subtitle" {
+			if s.LangCode() == "" {
+				t.Errorf("subtitle stream %d: LangCode is empty", s.StreamIndex)
+			}
+			if s.LangName() == "" {
+				t.Errorf("subtitle stream %d: LangName is empty", s.StreamIndex)
+			}
+		}
+	}
+}
+
 // TestExecutorScanDiscNonZeroExit verifies that ScanDisc still returns titles
 // when makemkvcon exits non-zero (e.g. AACS warnings on Blu-ray discs).
 func TestExecutorScanDiscNonZeroExit(t *testing.T) {

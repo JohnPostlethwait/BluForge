@@ -231,19 +231,34 @@ function updateLanguagesFromTitles(titles) {
 	const audioSet = new Map()
 	const subtitleSet = new Map()
 
+	let totalAudio = 0, totalSub = 0
+
 	for (const t of titles) {
 		for (const s of (t.streams || [])) {
-			if (s.type === 'audio' && s.langCode) {
-				if (!audioSet.has(s.langCode)) {
-					audioSet.set(s.langCode, s.langName || s.langCode)
+			if (s.type === 'audio') {
+				totalAudio++
+				if (s.langCode) {
+					if (!audioSet.has(s.langCode)) {
+						audioSet.set(s.langCode, s.langName || s.langCode)
+					}
 				}
 			}
-			if (s.type === 'subtitle' && s.langCode) {
-				if (!subtitleSet.has(s.langCode)) {
-					subtitleSet.set(s.langCode, s.langName || s.langCode)
+			if (s.type === 'subtitle') {
+				totalSub++
+				if (s.langCode) {
+					if (!subtitleSet.has(s.langCode)) {
+						subtitleSet.set(s.langCode, s.langName || s.langCode)
+					}
 				}
 			}
 		}
+	}
+
+	if (totalAudio > 0 && audioSet.size === 0) {
+		console.warn('[BluForge] ' + totalAudio + ' audio streams found but none have language codes. MPLS enrichment may have failed. Track selection will show all tracks.')
+	}
+	if (totalSub > 0 && subtitleSet.size === 0) {
+		console.warn('[BluForge] ' + totalSub + ' subtitle streams found but none have language codes. MPLS enrichment may have failed. Track selection will show all tracks.')
 	}
 
 	const preferredAudio = store.audioLangs.filter(l => l.selected).map(l => l.code)

@@ -87,6 +87,22 @@ if [ "$(id -u)" -eq 0 ]; then
     install_makemkv
     # --------------------------------------------------------------------------
 
+    # --- Optical disc mount points for MPLS language enrichment ----------------
+    # BluForge reads BDMV/PLAYLIST/*.mpls from the mounted disc to extract
+    # stream language codes. Create fstab entries with the 'user' option so the
+    # non-root bluforge process can mount/unmount the disc on demand.
+    for dev in /dev/sr*; do
+        [ -e "$dev" ] || continue
+        devname=$(basename "$dev")
+        mp="/mnt/${devname}"
+        mkdir -p "$mp"
+        # Only add the fstab entry if it doesn't already exist (idempotent).
+        if ! grep -q "^${dev} " /etc/fstab 2>/dev/null; then
+            echo "${dev} ${mp} udf ro,noauto,user,nofail 0 0" >> /etc/fstab
+        fi
+    done
+    # --------------------------------------------------------------------------
+
     # Create/modify group
     GROUP_NAME="bluforge"
     if getent group "$GROUP_ID" >/dev/null 2>&1; then
