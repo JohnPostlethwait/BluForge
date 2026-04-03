@@ -14,6 +14,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
@@ -425,6 +426,14 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 	if contentTitle == "" {
 		contentTitle = c.FormValue("content_title")
 	}
+	var audioTracks []ripper.AudioTrack
+	if raw := c.FormValue(fmt.Sprintf("title_audio_tracks_%d", titleIdx)); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &audioTracks)
+	}
+	var subtitleLangs []string
+	if raw := c.FormValue(fmt.Sprintf("title_subtitle_langs_%d", titleIdx)); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &subtitleLangs)
+	}
 	return workflow.TitleSelection{
 		TitleIndex:   titleIdx,
 		TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
@@ -434,6 +443,12 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 		Season:       c.FormValue(fmt.Sprintf("title_season_%d", titleIdx)),
 		Episode:      c.FormValue(fmt.Sprintf("title_episode_%d", titleIdx)),
 		SourceFile:   c.FormValue(fmt.Sprintf("title_source_file_%d", titleIdx)),
+		TrackMetadata: ripper.TrackMetadata{
+			SizeHuman:         c.FormValue(fmt.Sprintf("title_size_human_%d", titleIdx)),
+			Duration:          c.FormValue(fmt.Sprintf("title_duration_%d", titleIdx)),
+			AudioTracks:       audioTracks,
+			SubtitleLanguages: subtitleLangs,
+		},
 	}
 }
 

@@ -568,32 +568,39 @@ async function scanDisc(driveIndex) {
 					</p>
 				</template>
 
-				<!-- Track Selection (disc-level) -->
-				@templ.Raw(`<template x-if="$store.drive.audioLangs.length > 0 || $store.drive.subtitleLangs.length > 0">
+				<!-- Track Selection (disc-level) — always shown once titles are loaded -->
+				@templ.Raw(`<template x-if="$store.drive.titles.length > 0">
 					<div class="track-selection-card mt-3">
-						<h3 style="margin:0 0 0.5rem; font-size:0.95rem;">Track Selection</h3>
-						<div class="track-group">
-							<label class="track-group-label">Audio Languages</label>
-							<div class="track-chips">
-								<template x-for="lang in $store.drive.audioLangs" :key="lang.code">
-									<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-										<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
-										<span x-text="(lang.name || lang.code)"></span>
-									</label>
-								</template>
+						<h3 style="margin:0 0 0.75rem; font-size:0.95rem;">Track Selection</h3>
+						<template x-if="$store.drive.audioLangs.length > 0">
+							<div class="track-group">
+								<label class="track-group-label">Audio Languages</label>
+								<div class="track-chips">
+									<template x-for="lang in $store.drive.audioLangs" :key="lang.code">
+										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
+											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+											<span x-text="(lang.name || lang.code)"></span>
+										</label>
+									</template>
+								</div>
 							</div>
-						</div>
-						<div class="track-group mt-2">
-							<label class="track-group-label">Subtitle Languages</label>
-							<div class="track-chips">
-								<template x-for="lang in $store.drive.subtitleLangs" :key="lang.code">
-									<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-										<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
-										<span x-text="(lang.name || lang.code)"></span>
-									</label>
-								</template>
+						</template>
+						<template x-if="$store.drive.subtitleLangs.length > 0">
+							<div class="track-group mt-2">
+								<label class="track-group-label">Subtitle Languages</label>
+								<div class="track-chips">
+									<template x-for="lang in $store.drive.subtitleLangs" :key="lang.code">
+										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
+											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+											<span x-text="(lang.name || lang.code)"></span>
+										</label>
+									</template>
+								</div>
 							</div>
-						</div>
+						</template>
+						<template x-if="$store.drive.audioLangs.length === 0 && $store.drive.subtitleLangs.length === 0">
+							<p class="text-muted" style="font-size:0.85rem; margin:0 0 0.5rem;">Language information not available for this disc — all audio and subtitle tracks will be included.</p>
+						</template>
 						<div class="mt-2" style="display:flex; gap:1.5rem; flex-wrap:wrap;">
 							<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
 								<input type="checkbox" :checked="$store.drive.keepForcedSubs" x-on:change="$store.drive.keepForcedSubs = $el.checked" style="width:auto;"/>
@@ -727,6 +734,10 @@ async function scanDisc(driveIndex) {
 							@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_size_human_' + t.index" :value="t.size || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_duration_' + t.index" :value="t.duration || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_audio_tracks_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => s.type === 'audio').map(s => ({Codec: s.codec, Channels: s.channels, Language: s.langName})))"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_subtitle_langs_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => s.type === 'subtitle').map(s => s.langName))"/>`)
 						</div>
 					</template>
 
