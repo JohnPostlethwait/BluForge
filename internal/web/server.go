@@ -31,6 +31,9 @@ type ServerDeps struct {
 	DiscDBCache  *discdb.Cache
 	SSEHub       *SSEHub
 	Orchestrator *workflow.Orchestrator
+	// OnMakeMKVKeyChange is called after the MakeMKV registration key is updated
+	// via the Settings UI. It receives the new key (empty string = clear key).
+	OnMakeMKVKeyChange func(string)
 }
 
 // Server wraps an Echo instance and all application dependencies.
@@ -47,6 +50,7 @@ type Server struct {
 	sseHub        *SSEHub
 	orchestrator  *workflow.Orchestrator
 	driveSessions *DriveSessionStore
+	onMakeMKVKeyChange func(string)
 }
 
 // NewServer creates and configures a new Server from the provided dependencies.
@@ -127,6 +131,7 @@ func NewServer(deps ServerDeps) *Server {
 		sseHub:        deps.SSEHub,
 		orchestrator:  deps.Orchestrator,
 		driveSessions: NewDriveSessionStore(),
+		onMakeMKVKeyChange: deps.OnMakeMKVKeyChange,
 	}
 
 	// Static files

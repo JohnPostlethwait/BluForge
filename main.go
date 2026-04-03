@@ -188,6 +188,9 @@ func main() {
 		DiscDBCache:  discdbCache,
 		SSEHub:       sseHub,
 		Orchestrator: orch,
+		OnMakeMKVKeyChange: func(key string) {
+			applyMakeMKVKey("/config", key)
+		},
 	})
 
 	// 13. Set up graceful shutdown with signal.NotifyContext.
