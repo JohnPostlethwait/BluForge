@@ -21,6 +21,7 @@ func (s *Server) handleSettings(c echo.Context) error {
 		DuplicateAction:       cfg.DuplicateAction,
 		GitHubClientID:        cfg.GitHubClientID,
 		GitHubClientSecret:    cfg.GitHubClientSecret,
+		MakeMKVKey:            cfg.MakeMKVKey,
 		PreferredAudioLangs:   cfg.PreferredAudioLangs,
 		PreferredSubtitleLangs: cfg.PreferredSubtitleLangs,
 		KeepForcedSubtitles:   cfg.KeepForcedSubtitles,
@@ -36,6 +37,7 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	duplicateAction := c.FormValue("duplicate_action")
 	githubClientID := c.FormValue("github_client_id")
 	githubClientSecret := c.FormValue("github_client_secret")
+	makemkvKey := c.FormValue("makemkv_key")
 	preferredAudioLangs := c.FormValue("preferred_audio_langs")
 	preferredSubtitleLangs := c.FormValue("preferred_subtitle_langs")
 	keepForcedSubtitles := c.FormValue("keep_forced_subtitles") == "true"
@@ -69,6 +71,11 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 			cfg.GitHubClientSecret = githubClientSecret
 		}
 
+		// Only update the key if the user provided a non-masked value.
+		if makemkvKey != "••••••••" {
+			cfg.MakeMKVKey = makemkvKey
+		}
+
 		if minTitleLength >= 0 {
 			cfg.MinTitleLength = minTitleLength
 		}
@@ -78,6 +85,10 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	}); err != nil {
 		slog.Error("failed to save settings", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save settings.")
+	}
+
+	if makemkvKey != "••••••••" && s.onMakeMKVKeyChange != nil {
+		s.onMakeMKVKeyChange(makemkvKey)
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/settings")

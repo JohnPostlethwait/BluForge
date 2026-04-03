@@ -29,6 +29,7 @@ func testSettingsServer(t *testing.T) *Server {
 		DuplicateAction:    "skip",
 		GitHubClientID:     "",
 		GitHubClientSecret: "real-secret",
+		MakeMKVKey:         "existing-key",
 	}
 
 	if err := config.Save(*cfg, cfgPath); err != nil {
@@ -168,5 +169,90 @@ func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 	}
 	if cfg.GitHubClientID != "" {
 		t.Errorf("GitHubClientID: expected empty string when omitted, got %q", cfg.GitHubClientID)
+	}
+}
+
+func TestHandleSettingsSave_MakeMKVKeyUpdated(t *testing.T) {
+	var callbackKey string
+	srv := testSettingsServer(t)
+	srv.onMakeMKVKeyChange = func(key string) { callbackKey = key }
+
+	form := url.Values{}
+	form.Set("output_dir", "/old/output")
+	form.Set("min_title_length", "120")
+	form.Set("poll_interval", "5")
+	form.Set("duplicate_action", "skip")
+	form.Set("makemkv_key", "T-newkey123")
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	if srv.GetConfig().MakeMKVKey != "T-newkey123" {
+		t.Errorf("MakeMKVKey: want %q, got %q", "T-newkey123", srv.GetConfig().MakeMKVKey)
+	}
+	if callbackKey != "T-newkey123" {
+		t.Errorf("callback: want key %q, got %q", "T-newkey123", callbackKey)
+	}
+}
+
+func TestHandleSettingsSave_MakeMKVKeyMaskedPreservesExisting(t *testing.T) {
+	var callbackCalled bool
+	srv := testSettingsServer(t)
+	srv.onMakeMKVKeyChange = func(key string) { callbackCalled = true }
+
+	form := url.Values{}
+	form.Set("output_dir", "/old/output")
+	form.Set("min_title_length", "120")
+	form.Set("poll_interval", "5")
+	form.Set("duplicate_action", "skip")
+	form.Set("makemkv_key", "••••••••")
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	if srv.GetConfig().MakeMKVKey != "existing-key" {
+		t.Errorf("MakeMKVKey should remain %q when masked value submitted, got %q",
+			"existing-key", srv.GetConfig().MakeMKVKey)
+	}
+	if callbackCalled {
+		t.Error("callback should not be called when masked value is submitted")
+	}
+}
+
+func TestHandleSettingsSave_MakeMKVKeyCleared(t *testing.T) {
+	var callbackKey = "not-called"
+	srv := testSettingsServer(t)
+	srv.onMakeMKVKeyChange = func(key string) { callbackKey = key }
+
+	form := url.Values{}
+	form.Set("output_dir", "/old/output")
+	form.Set("min_title_length", "120")
+	form.Set("poll_interval", "5")
+	form.Set("duplicate_action", "skip")
+	form.Set("makemkv_key", "") // empty = clear
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	if srv.GetConfig().MakeMKVKey != "" {
+		t.Errorf("MakeMKVKey: want empty after clear, got %q", srv.GetConfig().MakeMKVKey)
+	}
+	if callbackKey != "" {
+		t.Errorf("callback: want empty key on clear, got %q", callbackKey)
 	}
 }
