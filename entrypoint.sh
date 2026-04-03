@@ -19,7 +19,9 @@ install_makemkv() {
     if [ -x "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" ]; then
         echo "[entrypoint] Restoring MakeMKV ${MAKEMKV_VERSION} from cache..."
         cp "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" /usr/bin/makemkvcon
-        cp "${MAKEMKV_CACHE_DIR}/lib/"*.so.* /usr/lib/
+        if ls "${MAKEMKV_CACHE_DIR}/lib/"*.so.* >/dev/null 2>&1; then
+            cp "${MAKEMKV_CACHE_DIR}/lib/"*.so.* /usr/lib/
+        fi
         if [ -d "${MAKEMKV_CACHE_DIR}/share/MakeMKV" ]; then
             cp -r "${MAKEMKV_CACHE_DIR}/share/MakeMKV" /usr/share/
         fi
@@ -32,7 +34,7 @@ install_makemkv() {
 
     MKTMP=$(mktemp -d)
 
-    wget -q -P "$MKTMP" \
+    wget --show-progress -P "$MKTMP" \
         "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" \
         "https://www.makemkv.com/download/makemkv-bin-${MAKEMKV_VERSION}.tar.gz"
 
@@ -147,7 +149,9 @@ if [ "$(id -u)" -eq 0 ]; then
     # for /dev/sr* access). Using UID:GID would clear supplementary groups.
     exec gosu "$USER_NAME" /app/bluforge "$@"
 else
-    # Already non-root (e.g., Kubernetes with runAsUser)
+    # Already non-root (e.g., Kubernetes with runAsUser).
+    # NOTE: MakeMKV runtime installation is skipped in non-root mode.
+    # makemkvcon must be pre-installed in the image or provided via a volume mount.
     echo "[entrypoint] Running as UID=$(id -u), skipping user setup"
     exec /app/bluforge "$@"
 fi
