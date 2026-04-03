@@ -58,6 +58,17 @@ templ Settings(data SettingsData) {
 				</div>
 			</div>
 			<div class="card" style="margin-bottom: 1rem;">
+				<h2 class="section-title">MakeMKV License</h2>
+				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+					Enter your MakeMKV registration key. Applies immediately — no restart required. Leave blank to use the <code>MAKEMKV_KEY</code> environment variable, or omit entirely to run in free trial mode.
+				</p>
+				<div class="form-group">
+					<label for="makemkv_key">Registration Key</label>
+					<input type="password" id="makemkv_key" name="makemkv_key" value={ maskSecret(data.MakeMKVKey) } placeholder="Optional"/>
+					<p class="text-muted mt-1" style="font-size: 0.8rem;">A free beta key is available at the <a href="https://www.makemkv.com/forum/viewtopic.php?t=1053" target="_blank" rel="noopener">MakeMKV forum</a>.</p>
+				</div>
+			</div>
+			<div class="card" style="margin-bottom: 1rem;">
 				<h2 class="section-title">Track Selection</h2>
 				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
 					Configure default audio and subtitle track preferences for ripping. When set, only tracks matching these languages will be included. Leave empty to include all tracks.
