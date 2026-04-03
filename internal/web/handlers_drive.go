@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -120,21 +119,6 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 	// Step 1: Search, Step 2: Select Release, Step 3: Scan, Step 4: Review Titles, Step 5: Rip
 	if s.ripEngine != nil && s.ripEngine.IsActive(idx) {
 		driveStore.CurrentStep = 5
-		// Hydrate active and queued jobs for this drive so Step 5 renders correctly on page load.
-		driveStore.RipJobs = make([]RipJobJSON, 0)
-		for _, j := range s.ripEngine.ActiveJobs() {
-			if j.DriveIndex == idx {
-				driveStore.RipJobs = append(driveStore.RipJobs, ripJobToJSON(j))
-			}
-		}
-		for _, j := range s.ripEngine.QueuedJobs() {
-			if j.DriveIndex == idx {
-				driveStore.RipJobs = append(driveStore.RipJobs, ripJobToJSON(j))
-			}
-		}
-		sort.Slice(driveStore.RipJobs, func(i, j int) bool {
-			return driveStore.RipJobs[i].ID < driveStore.RipJobs[j].ID
-		})
 	} else if len(driveStore.Titles) > 0 {
 		driveStore.CurrentStep = 4
 	} else if driveStore.SelectedRelease != nil && driveStore.SelectedRelease.ReleaseID != "" {
@@ -316,7 +300,8 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return redirectDriveError(c, idx, result.ErrorSummary())
 	}
 
-	return redirectDriveError(c, idx, "")
+	c.Response().Header().Set("HX-Redirect", "/activity?flash=Rip+started+successfully")
+	return c.NoContent(http.StatusNoContent)
 }
 
 // handleDriveScan runs a disc scan synchronously and returns the titles as JSON.
