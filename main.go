@@ -45,7 +45,7 @@ func main() {
 	)
 
 	// 2b. Set up MakeMKV data directory, registration key, and settings.
-	setupMakeMKVData("/config", cfg.MinTitleLength)
+	setupMakeMKVData("/config", cfg.MinTitleLength, cfg.MakeMKVKey)
 
 	// 3. Open SQLite database.
 	store, err := db.Open("/config/bluforge.db")
@@ -225,7 +225,7 @@ func main() {
 //   - app_Key: registration key from MAKEMKV_KEY env var (required for BD/UHD)
 //   - app_DataDir: persistent data directory for SDF.bin and hashed keys
 //   - dvd_MinimumTitleLength: title length filter (applies to BD too, despite the name)
-func setupMakeMKVData(configDir string, minTitleLength int) {
+func setupMakeMKVData(configDir string, minTitleLength int, makemkvKey string) {
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/root"
@@ -261,9 +261,7 @@ func setupMakeMKVData(configDir string, minTitleLength int) {
 		"app_DataDir":            persistDir,
 		"app_UpdateEnable":       "1",
 		"dvd_MinimumTitleLength": fmt.Sprintf("%d", minTitleLength),
-	}
-	if key := os.Getenv("MAKEMKV_KEY"); key != "" {
-		required["app_Key"] = key
+		"app_Key":                makemkvKey, // empty string removes key from settings.conf
 	}
 
 	settingsPath := filepath.Join(persistDir, "settings.conf")
@@ -286,7 +284,10 @@ func writeMakeMKVSettings(path string, settings map[string]string) {
 			for key, val := range settings {
 				prefix := key + " "
 				if strings.HasPrefix(line, prefix) {
-					lines = append(lines, fmt.Sprintf(`%s = "%s"`, key, val))
+					if val != "" {
+						lines = append(lines, fmt.Sprintf(`%s = "%s"`, key, val))
+					}
+					// val == "" means delete this key — skip the line.
 					written[key] = true
 					replaced = true
 					break
@@ -301,7 +302,7 @@ func writeMakeMKVSettings(path string, settings map[string]string) {
 
 	// Append any settings that weren't already in the file.
 	for key, val := range settings {
-		if !written[key] {
+		if !written[key] && val != "" {
 			lines = append(lines, fmt.Sprintf(`%s = "%s"`, key, val))
 		}
 	}
@@ -322,4 +323,15 @@ func writeMakeMKVSettings(path string, settings map[string]string) {
 		keys = append(keys, k)
 	}
 	slog.Info("MakeMKV settings configured", "path", path, "keys", keys)
+}
+
+// applyMakeMKVKey writes the given registration key to MakeMKV's settings.conf.
+// An empty key removes app_Key from the file, reverting to trial mode.
+func applyMakeMKVKey(configDir, key string) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/root"
+	}
+	settingsPath := filepath.Join(configDir, ".MakeMKV", "settings.conf")
+	writeMakeMKVSettings(settingsPath, map[string]string{"app_Key": key})
 }
