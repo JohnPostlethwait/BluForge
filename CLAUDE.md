@@ -7,6 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **NEVER run `git push`** unless the user's CURRENT message explicitly contains the word "push". "Fix it", "commit this", "investigate" — none of these mean push.
 - **NEVER create or push a git tag** unless the user's CURRENT message explicitly asks for it (e.g. "tag as v0.1.3"). Tags trigger release workflows.
 - **NEVER run `rm`, `rm -f`, or `rm -rf`** without asking the user first, even on generated files.
+- **NEVER use compound `cd && git` or `cd && go` commands** — always separate them:
+  - Use `git -C <dir> <cmd>` instead of `cd <dir> && git <cmd>`
+  - Use separate `cd` and `go` calls instead of `cd <dir> && go <cmd>`
 
 ## Build & Development Commands
 
