@@ -171,3 +171,5 @@ docker build -t bluforge:dev .
 BluForge is open source software. It does **not** bundle or distribute MakeMKV.
 
 **MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) and must be installed separately by the user. Use of MakeMKV is subject to the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). Users are responsible for their own compliance with that license.
+
+**TheDiscDB** disc metadata is provided by [TheDiscDB](https://thediscdb.com/), an open-source community project by Luke Foust. The underlying data is licensed under the [MIT License](https://github.com/TheDiscDb/data). BluForge queries the live API and does not bundle any TheDiscDB data.
