@@ -122,12 +122,20 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	fullDest := filepath.Join(params.OutputDir, destPath)
 
 	// 2. Check for duplicates.
-	if organizer.FileExists(fullDest) && params.DuplicateAction == "skip" {
-		return TitleResult{
-			TitleIndex: sel.TitleIndex,
-			Status:     "skipped",
-			Reason:     fmt.Sprintf("duplicate exists: %s", destPath),
+	if organizer.FileExists(fullDest) {
+		switch params.DuplicateAction {
+		case "skip":
+			return TitleResult{
+				TitleIndex: sel.TitleIndex,
+				Status:     "skipped",
+				Reason:     fmt.Sprintf("duplicate exists: %s", destPath),
+			}
+		case "rename":
+			// Compute a non-colliding path. fullDest is captured by the
+			// OnComplete closure below, so reassigning it here is sufficient.
+			fullDest = organizer.NonCollidingPath(fullDest)
 		}
+		// "overwrite" falls through — AtomicMove overwrites by default.
 	}
 
 	// 3. Check disk space.

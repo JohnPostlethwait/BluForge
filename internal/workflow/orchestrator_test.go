@@ -468,3 +468,80 @@ func TestScanDisc_NilScanner(t *testing.T) {
 		t.Errorf("expected error to contain 'no scanner configured', got %q", err.Error())
 	}
 }
+
+func TestManualRip_DuplicateRename(t *testing.T) {
+	orch, _, outputDir := setupOrchestrator(t)
+
+	// Pre-create the destination file so the duplicate check triggers.
+	destPath := filepath.Join(outputDir, "Test Movie", "Main Feature.mkv")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("existing"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	params := ManualRipParams{
+		DriveIndex:      0,
+		DiscName:        "MY_MOVIE_DISC",
+		DiscKey:         "abc123",
+		OutputDir:       outputDir,
+		DuplicateAction: "rename",
+		MediaTitle:      "Test Movie",
+		Titles: []TitleSelection{
+			{
+				TitleIndex:   0,
+				TitleName:    "Main Feature",
+				SourceFile:   "title00.mkv",
+				SizeBytes:    1024,
+				ContentType:  "movie",
+				ContentTitle: "Test Movie",
+				Year:         "2024",
+			},
+		},
+	}
+
+	result := orch.ManualRip(params)
+
+	if len(result.Titles) != 1 {
+		t.Fatalf("expected 1 title result, got %d", len(result.Titles))
+	}
+	if result.Titles[0].Status != "submitted" {
+		t.Errorf("expected status 'submitted', got %q", result.Titles[0].Status)
+	}
+
+	// Wait for the async rip to complete (the mock executor is instant).
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for job to complete")
+		case <-tick.C:
+			// Check if the renamed file exists
+			renamedPath := filepath.Join(outputDir, "Test Movie", "Main Feature (1).mkv")
+			if _, err := os.Stat(renamedPath); err == nil {
+				// File found, we're done
+				goto done
+			}
+		}
+	}
+done:
+
+	// The original file must be untouched.
+	orig, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("original file missing: %v", err)
+	}
+	if string(orig) != "existing" {
+		t.Errorf("original file content changed: %q", orig)
+	}
+
+	// The ripped file must land at the (1) path.
+	renamedPath := filepath.Join(outputDir, "Test Movie", "Main Feature (1).mkv")
+	if _, err := os.Stat(renamedPath); err != nil {
+		t.Errorf("renamed file not found at %q: %v", renamedPath, err)
+	}
+}
