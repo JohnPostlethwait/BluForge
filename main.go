@@ -222,7 +222,7 @@ func main() {
 // (_private_data.tar), and settings survive container restarts.
 //
 // It also writes required settings to settings.conf:
-//   - app_Key: registration key from MAKEMKV_KEY env var (required for BD/UHD)
+//   - app_Key: registration key from cfg.MakeMKVKey (empty string removes the key)
 //   - app_DataDir: persistent data directory for SDF.bin and hashed keys
 //   - dvd_MinimumTitleLength: title length filter (applies to BD too, despite the name)
 func setupMakeMKVData(configDir string, minTitleLength int, makemkvKey string) {
