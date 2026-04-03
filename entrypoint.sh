@@ -1,6 +1,74 @@
 #!/bin/sh
 set -e
 
+# --- NEW: EULA gate -----------------------------------------------------------
+# Must be checked before anything else — even before the root/non-root split.
+if [ "$ACCEPT_EULA" != "yes" ]; then
+    echo "[entrypoint] ERROR: You must accept the MakeMKV End User License Agreement."
+    echo "[entrypoint] Read the EULA at: https://www.makemkv.com/eula/"
+    echo "[entrypoint] Once accepted, set the environment variable: ACCEPT_EULA=yes"
+    exit 1
+fi
+# ------------------------------------------------------------------------------
+
+# --- NEW: MakeMKV install function --------------------------------------------
+MAKEMKV_VERSION="${MAKEMKV_VERSION:-1.18.3}"
+MAKEMKV_CACHE_DIR="/config/makemkv-${MAKEMKV_VERSION}"
+
+install_makemkv() {
+    if [ -x "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" ]; then
+        echo "[entrypoint] Restoring MakeMKV ${MAKEMKV_VERSION} from cache..."
+        cp "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" /usr/bin/makemkvcon
+        cp "${MAKEMKV_CACHE_DIR}/lib/"*.so.* /usr/lib/
+        if [ -d "${MAKEMKV_CACHE_DIR}/share/MakeMKV" ]; then
+            cp -r "${MAKEMKV_CACHE_DIR}/share/MakeMKV" /usr/share/
+        fi
+        ldconfig
+        echo "[entrypoint] MakeMKV ${MAKEMKV_VERSION} restored from cache."
+        return
+    fi
+
+    echo "[entrypoint] Installing MakeMKV ${MAKEMKV_VERSION} (this may take several minutes)..."
+
+    MKTMP=$(mktemp -d)
+
+    wget -q -P "$MKTMP" \
+        "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" \
+        "https://www.makemkv.com/download/makemkv-bin-${MAKEMKV_VERSION}.tar.gz"
+
+    tar xf "$MKTMP/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" -C "$MKTMP"
+    tar xf "$MKTMP/makemkv-bin-${MAKEMKV_VERSION}.tar.gz" -C "$MKTMP"
+
+    # Build and install open-source libs (libdriveio, libmakemkv)
+    cd "$MKTMP/makemkv-oss-${MAKEMKV_VERSION}"
+    ./configure --disable-gui
+    make
+    make install
+
+    # Accept EULA and install proprietary binary (makemkvcon, libmmbd)
+    mkdir -p "$MKTMP/makemkv-bin-${MAKEMKV_VERSION}/tmp"
+    echo "accepted" > "$MKTMP/makemkv-bin-${MAKEMKV_VERSION}/tmp/eula_accepted"
+    cd "$MKTMP/makemkv-bin-${MAKEMKV_VERSION}"
+    make install
+
+    ldconfig
+
+    # Cache installed artifacts to /config so subsequent starts skip compilation
+    mkdir -p "${MAKEMKV_CACHE_DIR}/bin" "${MAKEMKV_CACHE_DIR}/lib" "${MAKEMKV_CACHE_DIR}/share"
+    cp /usr/bin/makemkvcon "${MAKEMKV_CACHE_DIR}/bin/"
+    for lib in libdriveio.so.0 libmakemkv.so.1 libmmbd.so.0; do
+        [ -f "/usr/lib/$lib" ] && cp "/usr/lib/$lib" "${MAKEMKV_CACHE_DIR}/lib/"
+    done
+    [ -d /usr/share/MakeMKV ] && cp -r /usr/share/MakeMKV "${MAKEMKV_CACHE_DIR}/share/"
+
+    # Cleanup build temp dir
+    rm -rf "$MKTMP"
+    cd /
+
+    echo "[entrypoint] MakeMKV ${MAKEMKV_VERSION} installed and cached to ${MAKEMKV_CACHE_DIR}."
+}
+# ------------------------------------------------------------------------------
+
 # Defaults matching Unraid's nobody:users
 USER_ID="${USER_ID:-99}"
 GROUP_ID="${GROUP_ID:-100}"
@@ -12,6 +80,10 @@ umask "$UMASK"
 # If running as root (normal container startup), set up user and drop privileges.
 # If already running as non-root (e.g., Kubernetes runAsUser), skip setup and exec directly.
 if [ "$(id -u)" -eq 0 ]; then
+
+    # --- NEW: Install MakeMKV before dropping privileges ----------------------
+    install_makemkv
+    # --------------------------------------------------------------------------
 
     # Create/modify group
     GROUP_NAME="bluforge"
