@@ -8,6 +8,7 @@ import (
 // ActivityPageData holds all data needed to render the activity page.
 type ActivityPageData struct {
 	StoreJSON string // JSON blob for Alpine.store('activity') hydration
+	Flash     string
 }
 
 templ Activity(data ActivityPageData) {

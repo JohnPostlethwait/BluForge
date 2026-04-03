@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
@@ -15,15 +16,19 @@ const activityHistoryPageSize = 50
 
 // queueJobJSON is the Alpine store shape for a single queue/active job.
 type queueJobJSON struct {
-	ID          int64  `json:"id"`
-	DiscName    string `json:"discName"`
-	TitleName   string `json:"titleName"`
-	ContentType string `json:"contentType"`
-	Status      string `json:"status"`
-	Progress    int    `json:"progress"`
-	Error       string `json:"error,omitempty"`
-	DriveIndex  int    `json:"driveIndex"`
-	FinishedAt  string `json:"finishedAt,omitempty"`
+	ID                int64               `json:"id"`
+	DiscName          string              `json:"discName"`
+	TitleName         string              `json:"titleName"`
+	ContentType       string              `json:"contentType"`
+	Status            string              `json:"status"`
+	Progress          int                 `json:"progress"`
+	Error             string              `json:"error,omitempty"`
+	DriveIndex        int                 `json:"driveIndex"`
+	FinishedAt        string              `json:"finishedAt,omitempty"`
+	SizeHuman         string              `json:"sizeHuman,omitempty"`
+	Duration          string              `json:"duration,omitempty"`
+	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
+	SubtitleLanguages []string            `json:"subtitleLanguages,omitempty"`
 }
 
 // activityStoreJSON is the Alpine.store('activity') shape.
@@ -38,15 +43,31 @@ type activityStoreJSON struct {
 
 // activityHistoryJSON extends the job shape with history-specific fields.
 type activityHistoryJSON struct {
-	ID          int64  `json:"id"`
-	DiscName    string `json:"discName"`
-	TitleName   string `json:"titleName"`
-	ContentType string `json:"contentType"`
-	Status      string `json:"status"`
-	Error       string `json:"error,omitempty"`
-	OutputPath  string `json:"outputPath,omitempty"`
-	Duration    string `json:"duration,omitempty"`
-	CreatedAt   string `json:"createdAt,omitempty"`
+	ID                int64               `json:"id"`
+	DiscName          string              `json:"discName"`
+	TitleName         string              `json:"titleName"`
+	ContentType       string              `json:"contentType"`
+	Status            string              `json:"status"`
+	Error             string              `json:"error,omitempty"`
+	OutputPath        string              `json:"outputPath,omitempty"`
+	Duration          string              `json:"duration,omitempty"`
+	CreatedAt         string              `json:"createdAt,omitempty"`
+	SizeHuman         string              `json:"sizeHuman,omitempty"`
+	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
+	SubtitleLanguages []string            `json:"subtitleLanguages,omitempty"`
+}
+
+// parseTrackMetadata deserializes a raw JSON track_metadata string from the DB.
+// Returns a zero-value TrackMetadata on empty input or parse error.
+func parseTrackMetadata(raw string) ripper.TrackMetadata {
+	if raw == "" {
+		return ripper.TrackMetadata{}
+	}
+	var m ripper.TrackMetadata
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		slog.Warn("failed to parse track_metadata", "error", err)
+	}
+	return m
 }
 
 func (s *Server) handleActivity(c echo.Context) error {
@@ -62,26 +83,34 @@ func (s *Server) handleActivity(c echo.Context) error {
 	if s.ripEngine != nil {
 		for _, j := range s.ripEngine.ActiveJobs() {
 			store.Active = append(store.Active, queueJobJSON{
-				ID:          j.ID,
-				DiscName:    j.DiscName,
-				TitleName:   j.TitleName,
-				ContentType: j.ContentType,
-				Status:      string(j.Status),
-				Progress:    j.Progress,
-				Error:       j.Error,
-				DriveIndex:  j.DriveIndex,
+				ID:                j.ID,
+				DiscName:          j.DiscName,
+				TitleName:         j.TitleName,
+				ContentType:       j.ContentType,
+				Status:            string(j.Status),
+				Progress:          j.Progress,
+				Error:             j.Error,
+				DriveIndex:        j.DriveIndex,
+				SizeHuman:         j.TrackMetadata.SizeHuman,
+				Duration:          j.TrackMetadata.Duration,
+				AudioTracks:       j.TrackMetadata.AudioTracks,
+				SubtitleLanguages: j.TrackMetadata.SubtitleLanguages,
 			})
 		}
 
 		// Queued (pending) jobs.
 		for _, j := range s.ripEngine.QueuedJobs() {
 			store.Pending = append(store.Pending, queueJobJSON{
-				ID:          j.ID,
-				DiscName:    j.DiscName,
-				TitleName:   j.TitleName,
-				ContentType: j.ContentType,
-				Status:      string(j.Status),
-				DriveIndex:  j.DriveIndex,
+				ID:                j.ID,
+				DiscName:          j.DiscName,
+				TitleName:         j.TitleName,
+				ContentType:       j.ContentType,
+				Status:            string(j.Status),
+				DriveIndex:        j.DriveIndex,
+				SizeHuman:         j.TrackMetadata.SizeHuman,
+				Duration:          j.TrackMetadata.Duration,
+				AudioTracks:       j.TrackMetadata.AudioTracks,
+				SubtitleLanguages: j.TrackMetadata.SubtitleLanguages,
 			})
 		}
 	}
@@ -99,16 +128,21 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 
 	for _, j := range append(completedJobs, failedJobs...) {
+		meta := parseTrackMetadata(j.TrackMetadata)
 		store.Completed = append(store.Completed, queueJobJSON{
-			ID:          j.ID,
-			DiscName:    j.DiscName,
-			TitleName:   j.TitleName,
-			ContentType: j.ContentType,
-			Status:      j.Status,
-			Progress:    j.Progress,
-			Error:       j.ErrorMessage,
-			DriveIndex:  j.DriveIndex,
-			FinishedAt:  j.UpdatedAt.Format("Jan 2 15:04"),
+			ID:                j.ID,
+			DiscName:          j.DiscName,
+			TitleName:         j.TitleName,
+			ContentType:       j.ContentType,
+			Status:            j.Status,
+			Progress:          j.Progress,
+			Error:             j.ErrorMessage,
+			DriveIndex:        j.DriveIndex,
+			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
+			SizeHuman:         meta.SizeHuman,
+			Duration:          meta.Duration,
+			AudioTracks:       meta.AudioTracks,
+			SubtitleLanguages: meta.SubtitleLanguages,
 		})
 	}
 
@@ -137,16 +171,20 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 
 	for _, j := range dbJobs {
+		meta := parseTrackMetadata(j.TrackMetadata)
 		store.History = append(store.History, activityHistoryJSON{
-			ID:          j.ID,
-			DiscName:    j.DiscName,
-			TitleName:   j.TitleName,
-			ContentType: j.ContentType,
-			Status:      j.Status,
-			Error:       j.ErrorMessage,
-			OutputPath:  j.OutputPath,
-			Duration:    j.Duration,
-			CreatedAt:   j.CreatedAt.Format("2006-01-02 15:04"),
+			ID:                j.ID,
+			DiscName:          j.DiscName,
+			TitleName:         j.TitleName,
+			ContentType:       j.ContentType,
+			Status:            j.Status,
+			Error:             j.ErrorMessage,
+			OutputPath:        j.OutputPath,
+			Duration:          j.Duration,
+			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
+			SizeHuman:         meta.SizeHuman,
+			AudioTracks:       meta.AudioTracks,
+			SubtitleLanguages: meta.SubtitleLanguages,
 		})
 	}
 
@@ -156,8 +194,11 @@ func (s *Server) handleActivity(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to build activity data.")
 	}
 
+	flash := c.QueryParam("flash")
+
 	return templates.Activity(templates.ActivityPageData{
 		StoreJSON: string(storeBytes),
+		Flash:     flash,
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 
