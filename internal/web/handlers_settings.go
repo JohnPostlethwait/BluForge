@@ -72,6 +72,8 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 		}
 
 		// Only update the key if the user provided a non-masked value.
+		// Unlike the GitHub secret guard, empty string IS allowed here — it
+		// clears the key, reverting MakeMKV to trial mode (intentional).
 		if makemkvKey != "••••••••" {
 			cfg.MakeMKVKey = makemkvKey
 		}
