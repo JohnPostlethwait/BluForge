@@ -25,7 +25,6 @@ document.addEventListener('alpine:init', () => {
 	store.searchError = ''
 	store.selecting = false
 	store.discPickerRelease = null
-	store.ripJobs = store.ripJobs || []
 	store.audioLangs = store.audioLanguages || []
 	store.subtitleLangs = store.subtitleLanguages || []
 	store.keepLossless = store.keepLossless !== undefined ? store.keepLossless : true
@@ -231,19 +230,6 @@ function contentTypeBadgeClass(t) {
 
 function selectedTitleCount() {
 	return Alpine.store('drive').titles.filter(t => t.selected).length
-}
-
-function activeRipJob() {
-	return Alpine.store('drive').ripJobs.find(j => j.Status === 'ripping' || j.Status === 'organizing')
-}
-
-function allRipJobsDone() {
-	const jobs = Alpine.store('drive').ripJobs
-	return jobs.length > 0 && jobs.every(j => j.Status === 'completed' || j.Status === 'failed' || j.Status === 'skipped')
-}
-
-function ripHasErrors() {
-	return Alpine.store('drive').ripJobs.some(j => j.Status === 'failed')
 }
 
 function ripStatusBadgeClass(status) {
@@ -689,126 +675,95 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 5" x-cloak class="step-content">
 			<div class="card">
-				<!-- Pre-rip confirmation (no jobs submitted yet) -->
-				<template x-if="$store.drive.ripJobs.length === 0">
-					<div>
-						<h2 class="section-title">Confirm &amp; Rip</h2>
+				<h2 class="section-title">Confirm &amp; Rip</h2>
 
-						<p class="text-secondary">
-							Ripping <strong x-text="selectedTitleCount()"></strong> title(s) from
-							<strong x-text="$store.drive.discName"></strong>
-						</p>
+				<p class="text-secondary">
+					Ripping <strong x-text="selectedTitleCount()"></strong> title(s) from
+					<strong x-text="$store.drive.discName"></strong>
+				</p>
 
-						<template x-if="$store.drive.selectedRelease">
-							<p class="text-secondary mt-2" style="font-size: 0.85rem;">
-								Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
-								(<span x-text="$store.drive.selectedRelease.year"></span>)
-								&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
-							</p>
-						</template>
-
-						<!-- Track selection summary -->
-						@templ.Raw(`<template x-if="$store.drive.audioLangs.length > 0 || $store.drive.subtitleLangs.length > 0">
-							<p class="text-secondary mt-2" style="font-size: 0.85rem;">
-								Tracks: Audio (<span x-text="$store.drive.audioLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
-								| Subtitles (<span x-text="$store.drive.subtitleLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
-								<span x-show="$store.drive.keepForcedSubs"> | Forced subs included</span>
-								<span x-show="hasLosslessAudio() && $store.drive.keepLossless"> | Lossless audio included</span>
-							</p>
-						</template>`)
-
-						<!-- Selected titles summary -->
-						<ul class="rip-summary-list mt-3">
-							<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
-								<li>
-									<span class="text-primary" x-text="t.outputName || t.sourceFile"></span>
-									<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.duration"></span>
-									<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.size"></span>
-								</li>
-							</template>
-						</ul>
-
-						<!-- Hidden form for actual submission -->
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)) }>
-							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-							<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
-							<input type="hidden" name="media_item_id"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''"/>
-							<input type="hidden" name="release_id"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''"/>
-							<input type="hidden" name="disc_id"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.discID : ''"/>
-							<input type="hidden" name="content_title"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''"/>
-							<input type="hidden" name="content_year"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''"/>
-							<input type="hidden" name="content_type"
-								x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''"/>
-
-							<!-- Per-title hidden fields -->
-							<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
-								<div>
-									@templ.Raw(`<input type="hidden" name="titles" :value="t.index"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
-									@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
-								</div>
-							</template>
-
-							<!-- Track selection hidden fields -->
-							@templ.Raw(`<input type="hidden" name="audio_langs" :value="$store.drive.audioLangs.filter(l => l.selected).map(l => l.code).join(',')"/>`)
-							@templ.Raw(`<input type="hidden" name="subtitle_langs" :value="$store.drive.subtitleLangs.filter(l => l.selected).map(l => l.code).join(',')"/>`)
-							@templ.Raw(`<input type="hidden" name="keep_forced_subs" :value="$store.drive.keepForcedSubs ? 'true' : 'false'"/>`)
-							@templ.Raw(`<input type="hidden" name="keep_lossless" :value="$store.drive.keepLossless ? 'true' : 'false'"/>`)
-
-							<!-- Duplicate handling -->
-							<div class="mt-3" style="display:flex; align-items:center; gap:0.75rem;">
-								<label style="margin-bottom:0; white-space:nowrap;" class="text-secondary">If file already exists:</label>
-								<select name="duplicate_action" style="width:auto; min-width:140px;">
-									<option value="skip" selected>Skip</option>
-									<option value="overwrite">Overwrite</option>
-									<option value="rename">Rename</option>
-								</select>
-							</div>
-
-							<div class="mt-4" style="display:flex; gap:0.75rem; justify-content:flex-end;">
-								<button type="button" class="btn btn-secondary" x-on:click="goToStep(4)">&larr; Back to Titles</button>
-								<button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">Start Rip</button>
-							</div>
-						</form>
-					</div>
+				<template x-if="$store.drive.selectedRelease">
+					<p class="text-secondary mt-2" style="font-size: 0.85rem;">
+						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
+						(<span x-text="$store.drive.selectedRelease.year"></span>)
+						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+					</p>
 				</template>
 
-				<div x-show="$store.drive.ripJobs.length !== 0" x-cloak aria-live="polite">
-					<h2 class="section-title">
-						<span x-show="!allRipJobsDone()">Ripping in Progress</span>
-						<span x-show="allRipJobsDone() && !ripHasErrors()" x-cloak>Rip Complete</span>
-						<span x-show="allRipJobsDone() && ripHasErrors()" x-cloak>Rip Complete (with errors)</span>
-					</h2>
+				<!-- Track selection summary -->
+				@templ.Raw(`<template x-if="$store.drive.audioLangs.length > 0 || $store.drive.subtitleLangs.length > 0">
+					<p class="text-secondary mt-2" style="font-size: 0.85rem;">
+						Tracks: Audio (<span x-text="$store.drive.audioLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
+						| Subtitles (<span x-text="$store.drive.subtitleLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
+						<span x-show="$store.drive.keepForcedSubs"> | Forced subs included</span>
+						<span x-show="hasLosslessAudio() && $store.drive.keepLossless"> | Lossless audio included</span>
+					</p>
+				</template>`)
 
-					<div style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;">
-						<template x-for="job in $store.drive.ripJobs" :key="job.ID">
-							<div style="border:1px solid var(--border); border-radius:6px; padding:0.75rem 1rem;">
-								<div style="display:flex; justify-content:space-between; align-items:center;">
-									<span class="text-secondary" x-text="job.TitleName || job.DiscName"></span>
-									<span :class="ripStatusBadgeClass(job.Status)" x-text="job.Status"></span>
-								</div>
-								<template x-if="job.Status === 'ripping' || job.Status === 'organizing'">
-									<div style="margin-top:0.5rem;">
-										@components.ProgressBarDynamic("job.Progress || 0", "height:6px;")
-										<div class="text-muted mt-1" style="font-size:0.78rem;"><span x-text="(job.Progress || 0) + '%'"></span> complete</div>
-									</div>
-								</template>
-								@templ.Raw(`<template x-if="job.Status === 'failed' && job.Error"><div class="text-muted mt-1" style="font-size:0.78rem;" x-text="job.Error"></div></template>`)
-							</div>
-						</template>
+				<!-- Selected titles summary -->
+				<ul class="rip-summary-list mt-3">
+					<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
+						<li>
+							<span class="text-primary" x-text="t.outputName || t.sourceFile"></span>
+							<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.duration"></span>
+							<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.size"></span>
+						</li>
+					</template>
+				</ul>
+
+				<!-- Hidden form for actual submission -->
+				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/drives/%d/rip", data.DriveIndex)) }>
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+					<input type="hidden" name="disc_name" x-bind:value="$store.drive.discName"/>
+					<input type="hidden" name="media_item_id"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.mediaItemID : ''"/>
+					<input type="hidden" name="release_id"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.releaseID : ''"/>
+					<input type="hidden" name="disc_id"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.discID : ''"/>
+					<input type="hidden" name="content_title"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.title : ''"/>
+					<input type="hidden" name="content_year"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.year : ''"/>
+					<input type="hidden" name="content_type"
+						x-bind:value="$store.drive.selectedRelease ? $store.drive.selectedRelease.type : ''"/>
+
+					<!-- Per-title hidden fields -->
+					<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
+						<div>
+							@templ.Raw(`<input type="hidden" name="titles" :value="t.index"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
+						</div>
+					</template>
+
+					<!-- Track selection hidden fields -->
+					@templ.Raw(`<input type="hidden" name="audio_langs" :value="$store.drive.audioLangs.filter(l => l.selected).map(l => l.code).join(',')"/>`)
+					@templ.Raw(`<input type="hidden" name="subtitle_langs" :value="$store.drive.subtitleLangs.filter(l => l.selected).map(l => l.code).join(',')"/>`)
+					@templ.Raw(`<input type="hidden" name="keep_forced_subs" :value="$store.drive.keepForcedSubs ? 'true' : 'false'"/>`)
+					@templ.Raw(`<input type="hidden" name="keep_lossless" :value="$store.drive.keepLossless ? 'true' : 'false'"/>`)
+
+					<!-- Duplicate handling -->
+					<div class="mt-3" style="display:flex; align-items:center; gap:0.75rem;">
+						<label style="margin-bottom:0; white-space:nowrap;" class="text-secondary">If file already exists:</label>
+						<select name="duplicate_action" style="width:auto; min-width:140px;">
+							<option value="skip" selected>Skip</option>
+							<option value="overwrite">Overwrite</option>
+							<option value="rename">Rename</option>
+						</select>
 					</div>
-					@templ.Raw(`<div x-show="allRipJobsDone() && !ripHasErrors()" x-cloak class="alert alert-success" role="status">All titles ripped successfully. You can eject the disc or <a href="/activity?tab=history" style="color:inherit;text-decoration:underline;">view activity</a>.</div>`)
-					@templ.Raw(`<div x-show="allRipJobsDone() && ripHasErrors()" x-cloak><div class="alert alert-error" role="alert">One or more titles failed. Check the errors above or <a href="/activity" style="color:inherit;text-decoration:underline;">view activity</a> for details.</div><div class="mt-3" style="display:flex;gap:0.75rem;justify-content:flex-end;"><button class="btn btn-secondary" x-on:click="goToStep(4)">Back to Titles</button></div></div>`)
-				</div>
+
+					<div class="mt-4" style="display:flex; gap:0.75rem; justify-content:flex-end;">
+						<button type="button" class="btn btn-secondary" x-on:click="goToStep(4)">&larr; Back to Titles</button>
+						<button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">Start Rip</button>
+					</div>
+				</form>
+
+				<p class="text-muted" style="margin-top:1rem; font-size:0.9em;">After starting, track progress on the <a href="/activity" style="color:inherit;text-decoration:underline;">Activity</a> page.</p>
 			</div>
 		</div>
 	}
