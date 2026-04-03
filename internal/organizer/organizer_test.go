@@ -69,3 +69,40 @@ func TestAtomicMove(t *testing.T) {
 		t.Errorf("destination content = %q, want %q", got, content)
 	}
 }
+
+func TestNonCollidingPath_NoCollision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Iron Man.mkv")
+	// File does not exist — should be returned unchanged.
+	got := NonCollidingPath(path)
+	if got != path {
+		t.Errorf("NonCollidingPath = %q, want %q", got, path)
+	}
+}
+
+func TestNonCollidingPath_OneCollision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Iron Man.mkv")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "Iron Man (1).mkv")
+	got := NonCollidingPath(path)
+	if got != want {
+		t.Errorf("NonCollidingPath = %q, want %q", got, want)
+	}
+}
+
+func TestNonCollidingPath_MultipleCollisions(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"Iron Man.mkv", "Iron Man (1).mkv"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(dir, "Iron Man (2).mkv")
+	got := NonCollidingPath(filepath.Join(dir, "Iron Man.mkv"))
+	if got != want {
+		t.Errorf("NonCollidingPath = %q, want %q", got, want)
+	}
+}

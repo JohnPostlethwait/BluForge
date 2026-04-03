@@ -1,6 +1,7 @@
 package organizer
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -59,6 +60,23 @@ func FileExists(path string) bool {
 	}
 	// Reject symlinks to prevent symlink-based path attacks.
 	return info.Mode()&os.ModeSymlink == 0
+}
+
+// NonCollidingPath returns path if it does not exist on disk. Otherwise it
+// appends " (1)", " (2)", etc. to the stem until a free path is found.
+func NonCollidingPath(path string) string {
+	if !FileExists(path) {
+		return path
+	}
+	ext := filepath.Ext(filepath.Base(path))
+	stem := strings.TrimSuffix(filepath.Base(path), ext)
+	dir := filepath.Dir(path)
+	for i := 1; ; i++ {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+		if !FileExists(candidate) {
+			return candidate
+		}
+	}
 }
 
 // copyFile copies the content of src to dst, preserving permissions.
