@@ -152,15 +152,17 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	}
 
 	// 4. Create DB job.
+	metaJSON, _ := json.Marshal(sel.TrackMetadata)
 	jobID, err := o.store.CreateJob(db.RipJob{
-		DriveIndex:  params.DriveIndex,
-		DiscName:    params.DiscName,
-		TitleIndex:  sel.TitleIndex,
-		TitleName:   sel.TitleName,
-		ContentType: sel.ContentType,
-		OutputPath:  fullDest,
-		Status:      "ripping",
-		SizeBytes:   sel.SizeBytes,
+		DriveIndex:    params.DriveIndex,
+		DiscName:      params.DiscName,
+		TitleIndex:    sel.TitleIndex,
+		TitleName:     sel.TitleName,
+		ContentType:   sel.ContentType,
+		OutputPath:    fullDest,
+		Status:        "ripping",
+		SizeBytes:     sel.SizeBytes,
+		TrackMetadata: string(metaJSON),
 	})
 	if err != nil {
 		return TitleResult{
@@ -177,6 +179,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob.ID = jobID
 	ripJob.TitleName = sel.TitleName
 	ripJob.ContentType = sel.ContentType
+	ripJob.TrackMetadata = sel.TrackMetadata
 	ripJob.SelectionOpts = params.SelectionOpts
 
 	// OnStart: create the per-title subdir inside the shared parent temp dir.
@@ -417,19 +420,21 @@ func (o *Orchestrator) Rescan(ctx context.Context, driveIndex int) error {
 // titles in the scan.
 func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.DiscMapping) []TitleSelection {
 	titles := make([]TitleSelection, 0, len(scan.Titles))
-	for _, t := range scan.Titles {
+	for i := range scan.Titles {
+		t := &scan.Titles[i]
 		var sizeBytes int64
 		if s := t.SizeBytes(); s != "" {
 			fmt.Sscanf(s, "%d", &sizeBytes)
 		}
 		titles = append(titles, TitleSelection{
-			TitleIndex:   t.Index,
-			TitleName:    t.Name(),
-			SourceFile:   t.SourceFile(),
-			SizeBytes:    sizeBytes,
-			ContentType:  mapping.MediaType,
-			ContentTitle: mapping.MediaTitle,
-			Year:         mapping.MediaYear,
+			TitleIndex:    t.Index,
+			TitleName:     t.Name(),
+			SourceFile:    t.SourceFile(),
+			SizeBytes:     sizeBytes,
+			ContentType:   mapping.MediaType,
+			ContentTitle:  mapping.MediaTitle,
+			Year:          mapping.MediaYear,
+			TrackMetadata: buildTrackMetadata(t),
 		})
 	}
 	return titles
@@ -476,15 +481,18 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 	titles := make([]TitleSelection, 0, len(scan.Titles))
 
 	for _, cm := range matches {
-		// Find the scan title for size info.
+		// Find the scan title for size info and track metadata.
 		var sizeBytes int64
 		var titleName string
-		for _, t := range scan.Titles {
-			if t.Index == cm.TitleIndex {
+		var matchedTitle *makemkv.TitleInfo
+		for i := range scan.Titles {
+			if scan.Titles[i].Index == cm.TitleIndex {
+				t := &scan.Titles[i]
 				if s := t.SizeBytes(); s != "" {
 					fmt.Sscanf(s, "%d", &sizeBytes)
 				}
 				titleName = t.Name()
+				matchedTitle = t
 				break
 			}
 		}
@@ -494,6 +502,10 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 			TitleName:  titleName,
 			SourceFile: cm.SourceFile,
 			SizeBytes:  sizeBytes,
+		}
+
+		if matchedTitle != nil {
+			sel.TrackMetadata = buildTrackMetadata(matchedTitle)
 		}
 
 		if cm.Matched {
@@ -513,16 +525,18 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 // organizer will place them in an unmatched directory.
 func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection {
 	titles := make([]TitleSelection, 0, len(scan.Titles))
-	for _, t := range scan.Titles {
+	for i := range scan.Titles {
+		t := &scan.Titles[i]
 		var sizeBytes int64
 		if s := t.SizeBytes(); s != "" {
 			fmt.Sscanf(s, "%d", &sizeBytes)
 		}
 		titles = append(titles, TitleSelection{
-			TitleIndex: t.Index,
-			TitleName:  t.Name(),
-			SourceFile: t.SourceFile(),
-			SizeBytes:  sizeBytes,
+			TitleIndex:    t.Index,
+			TitleName:     t.Name(),
+			SourceFile:    t.SourceFile(),
+			SizeBytes:     sizeBytes,
+			TrackMetadata: buildTrackMetadata(t),
 		})
 	}
 	return titles
@@ -534,6 +548,35 @@ func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) 
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
 	o.scanCache[key] = scan
+}
+
+// buildTrackMetadata extracts audio and subtitle metadata from a scanned title.
+func buildTrackMetadata(t *makemkv.TitleInfo) ripper.TrackMetadata {
+	var meta ripper.TrackMetadata
+	meta.Duration = t.Duration()
+	meta.SizeHuman = t.SizeHuman()
+	if s := t.SizeBytes(); s != "" {
+		fmt.Sscanf(s, "%d", &meta.SizeBytes)
+	}
+	seen := make(map[string]bool)
+	for i := range t.Streams {
+		s := &t.Streams[i]
+		switch s.Type() {
+		case "audio":
+			meta.AudioTracks = append(meta.AudioTracks, ripper.AudioTrack{
+				Language: s.LangName(),
+				Codec:    s.CodecShort(),
+				Channels: s.Channels(),
+			})
+		case "subtitle":
+			lang := s.LangName()
+			if lang != "" && !seen[lang] {
+				seen[lang] = true
+				meta.SubtitleLanguages = append(meta.SubtitleLanguages, lang)
+			}
+		}
+	}
+	return meta
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.

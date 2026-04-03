@@ -20,6 +20,22 @@ const (
 	StatusSkipped    JobStatus = "skipped"
 )
 
+// AudioTrack describes a single audio stream on a title.
+type AudioTrack struct {
+	Language string // e.g. "English"
+	Codec    string // e.g. "TrueHD"
+	Channels string // e.g. "7.1"
+}
+
+// TrackMetadata holds rich metadata about a title captured at scan time.
+type TrackMetadata struct {
+	SizeBytes         int64
+	SizeHuman         string
+	Duration          string
+	AudioTracks       []AudioTrack
+	SubtitleLanguages []string
+}
+
 // Job tracks the state of a single title rip operation.
 // JSON tags use uppercase names to match the existing SSE contract consumed
 // by Alpine.js in drive_detail.templ and queue.templ.
@@ -48,6 +64,9 @@ type Job struct {
 	// SelectionOpts holds optional track selection criteria for this job.
 	// Not serialized — used only during rip execution.
 	SelectionOpts *makemkv.SelectionOpts `json:"-"`
+	// TrackMetadata holds scan-time metadata for this title.
+	// Included in JSON serialization so SSE broadcasts carry it.
+	TrackMetadata TrackMetadata `json:"TrackMetadata,omitempty"`
 	// cancel stops the rip in progress. Set by the engine when the job starts.
 	cancel context.CancelFunc `json:"-"`
 }
@@ -112,17 +131,18 @@ func (j *Job) Snapshot() Job {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return Job{
-		ID:          j.ID,
-		DriveIndex:  j.DriveIndex,
-		TitleIndex:  j.TitleIndex,
-		DiscName:    j.DiscName,
-		TitleName:   j.TitleName,
-		ContentType: j.ContentType,
-		Status:      j.Status,
-		Progress:    j.Progress,
-		Error:       j.Error,
-		StartedAt:   j.StartedAt,
-		FinishedAt:  j.FinishedAt,
+		ID:            j.ID,
+		DriveIndex:    j.DriveIndex,
+		TitleIndex:    j.TitleIndex,
+		DiscName:      j.DiscName,
+		TitleName:     j.TitleName,
+		ContentType:   j.ContentType,
+		Status:        j.Status,
+		Progress:      j.Progress,
+		Error:         j.Error,
+		StartedAt:     j.StartedAt,
+		FinishedAt:    j.FinishedAt,
+		TrackMetadata: j.TrackMetadata,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 // ActivityPageData holds all data needed to render the activity page.
 type ActivityPageData struct {
 	StoreJSON string // JSON blob for Alpine.store('activity') hydration
+	Flash     string
 }
 
 templ Activity(data ActivityPageData) {
@@ -44,6 +45,10 @@ document.addEventListener('alpine:init', () => {
 					progress: job.Progress,
 					error: job.Error || '',
 					finishedAt: new Date().toLocaleString(),
+					sizeHuman: active.sizeHuman || '',
+					duration: active.duration || '',
+					audioTracks: active.audioTracks || [],
+					subtitleLanguages: active.subtitleLanguages || [],
 				})
 
 				// Also add to history so it appears in the History tab immediately.
@@ -57,6 +62,9 @@ document.addEventListener('alpine:init', () => {
 					duration: '',
 					outputPath: '',
 					createdAt: new Date().toLocaleString(),
+					sizeHuman: active.sizeHuman || '',
+					audioTracks: active.audioTracks || [],
+					subtitleLanguages: active.subtitleLanguages || [],
 				})
 
 				// Promote next queued job to active.
@@ -148,6 +156,13 @@ async function clearFiltered(btn, search, status) {
 			<h1>Activity</h1>
 		</div>
 
+		if data.Flash != "" {
+			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success" role="status" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+				<span>{ data.Flash }</span>
+				<button class="btn btn-sm" style="padding:0.1rem 0.5rem;" @click="show = false" aria-label="Dismiss">&times;</button>
+			</div>
+		}
+
 		<!-- Tab Bar -->
 		<div class="tab-bar" x-data role="tablist" aria-label="Activity views"
 			x-on:keydown.arrow-right.prevent="$el.querySelector('[role=tab]:not(.tab-active)')?.focus()?.click()"
@@ -189,37 +204,33 @@ async function clearFiltered(btn, search, status) {
 					<div class="empty-state"><p>No active jobs.</p></div>
 				</template>
 				<template x-if="$store.activity.active.length > 0">
-					<div style="overflow-x:auto;"><table>
-						<thead>
-							<tr>
-								<th scope="col">Disc</th>
-								<th scope="col">Title</th>
-								<th scope="col">Type</th>
-								<th scope="col">Progress</th>
-								<th scope="col"><span class="sr-only">Actions</span></th>
-							</tr>
-						</thead>
-						<tbody>
-							<template x-for="j in $store.activity.active" :key="j.id">
-								<tr :aria-label="'Active rip job for ' + j.discName">
-									<td>
-										<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
-									</td>
-									<td x-text="j.titleName"></td>
-									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
-									<td style="min-width: 140px;">
-										<div style="display:flex; align-items:center; gap:0.5rem;">
-											<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
-											@components.ProgressBarDynamic("j.progress", "flex:1;")
+					<div>
+						<template x-for="j in $store.activity.active" :key="j.id">
+							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Rip job: ' + j.titleName">
+								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+									<div>
+										<div style="font-weight:600;" x-text="j.titleName"></div>
+										<div class="text-muted" style="font-size:0.85em;">
+											<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
 										</div>
-									</td>
-									<td>
-										<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
-									</td>
-								</tr>
-							</template>
-						</tbody>
-					</table></div>
+									</div>
+									<span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span>
+								</div>
+								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
+									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
+									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + j.audioTracks.map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
+									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + j.subtitleLanguages.join(', ')"></span>
+								</div>
+								<div style="display:flex; align-items:center; gap:0.5rem;">
+									<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
+									@components.ProgressBarDynamic("j.progress", "flex:1;")
+								</div>
+								<div style="text-align:right; margin-top:0.5rem;">
+									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
+								</div>
+							</div>
+						</template>
+					</div>
 				</template>
 			</div>
 
@@ -230,32 +241,30 @@ async function clearFiltered(btn, search, status) {
 					<div class="empty-state"><p>No pending jobs.</p></div>
 				</template>
 				<template x-if="$store.activity.pending.length > 0">
-					<div style="overflow-x:auto;"><table>
-						<thead>
-							<tr>
-								<th scope="col">Disc</th>
-								<th scope="col">Title</th>
-								<th scope="col">Type</th>
-								<th scope="col">Status</th>
-								<th scope="col"><span class="sr-only">Actions</span></th>
-							</tr>
-						</thead>
-						<tbody>
-							<template x-for="j in $store.activity.pending" :key="j.id">
-								<tr>
-									<td>
-										<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
-									</td>
-									<td x-text="j.titleName"></td>
-									<td><span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span></td>
-									<td><span class="badge badge-pending">queued</span></td>
-									<td>
-										<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Remove</button>
-									</td>
-								</tr>
-							</template>
-						</tbody>
-					</table></div>
+					<div>
+						<template x-for="j in $store.activity.pending" :key="j.id">
+							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Queued job: ' + j.titleName">
+								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+									<div>
+										<div style="font-weight:600;" x-text="j.titleName"></div>
+										<div class="text-muted" style="font-size:0.85em;">
+											<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
+										</div>
+									</div>
+									<div style="display:flex; gap:0.5rem; align-items:center;">
+										<span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span>
+										<span class="badge badge-pending">queued</span>
+									</div>
+								</div>
+								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration">
+									<span x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
+								</div>
+								<div style="text-align:right; margin-top:0.5rem;">
+									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Remove</button>
+								</div>
+							</div>
+						</template>
+					</div>
 				</template>
 			</div>
 
@@ -288,44 +297,39 @@ async function clearFiltered(btn, search, status) {
 					<div class="empty-state"><p>No rip history yet.</p></div>
 				</template>
 				<template x-if="$store.activity.history.length > 0">
-					<div style="overflow-x:auto;">
-						<table>
-							<thead>
-								<tr>
-									<th scope="col">Date</th>
-									<th scope="col">Disc</th>
-									<th scope="col">Title</th>
-									<th scope="col">Type</th>
-									<th scope="col">Status</th>
-									<th scope="col">Duration</th>
-									<th scope="col">Output</th>
-								</tr>
-							</thead>
-							<tbody>
-								<template x-for="r in $store.activity.history.filter(r => {
-									const matchesText = !filter || r.discName.toLowerCase().includes(filter.toLowerCase()) || r.titleName.toLowerCase().includes(filter.toLowerCase())
-									const matchesStatus = statusFilter === 'all' || r.status === statusFilter
-									return matchesText && matchesStatus
-								})" :key="r.id">
-									<tr :class="{'row-failed': r.status === 'failed'}">
-										<td class="text-muted" x-text="r.createdAt"></td>
-										<td x-text="r.discName"></td>
-										<td x-text="r.titleName"></td>
-										<td><span class="badge" :class="'badge-' + r.contentType" x-text="r.contentType || '—'"></span></td>
-										<td><span class="badge" :class="'badge-' + r.status" x-text="r.status"></span></td>
-										<td class="text-secondary" x-text="r.duration"></td>
-										<td>
-											<template x-if="r.outputPath">
-												<span class="text-muted" x-text="r.outputPath"></span>
-											</template>
-											<template x-if="!r.outputPath">
-												<span class="text-muted">&mdash;</span>
-											</template>
-										</td>
-									</tr>
-								</template>
-							</tbody>
-						</table>
+					<div>
+						<template x-for="r in $store.activity.history.filter(r => {
+							const matchesText = !filter || r.discName.toLowerCase().includes(filter.toLowerCase()) || r.titleName.toLowerCase().includes(filter.toLowerCase())
+							const matchesStatus = statusFilter === 'all' || r.status === statusFilter
+							return matchesText && matchesStatus
+						})" :key="r.id">
+							<div class="card" style="margin-bottom:0.75rem;" :class="{'row-failed': r.status === 'failed'}">
+								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.4rem;">
+									<div>
+										<div style="font-weight:600;" x-text="r.titleName"></div>
+										<div class="text-muted" style="font-size:0.85em;" x-text="r.discName"></div>
+									</div>
+									<div style="display:flex; gap:0.5rem; align-items:center;">
+										<span class="badge" :class="'badge-' + r.contentType" x-text="r.contentType || '—'"></span>
+										<span class="badge" :class="'badge-' + r.status" x-text="r.status"></span>
+									</div>
+								</div>
+								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.4rem;" x-show="r.sizeHuman || r.duration || (r.audioTracks && r.audioTracks.length) || (r.subtitleLanguages && r.subtitleLanguages.length)">
+									<span x-show="r.sizeHuman || r.duration" x-text="[r.sizeHuman, r.duration].filter(Boolean).join(' · ')"></span>
+									<span x-show="r.audioTracks && r.audioTracks.length" x-text="(r.sizeHuman || r.duration ? ' · ' : '') + r.audioTracks.map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
+									<span x-show="r.subtitleLanguages && r.subtitleLanguages.length" x-text="' · Subs: ' + r.subtitleLanguages.join(', ')"></span>
+								</div>
+								<div class="text-muted" style="font-size:0.8em;">
+									<span x-text="r.createdAt"></span>
+									<template x-if="r.outputPath">
+										<span> · <span x-text="r.outputPath"></span></span>
+									</template>
+									<template x-if="r.error">
+										<span style="color: var(--color-danger, #e53e3e);"> · <span x-text="r.error"></span></span>
+									</template>
+								</div>
+							</div>
+						</template>
 					</div>
 				</template>
 

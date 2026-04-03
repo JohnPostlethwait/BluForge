@@ -536,3 +536,26 @@ func TestDeleteJobsByFilter_TitleNameSearch(t *testing.T) {
 		t.Error("id2 (title didn't match) should still exist but was deleted")
 	}
 }
+
+func TestCreateJob_TrackMetadata(t *testing.T) {
+	store := openTestDB(t)
+	meta := `{"SizeBytes":1000,"SizeHuman":"1 KB","Duration":"1:00:00","AudioTracks":[{"Language":"English","Codec":"TrueHD","Channels":"7.1"}],"SubtitleLanguages":["English"]}`
+	id, err := store.CreateJob(RipJob{
+		DriveIndex:    0,
+		DiscName:      "DISC",
+		TitleIndex:    1,
+		TitleName:     "Feature",
+		Status:        "pending",
+		TrackMetadata: meta,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetJob(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TrackMetadata != meta {
+		t.Errorf("track_metadata: got %q, want %q", got.TrackMetadata, meta)
+	}
+}

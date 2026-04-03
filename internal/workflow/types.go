@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
 // TitleSelection represents a user's choice of which title to rip and its metadata.
@@ -19,6 +20,8 @@ type TitleSelection struct {
 	Season       string
 	Episode      string
 	EpisodeTitle string
+	// TrackMetadata is populated from the disc scan for richer activity page display.
+	TrackMetadata ripper.TrackMetadata
 }
 
 // ManualRipParams holds everything needed to initiate a manual rip from the UI.
