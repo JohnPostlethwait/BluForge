@@ -14,8 +14,10 @@ import (
 
 const activityHistoryPageSize = 50
 
-// queueJobJSON is the Alpine store shape for a single queue/active job.
-type queueJobJSON struct {
+// activityJobJSON is the Alpine store shape for any job in the activity view,
+// covering active, pending, completed, and history states. Fields not relevant
+// to a given state are omitted from JSON output via omitempty.
+type activityJobJSON struct {
 	ID                int64               `json:"id"`
 	DiscName          string              `json:"discName"`
 	TitleName         string              `json:"titleName"`
@@ -29,32 +31,18 @@ type queueJobJSON struct {
 	Duration          string              `json:"duration,omitempty"`
 	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
 	SubtitleLanguages []string            `json:"subtitleLanguages,omitempty"`
+	OutputPath        string              `json:"outputPath,omitempty"`
+	CreatedAt         string              `json:"createdAt,omitempty"`
 }
 
 // activityStoreJSON is the Alpine.store('activity') shape.
 type activityStoreJSON struct {
-	Active    []queueJobJSON      `json:"active"`
-	Pending   []queueJobJSON      `json:"pending"`
-	Completed []queueJobJSON      `json:"completed"`
-	History   []activityHistoryJSON `json:"history"`
-	Page      int                  `json:"page"`
-	HasMore   bool                 `json:"hasMore"`
-}
-
-// activityHistoryJSON extends the job shape with history-specific fields.
-type activityHistoryJSON struct {
-	ID                int64               `json:"id"`
-	DiscName          string              `json:"discName"`
-	TitleName         string              `json:"titleName"`
-	ContentType       string              `json:"contentType"`
-	Status            string              `json:"status"`
-	Error             string              `json:"error,omitempty"`
-	OutputPath        string              `json:"outputPath,omitempty"`
-	Duration          string              `json:"duration,omitempty"`
-	CreatedAt         string              `json:"createdAt,omitempty"`
-	SizeHuman         string              `json:"sizeHuman,omitempty"`
-	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
-	SubtitleLanguages []string            `json:"subtitleLanguages,omitempty"`
+	Active    []activityJobJSON `json:"active"`
+	Pending   []activityJobJSON `json:"pending"`
+	Completed []activityJobJSON `json:"completed"`
+	History   []activityJobJSON `json:"history"`
+	Page      int               `json:"page"`
+	HasMore   bool              `json:"hasMore"`
 }
 
 // parseTrackMetadata deserializes a raw JSON track_metadata string from the DB.
@@ -72,17 +60,17 @@ func parseTrackMetadata(raw string) ripper.TrackMetadata {
 
 func (s *Server) handleActivity(c echo.Context) error {
 	store := activityStoreJSON{
-		Active:    make([]queueJobJSON, 0),
-		Pending:   make([]queueJobJSON, 0),
-		Completed: make([]queueJobJSON, 0),
-		History:   make([]activityHistoryJSON, 0),
+		Active:    make([]activityJobJSON, 0),
+		Pending:   make([]activityJobJSON, 0),
+		Completed: make([]activityJobJSON, 0),
+		History:   make([]activityJobJSON, 0),
 		Page:      1,
 	}
 
 	// Active jobs from the rip engine.
 	if s.ripEngine != nil {
 		for _, j := range s.ripEngine.ActiveJobs() {
-			store.Active = append(store.Active, queueJobJSON{
+			store.Active = append(store.Active, activityJobJSON{
 				ID:                j.ID,
 				DiscName:          j.DiscName,
 				TitleName:         j.TitleName,
@@ -100,7 +88,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 
 		// Queued (pending) jobs.
 		for _, j := range s.ripEngine.QueuedJobs() {
-			store.Pending = append(store.Pending, queueJobJSON{
+			store.Pending = append(store.Pending, activityJobJSON{
 				ID:                j.ID,
 				DiscName:          j.DiscName,
 				TitleName:         j.TitleName,
@@ -129,7 +117,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 
 	for _, j := range append(completedJobs, failedJobs...) {
 		meta := parseTrackMetadata(j.TrackMetadata)
-		store.Completed = append(store.Completed, queueJobJSON{
+		store.Completed = append(store.Completed, activityJobJSON{
 			ID:                j.ID,
 			DiscName:          j.DiscName,
 			TitleName:         j.TitleName,
@@ -172,7 +160,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 
 	for _, j := range dbJobs {
 		meta := parseTrackMetadata(j.TrackMetadata)
-		store.History = append(store.History, activityHistoryJSON{
+		store.History = append(store.History, activityJobJSON{
 			ID:                j.ID,
 			DiscName:          j.DiscName,
 			TitleName:         j.TitleName,

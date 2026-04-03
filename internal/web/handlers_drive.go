@@ -427,11 +427,15 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 	}
 	var audioTracks []ripper.AudioTrack
 	if raw := c.FormValue(fmt.Sprintf("title_audio_tracks_%d", titleIdx)); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &audioTracks)
+		if err := json.Unmarshal([]byte(raw), &audioTracks); err != nil {
+			slog.Warn("failed to parse title audio tracks from form", "title_index", titleIdx, "error", err)
+		}
 	}
 	var subtitleLangs []string
 	if raw := c.FormValue(fmt.Sprintf("title_subtitle_langs_%d", titleIdx)); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &subtitleLangs)
+		if err := json.Unmarshal([]byte(raw), &subtitleLangs); err != nil {
+			slog.Warn("failed to parse title subtitle langs from form", "title_index", titleIdx, "error", err)
+		}
 	}
 	return workflow.TitleSelection{
 		TitleIndex:   titleIdx,
