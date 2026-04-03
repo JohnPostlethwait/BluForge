@@ -134,8 +134,12 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			// Compute a non-colliding path. fullDest is captured by the
 			// OnComplete closure below, so reassigning it here is sufficient.
 			fullDest = organizer.NonCollidingPath(fullDest)
+		case "overwrite":
+			// Intentional fall-through: AtomicMove overwrites by default.
+		default:
+			slog.Warn("unknown duplicate_action, defaulting to overwrite",
+				"action", params.DuplicateAction, "dest", fullDest)
 		}
-		// "overwrite" falls through — AtomicMove overwrites by default.
 	}
 
 	// 3. Check disk space.
