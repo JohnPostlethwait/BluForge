@@ -227,15 +227,17 @@ type scanner interface {
 
 func scanJob(s scanner) (*RipJob, error) {
 	var job RipJob
+	var trackMeta sql.NullString
 	err := s.Scan(
 		&job.ID, &job.DriveIndex, &job.DiscName, &job.TitleIndex, &job.TitleName,
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
-		&job.CreatedAt, &job.UpdatedAt, &job.TrackMetadata,
+		&job.CreatedAt, &job.UpdatedAt, &trackMeta,
 	)
 	if err != nil {
 		return nil, err
 	}
+	job.TrackMetadata = trackMeta.String
 
 	return &job, nil
 }
