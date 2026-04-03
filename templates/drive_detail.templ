@@ -221,10 +221,7 @@ function sortedTitles() {
 
 function contentTypeBadgeClass(t) {
 	if (!t.matched || !t.contentType) return ''
-	const ct = t.contentType.toLowerCase()
-	if (EPISODE_TYPES.includes(ct)) return 'badge badge-episode'
-	if (ct === 'movie') return 'badge badge-movie'
-	return 'badge badge-extra'
+	return 'badge badge-' + t.contentType
 }
 
 function selectedTitleCount() {

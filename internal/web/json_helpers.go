@@ -40,7 +40,7 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			tj.Matched = true
 			tj.Selected = true
 			tj.ContentTitle = m.ContentTitle
-			tj.ContentType = m.ContentType
+			tj.ContentType = normalizeContentType(m.ContentType)
 			tj.Season = m.Season
 			tj.Episode = m.Episode
 			tj.OutputName = buildOutputName(m)
@@ -199,7 +199,7 @@ func ripJobToJSON(j *ripper.Job) RipJobJSON {
 		TitleIndex:  snap.TitleIndex,
 		DiscName:    snap.DiscName,
 		TitleName:   snap.TitleName,
-		ContentType: snap.ContentType,
+		ContentType: normalizeContentType(snap.ContentType),
 		Status:      string(snap.Status),
 		Progress:    snap.Progress,
 		Error:       snap.Error,
@@ -389,6 +389,27 @@ func splitLangCodes(s string) []string {
 		}
 	}
 	return out
+}
+
+// normalizeContentType maps raw TheDiscDB ItemType values to a canonical lowercase
+// set that matches the CSS badge classes: movie, episode, series, extra, unknown.
+// Returns "" for empty input so omitempty JSON tags suppress the field.
+func normalizeContentType(ct string) string {
+	switch strings.ToLower(ct) {
+	case "movie":
+		return "movie"
+	case "episode":
+		return "episode"
+	case "series":
+		return "series"
+	case "extra", "deletedscene", "featurette", "behindthescenes",
+		"interview", "scene", "short", "trailer":
+		return "extra"
+	case "":
+		return ""
+	default:
+		return "unknown"
+	}
 }
 
 // discHasLosslessAudio reports whether any title in scan has lossless audio.

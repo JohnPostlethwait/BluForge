@@ -253,7 +253,7 @@ async function clearFiltered(btn, search, status) {
 									</div>
 									<div style="display:flex; gap:0.5rem; align-items:center;">
 										<span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span>
-										<span class="badge badge-pending">queued</span>
+										<span class="badge badge-pending" x-text="j.status || 'pending'"></span>
 									</div>
 								</div>
 								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration">
