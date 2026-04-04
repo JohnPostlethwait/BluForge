@@ -1,0 +1,280 @@
+package templates
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+
+	"github.com/johnpostlethwait/bluforge/internal/contribute"
+	"github.com/johnpostlethwait/bluforge/internal/db"
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+)
+
+// ContributionDetailData holds data for the contribution detail/editing form.
+type ContributionDetailData struct {
+	Contribution db.Contribution
+	CSRFToken    string
+}
+
+// contributionFormInit builds the Alpine x-data JSON for the contribution form.
+// It parses scan_json, existing title_labels, and release_info from the contribution.
+func contributionFormInit(c db.Contribution) string {
+	// Parse scan to get titles.
+	var scan makemkv.DiscScan
+	if c.ScanJSON != "" {
+		if err := json.Unmarshal([]byte(c.ScanJSON), &scan); err != nil {
+			slog.Warn("contribution_detail: failed to parse scan_json", "id", c.ID, "error", err)
+		}
+	}
+
+	// Parse existing title_labels.
+	var labels []contribute.TitleLabel
+	if c.TitleLabels != "" {
+		if err := json.Unmarshal([]byte(c.TitleLabels), &labels); err != nil {
+			slog.Warn("contribution_detail: failed to parse title_labels", "id", c.ID, "error", err)
+		}
+	}
+
+	// Build a map of title index → label for fast lookup.
+	labelByIndex := make(map[int]contribute.TitleLabel, len(labels))
+	for _, l := range labels {
+		labelByIndex[l.TitleIndex] = l
+	}
+
+	// Parse existing release_info.
+	var ri contribute.ReleaseInfo
+	if c.ReleaseInfo != "" {
+		if err := json.Unmarshal([]byte(c.ReleaseInfo), &ri); err != nil {
+			slog.Warn("contribution_detail: failed to parse release_info", "id", c.ID, "error", err)
+		}
+	}
+
+	// Build titles array for Alpine.
+	type titleEntry struct {
+		TitleIndex int    `json:"title_index"`
+		Name       string `json:"name"`
+		Duration   string `json:"duration"`
+		Size       string `json:"size"`
+		FileName   string `json:"file_name"`
+		Type       string `json:"type"`
+		Label      string `json:"label"`
+		Season     string `json:"season"`
+		Episode    string `json:"episode"`
+	}
+
+	titles := make([]titleEntry, 0, len(scan.Titles))
+	for _, t := range scan.Titles {
+		entry := titleEntry{
+			TitleIndex: t.Index,
+			Name:       t.Name(),
+			Duration:   t.Duration(),
+			Size:       t.SizeHuman(),
+			FileName:   t.Filename(),
+		}
+		if l, ok := labelByIndex[t.Index]; ok {
+			entry.Type = l.Type
+			entry.Label = l.Name
+			entry.Season = l.Season
+			entry.Episode = l.Episode
+		} else {
+			entry.Type = "MainMovie"
+		}
+		titles = append(titles, entry)
+	}
+
+	yearStr := ""
+	if ri.Year > 0 {
+		yearStr = fmt.Sprintf("%d", ri.Year)
+	}
+
+	state := map[string]any{
+		"tmdbID":     c.TmdbID,
+		"upc":        ri.UPC,
+		"regionCode": ri.RegionCode,
+		"format":     ri.Format,
+		"year":       yearStr,
+		"titles":     titles,
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		slog.Warn("contribution_detail: failed to marshal form state", "id", c.ID, "error", err)
+		return "{}"
+	}
+	return string(data)
+}
+
+// titleLabelsJSON serializes the title labels from Alpine form state back to JSON.
+// This is called client-side — the template just provides the skeleton.
+
+templ ContributionDetail(data ContributionDetailData) {
+	@Layout("Contribute — " + data.Contribution.DiscName) {
+		@templ.Raw(fmt.Sprintf(`<script>
+document.addEventListener('alpine:init', () => {
+	const init = %s
+
+	Alpine.store('contrib', {
+		tmdbID: init.tmdbID || '',
+		upc: init.upc || '',
+		regionCode: init.regionCode || '',
+		format: init.format || '',
+		year: init.year || '',
+		titles: init.titles || [],
+
+		get isValid() {
+			return this.tmdbID.trim() !== '' &&
+				this.format.trim() !== '' &&
+				this.year.trim() !== ''
+		},
+
+		serializedLabels() {
+			return JSON.stringify(this.titles.map(t => ({
+				title_index: t.title_index,
+				type: t.type,
+				name: t.label || '',
+				season: t.season || '',
+				episode: t.episode || '',
+				file_name: t.file_name || '',
+			})))
+		}
+	})
+})
+</script>`, contributionFormInit(data.Contribution)))
+
+		<div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+			<div>
+				<a href="/contributions" class="text-muted" style="font-size:0.85rem; text-decoration:none;">&larr; Contributions</a>
+				<h1 style="margin-top:0.25rem;">{ data.Contribution.DiscName }</h1>
+			</div>
+			<span class={ "status-badge", statusClass(data.Contribution.Status) }>{ data.Contribution.Status }</span>
+		</div>
+
+		<div x-data>
+			<!-- Release metadata card -->
+			<div class="card" style="margin-bottom:1rem;">
+				<h2 class="section-title">Release Info</h2>
+				<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
+					<div class="form-group">
+						<label for="tmdb_id">TMDB ID</label>
+						<input type="text" id="tmdb_id" x-model="$store.contrib.tmdbID" placeholder="e.g. 12477"/>
+					</div>
+					<div class="form-group">
+						<label for="format">Format</label>
+						<select id="format" x-model="$store.contrib.format">
+							<option value="">— select —</option>
+							<option value="Blu-ray">Blu-ray</option>
+							<option value="UHD">UHD (4K)</option>
+							<option value="DVD">DVD</option>
+						</select>
+					</div>
+					<div class="form-group">
+						<label for="year">Year</label>
+						<input type="number" id="year" x-model="$store.contrib.year" placeholder="e.g. 2024" min="1900" max="2099"/>
+					</div>
+					<div class="form-group">
+						<label for="region_code">Region Code</label>
+						<select id="region_code" x-model="$store.contrib.regionCode">
+							<option value="">— select —</option>
+							<option value="A">A (Americas / East Asia)</option>
+							<option value="B">B (Europe / Middle East / Africa)</option>
+							<option value="C">C (Russia / Asia / China)</option>
+							<option value="FREE">Region Free</option>
+						</select>
+					</div>
+					<div class="form-group">
+						<label for="upc">UPC (optional)</label>
+						<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
+					</div>
+				</div>
+			</div>
+
+			<!-- Titles table card -->
+			<div class="card" style="margin-bottom:5rem;">
+				<h2 class="section-title">Titles</h2>
+				<p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">Assign a type and optional label to each title. Season/Episode fields appear only for Episode type.</p>
+				<div style="overflow-x:auto;">
+					<table class="data-table">
+						<thead>
+							<tr>
+								<th>#</th>
+								<th>Duration</th>
+								<th>Size</th>
+								<th>Type</th>
+								<th>Name / Label</th>
+								<th>Season</th>
+								<th>Episode</th>
+							</tr>
+						</thead>
+						<tbody>
+							<template x-for="(t, idx) in $store.contrib.titles" :key="t.title_index">
+								<tr>
+									<td x-text="t.title_index + 1"></td>
+									<td x-text="t.duration" class="text-muted" style="font-size:0.8rem; white-space:nowrap;"></td>
+									<td x-text="t.size" class="text-muted" style="font-size:0.8rem; white-space:nowrap;"></td>
+									<td>
+										<select x-model="t.type" style="width:140px;">
+											<option value="MainMovie">Main Movie</option>
+											<option value="Episode">Episode</option>
+											<option value="Extra">Extra</option>
+											<option value="Trailer">Trailer</option>
+											<option value="DeletedScene">Deleted Scene</option>
+										</select>
+									</td>
+									<td>
+										<input type="text" x-model="t.label" placeholder="Optional name" style="width:100%; min-width:160px;"/>
+									</td>
+									<td>
+										<input type="number" x-model="t.season" placeholder="S#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
+									</td>
+									<td>
+										<input type="number" x-model="t.episode" placeholder="E#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
+									</td>
+								</tr>
+							</template>
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- Sticky footer with Save + Submit -->
+			<div style="position:sticky; bottom:0; background:var(--bg-secondary); border-top:1px solid var(--border); padding:1rem 1.5rem; display:flex; gap:0.75rem; align-items:center; z-index:50;">
+				<!-- Save Draft form -->
+				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d", data.Contribution.ID)) }
+					@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels()">
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+					<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+					<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+					<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+					<input type="hidden" name="format" :value="$store.contrib.format"/>
+					<input type="hidden" name="year" :value="$store.contrib.year"/>
+					<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
+					<button type="submit" class="btn">Save Draft</button>
+				</form>
+
+				<!-- Submit to TheDiscDB form -->
+				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
+					@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels()"
+					x-data>
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+					<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+					<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+					<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+					<input type="hidden" name="format" :value="$store.contrib.format"/>
+					<input type="hidden" name="year" :value="$store.contrib.year"/>
+					<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
+					<!-- Media metadata for submit handler -->
+					<input type="hidden" name="media_title" value={ data.Contribution.DiscName }/>
+					<input type="hidden" name="media_year" :value="$store.contrib.year"/>
+					<input type="hidden" name="media_type" :value="$store.contrib.format"/>
+					<button type="submit" class="btn btn-primary" :disabled="!$store.contrib.isValid">
+						Submit to TheDiscDB
+					</button>
+				</form>
+
+				<span class="text-muted" style="font-size:0.8rem;" x-show="!$store.contrib.isValid">
+					TMDB ID, format, and year are required before submitting.
+				</span>
+			</div>
+		</div>
+	}
+}
