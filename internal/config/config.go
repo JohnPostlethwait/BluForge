@@ -18,6 +18,7 @@ type AppConfig struct {
 	PollInterval          int    `yaml:"poll_interval"`
 	GitHubClientID        string `yaml:"github_client_id"`
 	GitHubClientSecret    string `yaml:"github_client_secret"`
+	GitHubToken           string `yaml:"github_token"`
 	DuplicateAction       string `yaml:"duplicate_action"`
 	PreferredAudioLangs   string `yaml:"preferred_audio_langs"`    // comma-separated ISO 639-2 codes, e.g. "eng,jpn"
 	PreferredSubtitleLangs string `yaml:"preferred_subtitle_langs"` // e.g. "eng"
@@ -81,6 +82,9 @@ func LoadFromEnv() AppConfig {
 	}
 	if v := os.Getenv("BLUFORGE_GITHUB_CLIENT_SECRET"); v != "" {
 		cfg.GitHubClientSecret = v
+	}
+	if v := os.Getenv("BLUFORGE_GITHUB_TOKEN"); v != "" {
+		cfg.GitHubToken = v
 	}
 	if v := os.Getenv("BLUFORGE_DUPLICATE_ACTION"); v != "" {
 		cfg.DuplicateAction = v
