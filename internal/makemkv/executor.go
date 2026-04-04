@@ -269,8 +269,9 @@ func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
 
 	langs, err := mpls.ReadDiscLanguages(devicePath, sourceFiles)
 	if err != nil {
-		slog.Debug("executor: mpls enrichment unavailable",
-			"drive_index", scan.DriveIndex, "error", err)
+		slog.Warn("executor: mpls enrichment unavailable",
+			"drive_index", scan.DriveIndex, "error", err,
+			"source_files_count", len(sourceFiles))
 		return
 	}
 

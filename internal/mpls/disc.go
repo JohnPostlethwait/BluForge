@@ -140,6 +140,7 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 	if playlistDir == "" {
 		return nil, fmt.Errorf("mpls: no PLAYLIST directory found under %s", mountPoint)
 	}
+	slog.Info("mpls: using playlist directory", "dir", playlistDir)
 
 	// Determine which filenames to read.
 	filenames := sourceFiles
@@ -153,6 +154,7 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 				filenames = append(filenames, e.Name())
 			}
 		}
+		slog.Info("mpls: discovered playlist files", "count", len(filenames))
 	}
 
 	result := make(map[string]PlayItemLanguages, len(filenames))
@@ -160,12 +162,12 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 		path := filepath.Join(playlistDir, fn)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			slog.Debug("mpls: could not read playlist file", "path", path, "error", err)
+			slog.Warn("mpls: could not read playlist file", "path", path, "error", err)
 			continue
 		}
 		items, err := ParseMPLS(data)
 		if err != nil {
-			slog.Debug("mpls: parse error", "path", path, "error", err)
+			slog.Warn("mpls: parse error", "path", path, "error", err)
 			continue
 		}
 		if len(items) == 0 {
@@ -176,7 +178,8 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 	}
 
 	if len(result) == 0 {
-		return nil, fmt.Errorf("mpls: no MPLS files could be parsed from %s", playlistDir)
+		return nil, fmt.Errorf("mpls: no MPLS files could be parsed from %s (%d files attempted)", playlistDir, len(filenames))
 	}
+	slog.Info("mpls: successfully parsed playlist files", "parsed", len(result), "attempted", len(filenames))
 	return result, nil
 }
