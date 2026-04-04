@@ -36,15 +36,16 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
 	}
 
-	data := templates.DriveDetailData{
-		DriveIndex: idx,
-		DriveName:  drv.DriveName(),
-		DiscName:   drv.DiscName(),
-		State:      string(drv.State()),
-		CSRFToken:  csrfToken(c),
-	}
-
 	cfg := s.GetConfig()
+
+	data := templates.DriveDetailData{
+		DriveIndex:      idx,
+		DriveName:       drv.DriveName(),
+		DiscName:        drv.DiscName(),
+		State:           string(drv.State()),
+		CSRFToken:       csrfToken(c),
+		DuplicateAction: cfg.DuplicateAction,
+	}
 
 	// Build Alpine store hydration JSON.
 	driveStore := DriveStoreJSON{

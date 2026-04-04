@@ -94,7 +94,7 @@ BluForge loads configuration from `/config/config.yaml` with environment variabl
 | `poll_interval` | `BLUFORGE_POLL_INTERVAL` | `5` | Drive polling interval (seconds) |
 | `movie_template` | `BLUFORGE_MOVIE_TEMPLATE` | `Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})` | Movie output path template |
 | `series_template` | `BLUFORGE_SERIES_TEMPLATE` | `TV/{{.Show}}/Season {{.Season}}/...` | TV series output path template |
-| `duplicate_action` | `BLUFORGE_DUPLICATE_ACTION` | `skip` | Handle duplicates: `skip` or `overwrite` |
+| `duplicate_action` | `BLUFORGE_DUPLICATE_ACTION` | `skip` | Handle duplicates: `skip`, `overwrite`, or `rename` |
 
 ### Path Templates
 
