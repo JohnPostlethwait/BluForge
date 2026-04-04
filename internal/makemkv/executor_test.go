@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/johnpostlethwait/bluforge/internal/mpls"
 )
 
 // mockCmdRunner returns fixed canned output for every Run call.
@@ -311,6 +313,116 @@ TCOUNT:0
 	}
 	if !strings.Contains(err.Error(), "Failed to open disc") {
 		t.Errorf("error should contain 'Failed to open disc', got: %v", err)
+	}
+}
+
+// TestApplyMPLSLanguages_CreatesStreamsWhenEmpty verifies that when a title has
+// no streams (makemkvcon omitted SINFO lines), applyMPLSLanguages creates
+// StreamInfo objects from the MPLS data with correct type, lang, and codec.
+func TestApplyMPLSLanguages_CreatesStreamsWhenEmpty(t *testing.T) {
+	title := &TitleInfo{
+		Index:      0,
+		Attributes: map[int]string{},
+		Streams:    nil, // no SINFO data
+	}
+
+	tl := mpls.PlayItemLanguages{
+		Audio: []mpls.StreamEntry{
+			{LangCode: "eng", CodingType: 0x83}, // TrueHD
+			{LangCode: "jpn", CodingType: 0x81}, // AC3
+		},
+		Subtitle: []mpls.StreamEntry{
+			{LangCode: "eng", CodingType: 0x90}, // PGS
+			{LangCode: "spa", CodingType: 0x90}, // PGS
+		},
+	}
+
+	created := applyMPLSLanguages(title, tl)
+	if created != 4 {
+		t.Fatalf("expected 4 streams created, got %d", created)
+	}
+	if len(title.Streams) != 4 {
+		t.Fatalf("expected 4 streams on title, got %d", len(title.Streams))
+	}
+
+	// Audio stream 0: English TrueHD.
+	s0 := &title.Streams[0]
+	if s0.Type() != "audio" {
+		t.Errorf("stream 0: expected type audio, got %q", s0.Type())
+	}
+	if s0.LangCode() != "eng" {
+		t.Errorf("stream 0: expected langCode eng, got %q", s0.LangCode())
+	}
+	if s0.LangName() != "English" {
+		t.Errorf("stream 0: expected langName English, got %q", s0.LangName())
+	}
+	if s0.CodecShort() != "TrueHD" {
+		t.Errorf("stream 0: expected codec TrueHD, got %q", s0.CodecShort())
+	}
+
+	// Audio stream 1: Japanese AC3.
+	s1 := &title.Streams[1]
+	if s1.Type() != "audio" {
+		t.Errorf("stream 1: expected type audio, got %q", s1.Type())
+	}
+	if s1.LangCode() != "jpn" {
+		t.Errorf("stream 1: expected langCode jpn, got %q", s1.LangCode())
+	}
+	if s1.CodecShort() != "AC3" {
+		t.Errorf("stream 1: expected codec AC3, got %q", s1.CodecShort())
+	}
+
+	// Subtitle stream 2: English PGS.
+	s2 := &title.Streams[2]
+	if s2.Type() != "subtitle" {
+		t.Errorf("stream 2: expected type subtitle, got %q", s2.Type())
+	}
+	if s2.LangCode() != "eng" {
+		t.Errorf("stream 2: expected langCode eng, got %q", s2.LangCode())
+	}
+
+	// Subtitle stream 3: Spanish PGS.
+	s3 := &title.Streams[3]
+	if s3.LangCode() != "spa" {
+		t.Errorf("stream 3: expected langCode spa, got %q", s3.LangCode())
+	}
+
+	// Lossless detection should work via the codec short name.
+	if !title.HasLosslessAudio() {
+		t.Error("expected HasLosslessAudio() to return true (TrueHD stream present)")
+	}
+}
+
+// TestApplyMPLSLanguages_EnrichesExistingStreams verifies the existing behavior:
+// when streams exist from SINFO, MPLS data enriches them with language codes.
+func TestApplyMPLSLanguages_EnrichesExistingStreams(t *testing.T) {
+	title := &TitleInfo{
+		Index:      0,
+		Attributes: map[int]string{},
+		Streams: []StreamInfo{
+			{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{AttrType: "A_AC3"}},
+			{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{AttrType: "S_HDMV/PGS"}},
+		},
+	}
+
+	tl := mpls.PlayItemLanguages{
+		Audio:    []mpls.StreamEntry{{LangCode: "eng", CodingType: 0x81}},
+		Subtitle: []mpls.StreamEntry{{LangCode: "fra", CodingType: 0x90}},
+	}
+
+	updated := applyMPLSLanguages(title, tl)
+	if updated != 2 {
+		t.Fatalf("expected 2 streams updated, got %d", updated)
+	}
+	// Streams should still be 2 (not 4 — no new streams created).
+	if len(title.Streams) != 2 {
+		t.Fatalf("expected 2 streams (unchanged count), got %d", len(title.Streams))
+	}
+	if title.Streams[0].LangCode() != "eng" {
+		t.Errorf("stream 0: expected langCode eng, got %q", title.Streams[0].LangCode())
+	}
+	if title.Streams[1].LangCode() != "fra" {
+		t.Errorf("stream 1: expected langCode fra, got %q", title.Streams[1].LangCode())
 	}
 }
 

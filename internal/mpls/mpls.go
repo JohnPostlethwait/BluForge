@@ -10,11 +10,88 @@ import (
 	"strings"
 )
 
-// PlayItemLanguages holds the ordered stream language codes for one PlayItem
+// StreamEntry holds the language code and codec metadata for a single stream
+// as extracted from an MPLS PlayItem's STN_Table.
+type StreamEntry struct {
+	LangCode   string // ISO 639-2 language code; "" = not set
+	CodingType byte   // MPLS coding_type byte (e.g. 0x83 = TrueHD)
+}
+
+// PlayItemLanguages holds the ordered stream metadata for one PlayItem
 // (one logical title) in an MPLS playlist.
 type PlayItemLanguages struct {
-	Audio    []string // ISO 639-2 language codes, in stream order; "" = not set
-	Subtitle []string // ISO 639-2 language codes, in stream order; "" = not set
+	Audio    []StreamEntry // audio streams in playlist order
+	Subtitle []StreamEntry // subtitle streams in playlist order
+}
+
+// CodingTypeToCodecID maps an MPLS coding_type byte to the Matroska-style codec
+// ID prefix that MakeMKV uses (e.g. "A_TRUEHD"). Returns "" for unknown types.
+func CodingTypeToCodecID(ct byte) string {
+	switch ct {
+	case 0x03:
+		return "A_MPEG/L1"
+	case 0x04:
+		return "A_MPEG/L2"
+	case 0x80:
+		return "A_LPCM"
+	case 0x81:
+		return "A_AC3"
+	case 0x82:
+		return "A_DTS"
+	case 0x83:
+		return "A_TRUEHD"
+	case 0x84:
+		return "A_EAC3"
+	case 0x85, 0x86:
+		return "A_DTSHD"
+	case 0xA1:
+		return "A_EAC3"
+	case 0xA2:
+		return "A_DTSHD"
+	case 0x90:
+		return "S_HDMV/PGS"
+	case 0x91:
+		return "S_HDMV/IGS"
+	case 0x92:
+		return "S_TEXT/UTF8"
+	default:
+		return ""
+	}
+}
+
+// CodingTypeToCodecShort maps an MPLS coding_type byte to the short codec name
+// that MakeMKV uses for display (e.g. "TrueHD"). Returns "" for unknown types.
+func CodingTypeToCodecShort(ct byte) string {
+	switch ct {
+	case 0x03:
+		return "MPEG Audio"
+	case 0x04:
+		return "MPEG Audio"
+	case 0x80:
+		return "PCM"
+	case 0x81:
+		return "AC3"
+	case 0x82:
+		return "DTS"
+	case 0x83:
+		return "TrueHD"
+	case 0x84:
+		return "E-AC3"
+	case 0x85, 0x86:
+		return "DTS-HD MA"
+	case 0xA1:
+		return "E-AC3"
+	case 0xA2:
+		return "DTS-HD"
+	case 0x90:
+		return "PGS"
+	case 0x91:
+		return "IGS"
+	case 0x92:
+		return "SRT"
+	default:
+		return ""
+	}
 }
 
 // ParseMPLS parses a Blu-ray MPLS binary file and returns language codes for
@@ -142,18 +219,18 @@ func parseSTNTable(item []byte, stnOffset int) (PlayItemLanguages, error) {
 	}
 
 	// Parse audio stream entries.
-	audio := make([]string, 0, nAudio)
+	audio := make([]StreamEntry, 0, nAudio)
 	for i := 0; i < nAudio; i++ {
-		lang, next := parseStreamEntryLang(stn, pos)
-		audio = append(audio, lang)
+		lang, ct, next := parseStreamEntryLang(stn, pos)
+		audio = append(audio, StreamEntry{LangCode: lang, CodingType: ct})
 		pos = next
 	}
 
 	// Parse PG (subtitle) stream entries.
-	subtitle := make([]string, 0, nPG)
+	subtitle := make([]StreamEntry, 0, nPG)
 	for i := 0; i < nPG; i++ {
-		lang, next := parseStreamEntryLang(stn, pos)
-		subtitle = append(subtitle, lang)
+		lang, ct, next := parseStreamEntryLang(stn, pos)
+		subtitle = append(subtitle, StreamEntry{LangCode: lang, CodingType: ct})
 		pos = next
 	}
 
@@ -178,11 +255,11 @@ func skipStreamEntry(data []byte, pos int) int {
 }
 
 // parseStreamEntryLang reads one stream entry and its StreamCodingInfo,
-// extracting the language code (ISO 639-2, lowercase) when present.
-// Returns ("", next) for video streams or streams with no language metadata.
-func parseStreamEntryLang(data []byte, pos int) (string, int) {
+// extracting the language code (ISO 639-2, lowercase) and coding type byte.
+// Returns ("", 0, next) for video streams or streams with no language metadata.
+func parseStreamEntryLang(data []byte, pos int) (string, byte, int) {
 	if pos >= len(data) {
-		return "", pos
+		return "", 0, pos
 	}
 
 	// Skip the StreamEntry (PID, stream_type, etc. — not needed for language).
@@ -190,7 +267,7 @@ func parseStreamEntryLang(data []byte, pos int) (string, int) {
 	pos += 1 + entryLen
 
 	if pos >= len(data) {
-		return "", pos
+		return "", 0, pos
 	}
 
 	// Parse StreamCodingInfo.
@@ -199,7 +276,7 @@ func parseStreamEntryLang(data []byte, pos int) (string, int) {
 	pos++ // advance past the ciLen byte
 
 	if pos >= len(data) {
-		return "", ciEnd
+		return "", 0, ciEnd
 	}
 
 	codingType := data[pos]
@@ -228,7 +305,7 @@ func parseStreamEntryLang(data []byte, pos int) (string, int) {
 	}
 
 	lang := decodeLang(rawLang)
-	return lang, ciEnd
+	return lang, codingType, ciEnd
 }
 
 // decodeLang converts raw MPLS language bytes to a lowercase ISO 639-2 string.

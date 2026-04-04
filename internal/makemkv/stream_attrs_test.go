@@ -358,3 +358,29 @@ func TestHasLosslessAudio_EmptyStreams(t *testing.T) {
 		t.Error("expected HasLosslessAudio() == false with empty streams")
 	}
 }
+
+// --- LangCodeToName ---
+
+func TestLangCodeToName(t *testing.T) {
+	cases := []struct {
+		code string
+		want string
+	}{
+		{"eng", "English"},
+		{"fra", "French"},
+		{"jpn", "Japanese"},
+		{"spa", "Spanish"},
+		{"deu", "German"},
+		{"ger", "German"},
+		{"zho", "Chinese"},
+		{"kor", "Korean"},
+		{"xyz", "xyz"},   // unknown code returns code itself
+		{"", ""},          // empty returns empty
+	}
+	for _, tc := range cases {
+		got := LangCodeToName(tc.code)
+		if got != tc.want {
+			t.Errorf("LangCodeToName(%q) = %q, want %q", tc.code, got, tc.want)
+		}
+	}
+}

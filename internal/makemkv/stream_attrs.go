@@ -128,6 +128,57 @@ func (t *TitleInfo) SubtitleLanguages() []string {
 	return langs
 }
 
+// LangCodeToName maps an ISO 639-2 language code to a human-readable name.
+// Returns the code itself for unknown codes so the UI always has something to show.
+func LangCodeToName(code string) string {
+	if name, ok := langNames[code]; ok {
+		return name
+	}
+	return code
+}
+
+var langNames = map[string]string{
+	"ara": "Arabic",
+	"bul": "Bulgarian",
+	"cat": "Catalan",
+	"chi": "Chinese",
+	"zho": "Chinese",
+	"ces": "Czech",
+	"cze": "Czech",
+	"dan": "Danish",
+	"dut": "Dutch",
+	"nld": "Dutch",
+	"eng": "English",
+	"fin": "Finnish",
+	"fre": "French",
+	"fra": "French",
+	"ger": "German",
+	"deu": "German",
+	"gre": "Greek",
+	"ell": "Greek",
+	"heb": "Hebrew",
+	"hin": "Hindi",
+	"hun": "Hungarian",
+	"ice": "Icelandic",
+	"isl": "Icelandic",
+	"ind": "Indonesian",
+	"ita": "Italian",
+	"jpn": "Japanese",
+	"kor": "Korean",
+	"nor": "Norwegian",
+	"pol": "Polish",
+	"por": "Portuguese",
+	"rum": "Romanian",
+	"ron": "Romanian",
+	"rus": "Russian",
+	"spa": "Spanish",
+	"swe": "Swedish",
+	"tha": "Thai",
+	"tur": "Turkish",
+	"ukr": "Ukrainian",
+	"vie": "Vietnamese",
+}
+
 // HasLosslessAudio reports whether any audio stream in the title uses a lossless codec.
 // Lossless codecs: TrueHD, DTS-HD MA, FLAC, PCM.
 func (t *TitleInfo) HasLosslessAudio() bool {

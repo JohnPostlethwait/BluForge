@@ -123,11 +123,18 @@ func TestParseMPLS_SingleTitle(t *testing.T) {
 		t.Fatalf("expected 1 PlayItem, got %d", len(items))
 	}
 	got := items[0]
-	if len(got.Audio) != 2 || got.Audio[0] != "eng" || got.Audio[1] != "jpn" {
+	if len(got.Audio) != 2 || got.Audio[0].LangCode != "eng" || got.Audio[1].LangCode != "jpn" {
 		t.Errorf("audio langs: got %v, want [eng jpn]", got.Audio)
 	}
-	if len(got.Subtitle) != 2 || got.Subtitle[0] != "eng" || got.Subtitle[1] != "spa" {
+	if len(got.Subtitle) != 2 || got.Subtitle[0].LangCode != "eng" || got.Subtitle[1].LangCode != "spa" {
 		t.Errorf("subtitle langs: got %v, want [eng spa]", got.Subtitle)
+	}
+	// Verify coding types are captured.
+	if got.Audio[0].CodingType != 0x81 {
+		t.Errorf("audio[0] coding type: got 0x%02x, want 0x81 (AC-3)", got.Audio[0].CodingType)
+	}
+	if got.Subtitle[0].CodingType != 0x90 {
+		t.Errorf("subtitle[0] coding type: got 0x%02x, want 0x90 (PGS)", got.Subtitle[0].CodingType)
 	}
 }
 
@@ -143,11 +150,11 @@ func TestParseMPLS_MultiTitle(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 PlayItems, got %d", len(items))
 	}
-	if items[0].Audio[0] != "eng" {
-		t.Errorf("item[0] audio: got %q, want eng", items[0].Audio[0])
+	if items[0].Audio[0].LangCode != "eng" {
+		t.Errorf("item[0] audio: got %q, want eng", items[0].Audio[0].LangCode)
 	}
-	if items[1].Audio[0] != "fre" {
-		t.Errorf("item[1] audio: got %q, want fre", items[1].Audio[0])
+	if items[1].Audio[0].LangCode != "fre" {
+		t.Errorf("item[1] audio: got %q, want fre", items[1].Audio[0].LangCode)
 	}
 }
 

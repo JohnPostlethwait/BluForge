@@ -285,8 +285,8 @@ func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
 		}
 		applied += applyMPLSLanguages(&scan.Titles[i], tl)
 	}
-	slog.Debug("executor: mpls enrichment applied",
-		"drive_index", scan.DriveIndex, "streams_updated", applied)
+	slog.Info("executor: mpls enrichment completed",
+		"drive_index", scan.DriveIndex, "streams_updated_or_created", applied)
 }
 
 // collectMPLSFilenames returns the deduplicated list of MPLS filenames
@@ -311,8 +311,19 @@ func collectMPLSFilenames(scan *DiscScan) []string {
 
 // applyMPLSLanguages writes language codes from tl into the audio and subtitle
 // streams of title, matching by stream type and position within each type.
-// Returns the number of streams updated.
+// When a title has no streams (makemkvcon omitted SINFO lines), streams are
+// created from the MPLS data so the frontend has language and codec info.
+// Returns the number of streams updated or created.
 func applyMPLSLanguages(title *TitleInfo, tl mpls.PlayItemLanguages) int {
+	if len(title.Streams) > 0 {
+		return enrichExistingStreams(title, tl)
+	}
+	return createStreamsFromMPLS(title, tl)
+}
+
+// enrichExistingStreams updates language codes on pre-existing streams (from
+// SINFO lines) by matching MPLS entries by type and position.
+func enrichExistingStreams(title *TitleInfo, tl mpls.PlayItemLanguages) int {
 	updated := 0
 	audioIdx := 0
 	subIdx := 0
@@ -320,26 +331,89 @@ func applyMPLSLanguages(title *TitleInfo, tl mpls.PlayItemLanguages) int {
 		s := &title.Streams[j]
 		switch {
 		case s.IsAudio():
-			if audioIdx < len(tl.Audio) && tl.Audio[audioIdx] != "" {
+			if audioIdx < len(tl.Audio) && tl.Audio[audioIdx].LangCode != "" {
 				if s.Attributes == nil {
 					s.Attributes = make(map[int]string)
 				}
-				s.Attributes[AttrLangCode] = tl.Audio[audioIdx]
+				s.Attributes[AttrLangCode] = tl.Audio[audioIdx].LangCode
+				if s.LangName() == "" {
+					s.Attributes[AttrLangName] = LangCodeToName(tl.Audio[audioIdx].LangCode)
+				}
 				updated++
 			}
 			audioIdx++
 		case s.IsSubtitle():
-			if subIdx < len(tl.Subtitle) && tl.Subtitle[subIdx] != "" {
+			if subIdx < len(tl.Subtitle) && tl.Subtitle[subIdx].LangCode != "" {
 				if s.Attributes == nil {
 					s.Attributes = make(map[int]string)
 				}
-				s.Attributes[AttrLangCode] = tl.Subtitle[subIdx]
+				s.Attributes[AttrLangCode] = tl.Subtitle[subIdx].LangCode
+				if s.LangName() == "" {
+					s.Attributes[AttrLangName] = LangCodeToName(tl.Subtitle[subIdx].LangCode)
+				}
 				updated++
 			}
 			subIdx++
 		}
 	}
 	return updated
+}
+
+// createStreamsFromMPLS creates StreamInfo objects from MPLS data when
+// makemkvcon didn't output any SINFO lines for the title. This happens on
+// some UHD discs where makemkvcon reads the playlist structure but omits
+// stream-level detail.
+func createStreamsFromMPLS(title *TitleInfo, tl mpls.PlayItemLanguages) int {
+	created := 0
+	streamIdx := 0
+
+	for _, entry := range tl.Audio {
+		attrs := map[int]string{}
+		codecID := mpls.CodingTypeToCodecID(entry.CodingType)
+		if codecID == "" {
+			codecID = "A_UNKNOWN"
+		}
+		attrs[AttrType] = codecID
+		if short := mpls.CodingTypeToCodecShort(entry.CodingType); short != "" {
+			attrs[AttrCodecShort] = short
+		}
+		if entry.LangCode != "" {
+			attrs[AttrLangCode] = entry.LangCode
+			attrs[AttrLangName] = LangCodeToName(entry.LangCode)
+		}
+		title.Streams = append(title.Streams, StreamInfo{
+			TitleIndex:  title.Index,
+			StreamIndex: streamIdx,
+			Attributes:  attrs,
+		})
+		streamIdx++
+		created++
+	}
+
+	for _, entry := range tl.Subtitle {
+		attrs := map[int]string{}
+		codecID := mpls.CodingTypeToCodecID(entry.CodingType)
+		if codecID == "" {
+			codecID = "S_UNKNOWN"
+		}
+		attrs[AttrType] = codecID
+		if short := mpls.CodingTypeToCodecShort(entry.CodingType); short != "" {
+			attrs[AttrCodecShort] = short
+		}
+		if entry.LangCode != "" {
+			attrs[AttrLangCode] = entry.LangCode
+			attrs[AttrLangName] = LangCodeToName(entry.LangCode)
+		}
+		title.Streams = append(title.Streams, StreamInfo{
+			TitleIndex:  title.Index,
+			StreamIndex: streamIdx,
+			Attributes:  attrs,
+		})
+		streamIdx++
+		created++
+	}
+
+	return created
 }
 
 // buildDiscScan aggregates parsed events into a DiscScan result.
