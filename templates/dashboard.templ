@@ -15,6 +15,9 @@ templ Dashboard(data DashboardData) {
 		@templ.Raw(fmt.Sprintf(`<script>
 document.addEventListener('alpine:init', () => {
 	Alpine.store('drives', %s)
+	Alpine.store('drives').contributionAvailable = false
+	Alpine.store('drives').contributionId = null
+	Alpine.store('drives').contributionDiscName = ''
 
 	const evtSource = new EventSource('/events')
 	evtSource.addEventListener('drive-update', (e) => {
@@ -40,6 +43,14 @@ document.addEventListener('alpine:init', () => {
 			store.activeCount = store.list.filter(d => d.ripProgress >= 0).length
 		}
 	})
+
+	evtSource.addEventListener('contribution_available', (e) => {
+		const d = JSON.parse(e.data)
+		const store = Alpine.store('drives')
+		store.contributionAvailable = true
+		store.contributionId = d.contribution_id
+		store.contributionDiscName = d.disc_name
+	})
 })
 
 const stepLabels = ['', 'Search', 'Select', 'Scan', 'Review', 'Ripping']
@@ -48,6 +59,14 @@ function stepLabel(n) { return stepLabels[n] || '' }
 
 		<div class="page-header">
 			<h1>Dashboard</h1>
+		</div>
+
+		<div x-data x-show="$store.drives.contributionAvailable" x-cloak class="card" style="margin-bottom: 1rem; border-left: 3px solid var(--accent-color, #3b82f6);">
+			<p style="margin: 0;">
+				<strong x-text="$store.drives.contributionDiscName"></strong> isn't in TheDiscDB yet.
+				<a :href="'/contributions/' + $store.drives.contributionId">Contribute it</a> so others benefit!
+			</p>
+			<button @click="$store.drives.contributionAvailable = false" class="btn btn-sm" style="margin-top: 0.5rem;">Dismiss</button>
 		</div>
 
 		<!-- Status Bar -->

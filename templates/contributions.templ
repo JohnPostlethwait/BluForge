@@ -1,0 +1,73 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/johnpostlethwait/bluforge/internal/db"
+)
+
+// ContributionsData holds the data for the contributions list page.
+type ContributionsData struct {
+	Contributions []db.Contribution
+}
+
+templ Contributions(data ContributionsData) {
+	@Layout("Contributions") {
+		<div class="page-header">
+			<h1>TheDiscDB Contributions</h1>
+		</div>
+		if len(data.Contributions) == 0 {
+			<div class="card">
+				<p class="text-muted">No unmatched discs to contribute yet. When you scan a disc that isn't in TheDiscDB, it will appear here.</p>
+			</div>
+		} else {
+			<div class="card">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Disc Name</th>
+							<th>Status</th>
+							<th>Scanned</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, c := range data.Contributions {
+							<tr>
+								<td>{ c.DiscName }</td>
+								<td>
+									<span class={ "status-badge", statusClass(c.Status) }>{ c.Status }</span>
+								</td>
+								<td>{ c.CreatedAt.Format("2006-01-02 15:04") }</td>
+								<td>
+									if c.Status == "submitted" && c.PRURL != "" {
+										<a href={ templ.SafeURL(c.PRURL) } target="_blank" rel="noopener" class="btn btn-sm">View PR</a>
+									} else if c.Status == "pending" || c.Status == "drafting" {
+										<div style="display:flex; gap:0.5rem;">
+											<a href={ templ.SafeURL(fmt.Sprintf("/contributions/%d", c.ID)) } class="btn btn-sm btn-primary">Contribute</a>
+											<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/delete", c.ID)) } onsubmit="return confirm('Delete this contribution?')">
+												<button type="submit" class="btn btn-sm btn-danger">Delete</button>
+											</form>
+										</div>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+func statusClass(status string) string {
+	switch status {
+	case "pending":
+		return "status-pending"
+	case "drafting":
+		return "status-drafting"
+	case "submitted":
+		return "status-submitted"
+	default:
+		return ""
+	}
+}

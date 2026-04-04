@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -86,6 +87,7 @@ type DiscScan struct {
 	TitleCount int
 	Titles     []TitleInfo
 	Messages   []Message
+	RawOutput  string // Full makemkvcon robot-mode output, preserved for TheDiscDB contributions.
 }
 
 // ListDrives runs `makemkvcon -r --cache=1 info disc:9999` and returns the
@@ -161,9 +163,20 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	target := fmt.Sprintf("disc:%d", driveIndex)
 	r, cmdErr := e.runner.Run(ctx, "-r", "info", target)
 
+	// Read the full output so we can preserve it for contributions and still parse events.
+	rawBytes, readErr := io.ReadAll(r)
+	if readErr != nil {
+		slog.Error("executor: failed to read scan output", "drive_index", driveIndex, "error", readErr)
+		if cmdErr != nil {
+			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+		}
+		return nil, fmt.Errorf("makemkv: scan disc %d read output: %w", driveIndex, readErr)
+	}
+	rawOutput := string(rawBytes)
+
 	// Always attempt to parse output — makemkvcon returns non-zero on AACS
 	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
-	events, parseErr := ParseAll(r)
+	events, parseErr := ParseAll(strings.NewReader(rawOutput))
 	if parseErr != nil {
 		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", parseErr)
 		if cmdErr != nil {
@@ -178,6 +191,7 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	}
 
 	scan := buildDiscScan(driveIndex, events)
+	scan.RawOutput = rawOutput
 
 	// If we got 0 titles, check for actionable error messages from makemkvcon.
 	if len(scan.Titles) == 0 {

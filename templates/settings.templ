@@ -11,6 +11,7 @@ type SettingsData struct {
 	DuplicateAction       string
 	GitHubClientID        string
 	GitHubClientSecret    string
+	GitHubToken           string
 	MakeMKVKey            string
 	PreferredAudioLangs   string
 	PreferredSubtitleLangs string
@@ -99,14 +100,21 @@ templ Settings(data SettingsData) {
 			<div class="card" style="margin-bottom: 1rem;">
 				<h2 class="section-title">TheDiscDB Contribution (optional)</h2>
 				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
-					Configure GitHub OAuth to enable contributing disc data back to TheDiscDB.
+					Configure a GitHub Personal Access Token to enable contributing disc data back to
+					<a href="https://thediscdb.com" target="_blank" rel="noopener">TheDiscDB</a>.
+					The token needs <code>public_repo</code> scope.
+					<a href="https://github.com/settings/tokens/new?scopes=public_repo&description=BluForge+TheDiscDB+Contributions" target="_blank" rel="noopener">Create one here</a>.
 				</p>
 				<div class="form-group">
-					<label for="github_client_id">GitHub Client ID</label>
+					<label for="github_token">GitHub Personal Access Token</label>
+					<input type="password" id="github_token" name="github_token" value={ maskSecret(data.GitHubToken) } placeholder="Optional" autocomplete="off"/>
+				</div>
+				<div class="form-group">
+					<label for="github_client_id">GitHub Client ID (for future Device Flow)</label>
 					<input type="text" id="github_client_id" name="github_client_id" value={ data.GitHubClientID } placeholder="Optional"/>
 				</div>
 				<div class="form-group">
-					<label for="github_client_secret">GitHub Client Secret</label>
+					<label for="github_client_secret">GitHub Client Secret (for future Device Flow)</label>
 					<input type="password" id="github_client_secret" name="github_client_secret" value={ fmt.Sprintf("%s", maskSecret(data.GitHubClientSecret)) } placeholder="Optional"/>
 				</div>
 			</div>
