@@ -16,6 +16,9 @@ templ Activity(data ActivityPageData) {
 		@templ.Raw(fmt.Sprintf(`<script>
 document.addEventListener('alpine:init', () => {
 	Alpine.store('activity', %s)
+	Alpine.store('activity').contributionAvailable = false
+	Alpine.store('activity').contributionId = null
+	Alpine.store('activity').contributionDiscName = ''
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
 	window.addEventListener('popstate', () => {
 		Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -77,6 +80,14 @@ document.addEventListener('alpine:init', () => {
 				}
 			}
 		}
+	})
+
+	evtSource.addEventListener('contribution_available', (e) => {
+		const d = JSON.parse(e.data)
+		const store = Alpine.store('activity')
+		store.contributionAvailable = true
+		store.contributionId = d.contribution_id
+		store.contributionDiscName = d.disc_name
 	})
 })
 
@@ -154,6 +165,14 @@ async function clearFiltered(btn, search, status) {
 
 		<div class="page-header">
 			<h1>Activity</h1>
+		</div>
+
+		<div x-data x-show="$store.activity.contributionAvailable" x-cloak class="card" style="margin-bottom: 1rem; border-left: 3px solid var(--accent-color, #3b82f6);">
+			<p style="margin: 0;">
+				<strong x-text="$store.activity.contributionDiscName"></strong> isn't in TheDiscDB yet.
+				<a :href="'/contributions/' + $store.activity.contributionId">Contribute it</a> so others benefit!
+			</p>
+			<button @click="$store.activity.contributionAvailable = false" class="btn btn-sm" style="margin-top: 0.5rem;">Dismiss</button>
 		</div>
 
 		if data.Flash != "" {
