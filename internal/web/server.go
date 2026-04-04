@@ -152,6 +152,10 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/activity/clear-filtered", s.handleActivityClearFiltered)
 	e.GET("/settings", s.handleSettings)
 	e.POST("/settings", s.handleSettingsSave)
+	e.GET("/contributions", s.handleContributions)
+	e.GET("/contributions/:id", s.handleContributionDetail)
+	e.POST("/contributions/:id", s.handleContributionSave)
+	e.POST("/contributions/:id/submit", s.handleContributionSubmit)
 	e.GET("/events", s.handleSSE)
 
 	return s
