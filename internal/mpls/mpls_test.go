@@ -98,17 +98,23 @@ func buildMPLS(t *testing.T, audioStreams [][]string, subtitleStreams [][]string
 
 	playList := append(plHdr, items...)
 
-	// File header: magic(4) + version(4) + AppInfoOffset(4) + PlayListOffset(4) + rest(8+20).
+	// File header layout:
+	//   [0:4]   type_indicator          "MPLS"
+	//   [4:8]   version_number          "0300"
+	//   [8:12]  PlayList_start_address
+	//   [12:16] PlayListMark_start_address
+	//   [16:20] ExtensionData_start_address
+	//   [20:44] reserved
 	fileHdr := make([]byte, 44)
 	copy(fileHdr[0:4], "MPLS")
 	copy(fileHdr[4:8], "0300")
-	// AppInfoPlayList_start_address = 44 (just after header, placeholder)
-	binary.BigEndian.PutUint32(fileHdr[8:12], 44)
-	// PlayList_start_address = 44 + 0 (AppInfo is empty for our test)
-	playListOffset := uint32(44)
-	binary.BigEndian.PutUint32(fileHdr[12:16], playListOffset)
-	// PlayListMark and ExtensionData can point past the end — parser doesn't read them.
-	binary.BigEndian.PutUint32(fileHdr[16:20], playListOffset+uint32(len(playList)))
+	playListOffset := uint32(44) // PlayList immediately follows header (no AppInfo)
+	binary.BigEndian.PutUint32(fileHdr[8:12], playListOffset)
+	// PlayListMark and ExtensionData point past the end — parser doesn't read them.
+	// Use distinct values so tests catch offset mix-ups.
+	pastEnd := playListOffset + uint32(len(playList))
+	binary.BigEndian.PutUint32(fileHdr[12:16], pastEnd)
+	binary.BigEndian.PutUint32(fileHdr[16:20], pastEnd)
 
 	return append(fileHdr, playList...)
 }

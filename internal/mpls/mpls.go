@@ -105,7 +105,9 @@ func ParseMPLS(data []byte) ([]PlayItemLanguages, error) {
 		return nil, fmt.Errorf("mpls: invalid magic %q", data[0:4])
 	}
 
-	playListOffset := int(binary.BigEndian.Uint32(data[12:16]))
+	// Bytes 8–11 = PlayList_start_address (the PlayList section offset).
+	// Note: bytes 12–15 = PlayListMark_start_address (a different section).
+	playListOffset := int(binary.BigEndian.Uint32(data[8:12]))
 	if playListOffset+10 > len(data) {
 		return nil, fmt.Errorf("mpls: PlayList offset %d out of range", playListOffset)
 	}
