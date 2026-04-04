@@ -3,7 +3,9 @@ package contribute
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -11,10 +13,16 @@ import (
 // GenerateReleaseJSON produces the TheDiscDB release.json content for a contribution.
 func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
 	r := ReleaseJSON{
-		Contributor: ContributorJSON{GitHub: githubUser},
-		UPC:         ri.UPC,
-		RegionCode:  ri.RegionCode,
-		Slug:        ri.Slug,
+		Slug:       ri.Slug,
+		UPC:        ri.UPC,
+		Year:       ri.Year,
+		Locale:     "en-us",
+		RegionCode: ri.RegionCode,
+		Title:      fmt.Sprintf("%d %s", ri.Year, ri.Format),
+		DateAdded:  time.Now().UTC().Format(time.RFC3339),
+		Contributors: []ContributorJSON{
+			{Name: githubUser, Source: "github"},
+		},
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -35,41 +43,51 @@ func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
 // Stream attributes used:
 //
 //	1  = CodecID (type prefix)
-//	3  = LangCode
-//	4  = LangName
-//	6  = CodecShort
+//	3  = LanguageCode
+//	4  = Language
+//	6  = Name (CodecShort)
 //	19 = Resolution
 //	20 = AspectRatio
 //
 // Title attributes used:
 //
-//	2  = Name
-//	8  = ChapterCount
 //	9  = Duration
-//	10 = SizeHuman
-//	11 = SizeBytes
+//	10 = SizeHuman (→ DisplaySize)
+//	11 = SizeBytes (→ Size)
 //	16 = SourceFile / SegmentMap
 func GenerateDiscJSON(scan *makemkv.DiscScan, format string) string {
+	discSlug := strings.ToLower(strings.ReplaceAll(format, " ", "-"))
 	disc := DiscJSON{
-		Titles: make([]DiscTitleJSON, 0, len(scan.Titles)),
+		Index:       1,
+		Slug:        discSlug,
+		Name:        format,
+		Format:      format,
+		ContentHash: "",
+		Titles:      make([]DiscTitleJSON, 0, len(scan.Titles)),
 	}
 
 	for i := range scan.Titles {
 		t := &scan.Titles[i]
+
+		var sizeBytes int64
+		if s := t.SizeBytes(); s != "" {
+			sizeBytes, _ = strconv.ParseInt(s, 10, 64)
+		}
+
 		dt := DiscTitleJSON{
-			Index:        t.Index,
-			Name:         t.Name(),
-			Duration:     t.Duration(),
-			ChapterCount: t.ChapterCount(),
-			SizeHuman:    t.SizeHuman(),
-			SizeBytes:    t.SizeBytes(),
-			SourceFile:   t.SourceFile(),
-			Tracks:       make([]TrackJSON, 0, len(t.Streams)),
+			Index:       t.Index,
+			Comment:     t.Name(),
+			SourceFile:  t.SourceFile(),
+			SegmentMap:  t.SegmentMap(),
+			Duration:    t.Duration(),
+			Size:        sizeBytes,
+			DisplaySize: t.SizeHuman(),
+			Tracks:      make([]TrackJSON, 0, len(t.Streams)),
 		}
 
 		for j := range t.Streams {
 			s := &t.Streams[j]
-			track := streamToTrack(s)
+			track := streamToTrack(j, s)
 			dt.Tracks = append(dt.Tracks, track)
 		}
 
@@ -84,7 +102,7 @@ func GenerateDiscJSON(scan *makemkv.DiscScan, format string) string {
 }
 
 // streamToTrack converts a makemkv StreamInfo into a TrackJSON.
-func streamToTrack(s *makemkv.StreamInfo) TrackJSON {
+func streamToTrack(idx int, s *makemkv.StreamInfo) TrackJSON {
 	codecID := s.Attributes[1]
 	trackType := ""
 	switch {
@@ -97,12 +115,13 @@ func streamToTrack(s *makemkv.StreamInfo) TrackJSON {
 	}
 
 	return TrackJSON{
-		Type:        trackType,
-		CodecShort:  s.Attributes[6],
-		LangCode:    s.Attributes[3],
-		LangName:    s.Attributes[4],
-		Resolution:  s.Attributes[19],
-		AspectRatio: s.Attributes[20],
+		Index:        idx,
+		Name:         s.Attributes[6],
+		Type:         trackType,
+		Resolution:   s.Attributes[19],
+		AspectRatio:  s.Attributes[20],
+		LanguageCode: s.Attributes[3],
+		Language:     s.Attributes[4],
 	}
 }
 

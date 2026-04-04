@@ -117,7 +117,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 		{Path: releaseDir + "/release.json", Content: releaseJSON},
 		{Path: releaseDir + "/disc01.json", Content: discJSON},
 		{Path: releaseDir + "/disc01-summary.txt", Content: summary},
-		{Path: releaseDir + "/disc01-raw.txt", Content: rawOutput},
+		{Path: releaseDir + "/disc01.txt", Content: rawOutput},
 	}
 
 	// 4d. Get default branch SHA from the upstream repo (not the fork).
@@ -142,7 +142,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	// 4g. Open pull request. head is "user:branch" format.
 	prTitle := fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
 	prHead := githubUser + ":" + branchName
-	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, "main", prTitle, "")
+	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, "master", prTitle, "")
 	if err != nil {
 		return "", fmt.Errorf("contribute: create PR: %w", err)
 	}

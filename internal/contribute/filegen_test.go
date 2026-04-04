@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -51,7 +52,9 @@ func TestGenerateReleaseJSON(t *testing.T) {
 		Slug:       "1999-blu-ray",
 	}
 
+	before := time.Now().UTC().Truncate(time.Second)
 	content := GenerateReleaseJSON(ri, "testuser")
+	after := time.Now().UTC().Add(time.Second).Truncate(time.Second)
 
 	// Must be valid JSON.
 	var got ReleaseJSON
@@ -68,8 +71,33 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	if got.Slug != ri.Slug {
 		t.Errorf("Slug: want %q, got %q", ri.Slug, got.Slug)
 	}
-	if got.Contributor.GitHub != "testuser" {
-		t.Errorf("Contributor.GitHub: want %q, got %q", "testuser", got.Contributor.GitHub)
+	if got.Year != ri.Year {
+		t.Errorf("Year: want %d, got %d", ri.Year, got.Year)
+	}
+	if got.Locale != "en-us" {
+		t.Errorf("Locale: want %q, got %q", "en-us", got.Locale)
+	}
+	wantTitle := "1999 Blu-ray"
+	if got.Title != wantTitle {
+		t.Errorf("Title: want %q, got %q", wantTitle, got.Title)
+	}
+	// DateAdded must parse as RFC3339 and fall within the test window (RFC3339 is
+	// second-precision, so we truncate both ends and add a 1s pad on the upper bound).
+	dateAdded, err := time.Parse(time.RFC3339, got.DateAdded)
+	if err != nil {
+		t.Errorf("DateAdded %q is not valid RFC3339: %v", got.DateAdded, err)
+	} else if dateAdded.Before(before) || dateAdded.After(after) {
+		t.Errorf("DateAdded %q not within expected test window [%s, %s]", got.DateAdded, before.Format(time.RFC3339), after.Format(time.RFC3339))
+	}
+	// Contributors array must have exactly one entry with correct shape.
+	if len(got.Contributors) != 1 {
+		t.Fatalf("Contributors: want 1 entry, got %d", len(got.Contributors))
+	}
+	if got.Contributors[0].Name != "testuser" {
+		t.Errorf("Contributors[0].Name: want %q, got %q", "testuser", got.Contributors[0].Name)
+	}
+	if got.Contributors[0].Source != "github" {
+		t.Errorf("Contributors[0].Source: want %q, got %q", "github", got.Contributors[0].Source)
 	}
 }
 
@@ -84,29 +112,43 @@ func TestGenerateDiscJSON(t *testing.T) {
 		t.Fatalf("GenerateDiscJSON produced invalid JSON: %v\ncontent:\n%s", err, content)
 	}
 
+	// Verify top-level disc fields.
+	if got.Index != 1 {
+		t.Errorf("Index: want 1, got %d", got.Index)
+	}
+	if got.Slug != "blu-ray" {
+		t.Errorf("Slug: want %q, got %q", "blu-ray", got.Slug)
+	}
+	if got.Name != "Blu-ray" {
+		t.Errorf("Name: want %q, got %q", "Blu-ray", got.Name)
+	}
+	if got.Format != "Blu-ray" {
+		t.Errorf("Format: want %q, got %q", "Blu-ray", got.Format)
+	}
+
 	if len(got.Titles) != 2 {
 		t.Fatalf("expected 2 titles, got %d", len(got.Titles))
 	}
 
 	// Verify first title.
 	t0 := got.Titles[0]
-	if t0.Name != "The Matrix" {
-		t.Errorf("Titles[0].Name: want %q, got %q", "The Matrix", t0.Name)
+	if t0.Comment != "The Matrix" {
+		t.Errorf("Titles[0].Comment: want %q, got %q", "The Matrix", t0.Comment)
 	}
 	if t0.Duration != "1:45:32" {
 		t.Errorf("Titles[0].Duration: want %q, got %q", "1:45:32", t0.Duration)
 	}
-	if t0.ChapterCount != "28" {
-		t.Errorf("Titles[0].ChapterCount: want %q, got %q", "28", t0.ChapterCount)
+	if t0.DisplaySize != "32.2 GB" {
+		t.Errorf("Titles[0].DisplaySize: want %q, got %q", "32.2 GB", t0.DisplaySize)
 	}
-	if t0.SizeHuman != "32.2 GB" {
-		t.Errorf("Titles[0].SizeHuman: want %q, got %q", "32.2 GB", t0.SizeHuman)
-	}
-	if t0.SizeBytes != "34567890123" {
-		t.Errorf("Titles[0].SizeBytes: want %q, got %q", "34567890123", t0.SizeBytes)
+	if t0.Size != 34567890123 {
+		t.Errorf("Titles[0].Size: want %d, got %d", int64(34567890123), t0.Size)
 	}
 	if t0.SourceFile != "00800.mpls" {
 		t.Errorf("Titles[0].SourceFile: want %q, got %q", "00800.mpls", t0.SourceFile)
+	}
+	if t0.SegmentMap != "00800.mpls" {
+		t.Errorf("Titles[0].SegmentMap: want %q, got %q", "00800.mpls", t0.SegmentMap)
 	}
 
 	// Verify streams mapped to tracks.
@@ -116,6 +158,9 @@ func TestGenerateDiscJSON(t *testing.T) {
 	videoTrack := t0.Tracks[0]
 	if videoTrack.Type != "video" {
 		t.Errorf("Tracks[0].Type: want %q, got %q", "video", videoTrack.Type)
+	}
+	if videoTrack.Name != "Mpeg4 AVC High@L4.1" {
+		t.Errorf("Tracks[0].Name: want %q, got %q", "Mpeg4 AVC High@L4.1", videoTrack.Name)
 	}
 	if videoTrack.Resolution != "1920x1080" {
 		t.Errorf("Tracks[0].Resolution: want %q, got %q", "1920x1080", videoTrack.Resolution)
@@ -128,20 +173,20 @@ func TestGenerateDiscJSON(t *testing.T) {
 	if audioTrack.Type != "audio" {
 		t.Errorf("Tracks[1].Type: want %q, got %q", "audio", audioTrack.Type)
 	}
-	if audioTrack.LangCode != "eng" {
-		t.Errorf("Tracks[1].LangCode: want %q, got %q", "eng", audioTrack.LangCode)
+	if audioTrack.LanguageCode != "eng" {
+		t.Errorf("Tracks[1].LanguageCode: want %q, got %q", "eng", audioTrack.LanguageCode)
 	}
-	if audioTrack.LangName != "English" {
-		t.Errorf("Tracks[1].LangName: want %q, got %q", "English", audioTrack.LangName)
+	if audioTrack.Language != "English" {
+		t.Errorf("Tracks[1].Language: want %q, got %q", "English", audioTrack.Language)
 	}
-	if audioTrack.CodecShort != "TrueHD Atmos" {
-		t.Errorf("Tracks[1].CodecShort: want %q, got %q", "TrueHD Atmos", audioTrack.CodecShort)
+	if audioTrack.Name != "TrueHD Atmos" {
+		t.Errorf("Tracks[1].Name: want %q, got %q", "TrueHD Atmos", audioTrack.Name)
 	}
 
 	// Second title has no streams.
 	t1 := got.Titles[1]
-	if t1.Name != "Behind the Scenes" {
-		t.Errorf("Titles[1].Name: want %q, got %q", "Behind the Scenes", t1.Name)
+	if t1.Comment != "Behind the Scenes" {
+		t.Errorf("Titles[1].Comment: want %q, got %q", "Behind the Scenes", t1.Comment)
 	}
 }
 

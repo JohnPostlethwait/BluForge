@@ -21,40 +21,52 @@ type TitleLabel struct {
 
 // ReleaseJSON is the schema for TheDiscDB release.json.
 type ReleaseJSON struct {
-	Contributor ContributorJSON `json:"contributor"`
-	UPC         string          `json:"upc"`
-	RegionCode  string          `json:"region_code"`
-	Slug        string          `json:"slug"`
+	Slug         string            `json:"Slug"`
+	UPC          string            `json:"Upc,omitempty"`
+	Year         int               `json:"Year"`
+	Locale       string            `json:"Locale"`
+	RegionCode   string            `json:"RegionCode"`
+	Title        string            `json:"Title"`
+	DateAdded    string            `json:"DateAdded"`
+	Contributors []ContributorJSON `json:"Contributors"`
 }
 
 // ContributorJSON holds contributor metadata for TheDiscDB submissions.
 type ContributorJSON struct {
-	GitHub string `json:"github"`
+	Name   string `json:"Name"`
+	Source string `json:"Source"`
 }
 
 // DiscJSON is the schema for TheDiscDB disc01.json.
 type DiscJSON struct {
-	Titles []DiscTitleJSON `json:"titles"`
+	Index       int             `json:"Index"`
+	Slug        string          `json:"Slug"`
+	Name        string          `json:"Name"`
+	Format      string          `json:"Format"`
+	ContentHash string          `json:"ContentHash"`
+	Titles      []DiscTitleJSON `json:"Titles"`
 }
 
 // DiscTitleJSON represents a single title entry in disc01.json.
 type DiscTitleJSON struct {
-	Index        int        `json:"index"`
-	Name         string     `json:"name"`
-	Duration     string     `json:"duration"`
-	ChapterCount string     `json:"chapter_count"`
-	SizeHuman    string     `json:"size_human"`
-	SizeBytes    string     `json:"size_bytes"`
-	SourceFile   string     `json:"source_file"`
-	Tracks       []TrackJSON `json:"tracks"`
+	Index       int         `json:"Index"`
+	Comment     string      `json:"Comment,omitempty"`
+	SourceFile  string      `json:"SourceFile"`
+	SegmentMap  string      `json:"SegmentMap"`
+	Duration    string      `json:"Duration"`
+	Size        int64       `json:"Size"`
+	DisplaySize string      `json:"DisplaySize"`
+	Tracks      []TrackJSON `json:"Tracks"`
 }
 
 // TrackJSON represents a single stream/track entry.
 type TrackJSON struct {
-	Type       string `json:"type"`
-	CodecShort string `json:"codec_short,omitempty"`
-	LangCode   string `json:"lang_code,omitempty"`
-	LangName   string `json:"lang_name,omitempty"`
-	Resolution string `json:"resolution,omitempty"`
-	AspectRatio string `json:"aspect_ratio,omitempty"`
+	Index        int    `json:"Index"`
+	Name         string `json:"Name"`
+	Type         string `json:"Type"`
+	Resolution   string `json:"Resolution,omitempty"`
+	AspectRatio  string `json:"AspectRatio,omitempty"`
+	AudioType    string `json:"AudioType,omitempty"`
+	LanguageCode string `json:"LanguageCode,omitempty"`
+	Language     string `json:"Language,omitempty"`
 }
