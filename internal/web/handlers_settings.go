@@ -21,6 +21,7 @@ func (s *Server) handleSettings(c echo.Context) error {
 		DuplicateAction:       cfg.DuplicateAction,
 		GitHubClientID:        cfg.GitHubClientID,
 		GitHubClientSecret:    cfg.GitHubClientSecret,
+		GitHubToken:           cfg.GitHubToken,
 		MakeMKVKey:            cfg.MakeMKVKey,
 		PreferredAudioLangs:   cfg.PreferredAudioLangs,
 		PreferredSubtitleLangs: cfg.PreferredSubtitleLangs,
@@ -37,6 +38,7 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	duplicateAction := c.FormValue("duplicate_action")
 	githubClientID := c.FormValue("github_client_id")
 	githubClientSecret := c.FormValue("github_client_secret")
+	githubToken := c.FormValue("github_token")
 	makemkvKey := c.FormValue("makemkv_key")
 	preferredAudioLangs := c.FormValue("preferred_audio_langs")
 	preferredSubtitleLangs := c.FormValue("preferred_subtitle_langs")
@@ -69,6 +71,11 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 		// Only update the secret if the user provided a non-masked value.
 		if githubClientSecret != "" && githubClientSecret != "••••••••" {
 			cfg.GitHubClientSecret = githubClientSecret
+		}
+
+		// Only update the token if the user provided a non-masked value.
+		if githubToken != "" && githubToken != "••••••••" {
+			cfg.GitHubToken = githubToken
 		}
 
 		// Only update the key if the user provided a non-masked value.
