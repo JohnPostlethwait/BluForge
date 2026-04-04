@@ -123,38 +123,52 @@ func findMountDarwin() (string, error) {
 	return "", fmt.Errorf("no Blu-ray disc found under /Volumes")
 }
 
-// readFromMountPoint reads MPLS files from the mounted disc.  It prefers the
-// BDMV/BACKUP/PLAYLIST directory (which holds unencrypted copies) and falls
-// back to BDMV/PLAYLIST.
+// readFromMountPoint reads MPLS files from the mounted disc. It tries each
+// available PLAYLIST directory (BDMV/BACKUP/PLAYLIST, then BDMV/PLAYLIST)
+// until one yields parseable results. UHD discs sometimes have stub/truncated
+// MPLS files in the BACKUP directory while the main PLAYLIST has full data.
 func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
-	var playlistDir string
-	for _, candidate := range []string{
+	candidates := []string{
 		filepath.Join(mountPoint, "BDMV", "BACKUP", "PLAYLIST"),
 		filepath.Join(mountPoint, "BDMV", "PLAYLIST"),
-	} {
-		if _, err := os.Stat(candidate); err == nil {
-			playlistDir = candidate
-			break
-		}
 	}
-	if playlistDir == "" {
-		return nil, fmt.Errorf("mpls: no PLAYLIST directory found under %s", mountPoint)
-	}
-	slog.Info("mpls: using playlist directory", "dir", playlistDir)
 
-	// Determine which filenames to read.
+	for _, playlistDir := range candidates {
+		if _, err := os.Stat(playlistDir); err != nil {
+			continue
+		}
+		slog.Info("mpls: trying playlist directory", "dir", playlistDir)
+
+		result := parseMPLSFromDir(playlistDir, sourceFiles)
+		if len(result) > 0 {
+			slog.Info("mpls: successfully parsed playlist files",
+				"dir", playlistDir, "parsed", len(result))
+			return result, nil
+		}
+		slog.Info("mpls: no usable playlists in directory, trying next",
+			"dir", playlistDir)
+	}
+
+	return nil, fmt.Errorf("mpls: no MPLS files could be parsed from any PLAYLIST directory under %s", mountPoint)
+}
+
+// parseMPLSFromDir reads and parses MPLS files from a single directory.
+// When sourceFiles is non-empty, only those filenames are read; otherwise
+// all .mpls files in the directory are read.
+func parseMPLSFromDir(playlistDir string, sourceFiles []string) map[string]PlayItemLanguages {
 	filenames := sourceFiles
 	if len(filenames) == 0 {
 		entries, err := os.ReadDir(playlistDir)
 		if err != nil {
-			return nil, fmt.Errorf("mpls: read playlist dir: %w", err)
+			slog.Warn("mpls: could not read playlist directory", "dir", playlistDir, "error", err)
+			return nil
 		}
 		for _, e := range entries {
 			if strings.EqualFold(filepath.Ext(e.Name()), ".mpls") {
 				filenames = append(filenames, e.Name())
 			}
 		}
-		slog.Info("mpls: discovered playlist files", "count", len(filenames))
+		slog.Info("mpls: discovered playlist files", "dir", playlistDir, "count", len(filenames))
 	}
 
 	result := make(map[string]PlayItemLanguages, len(filenames))
@@ -171,15 +185,11 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 			continue
 		}
 		if len(items) == 0 {
+			slog.Info("mpls: playlist has 0 PlayItems",
+				"path", path, "file_size", len(data))
 			continue
 		}
-		// Use the first PlayItem: it corresponds to the primary title content.
 		result[fn] = items[0]
 	}
-
-	if len(result) == 0 {
-		return nil, fmt.Errorf("mpls: no MPLS files could be parsed from %s (%d files attempted)", playlistDir, len(filenames))
-	}
-	slog.Info("mpls: successfully parsed playlist files", "parsed", len(result), "attempted", len(filenames))
-	return result, nil
+	return result
 }
