@@ -159,7 +159,7 @@ async function clearFiltered(btn, search, status) {
 		if data.Flash != "" {
 			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success" role="status" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
 				<span>{ data.Flash }</span>
-				<button class="btn btn-sm" style="padding:0.1rem 0.5rem;" @click="show = false" aria-label="Dismiss">&times;</button>
+				<button @click="show = false" aria-label="Dismiss" style="background:none; border:none; cursor:pointer; color:#86efac; font-size:1.25rem; line-height:1; padding:0; opacity:0.7;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
 			</div>
 		}
 
