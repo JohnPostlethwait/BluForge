@@ -471,7 +471,59 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 	slog.Info("auto-rip: no confident match, using unmatched titles",
 		"disc_name", scan.DiscName)
 	titles = o.unmatchedTitles(scan)
+
+	// Create a contribution record for this unmatched disc so the user
+	// can contribute it to TheDiscDB later.
+	o.createContributionRecord(scan)
+
 	return
+}
+
+// createContributionRecord stores an unmatched disc scan for potential
+// contribution to TheDiscDB. Silently skips if a contribution already exists
+// for this disc key.
+func (o *Orchestrator) createContributionRecord(scan *makemkv.DiscScan) {
+	discKey := discdb.BuildDiscKey(scan)
+
+	// Check if a contribution already exists for this disc.
+	existing, err := o.store.GetContributionByDiscKey(discKey)
+	if err != nil {
+		slog.Error("auto-rip: failed to check existing contribution", "disc_key", discKey, "error", err)
+		return
+	}
+	if existing != nil {
+		slog.Info("auto-rip: contribution already exists for disc", "disc_key", discKey)
+		return
+	}
+
+	scanJSON, err := json.Marshal(scan)
+	if err != nil {
+		slog.Error("auto-rip: failed to marshal scan for contribution", "disc_key", discKey, "error", err)
+		return
+	}
+
+	id, err := o.store.SaveContribution(db.Contribution{
+		DiscKey:   discKey,
+		DiscName:  scan.DiscName,
+		RawOutput: scan.RawOutput,
+		ScanJSON:  string(scanJSON),
+	})
+	if err != nil {
+		slog.Error("auto-rip: failed to save contribution", "disc_key", discKey, "error", err)
+		return
+	}
+
+	slog.Info("auto-rip: created contribution record for unmatched disc",
+		"disc_key", discKey, "disc_name", scan.DiscName, "contribution_id", id)
+
+	// Broadcast SSE event so the UI can show a notification.
+	if o.onBroadcast != nil {
+		data, _ := json.Marshal(map[string]any{
+			"contribution_id": id,
+			"disc_name":       scan.DiscName,
+		})
+		o.onBroadcast("contribution_available", string(data))
+	}
 }
 
 // titlesFromSearchResult builds TitleSelections from a TheDiscDB match using
