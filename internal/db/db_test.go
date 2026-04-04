@@ -22,7 +22,7 @@ func openTestDB(t *testing.T) *Store {
 func TestOpenCreatesSchema(t *testing.T) {
 	store := openTestDB(t)
 
-	tables := []string{"rip_jobs", "disc_mappings", "discdb_cache", "settings"}
+	tables := []string{"rip_jobs", "disc_mappings", "discdb_cache", "settings", "contributions"}
 	for _, table := range tables {
 		var name string
 		err := store.db.QueryRow(
