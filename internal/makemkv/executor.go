@@ -354,60 +354,19 @@ func pickRichestMPLS(langs map[string]mpls.PlayItemLanguages) mpls.PlayItemLangu
 	return best
 }
 
-// applyMPLSLanguages writes language codes from tl into the audio and subtitle
-// streams of title, matching by stream type and position within each type.
-// When a title has no streams (makemkvcon omitted SINFO lines), streams are
-// created from the MPLS data so the frontend has language and codec info.
-// Returns the number of streams updated or created.
+// applyMPLSLanguages appends MPLS-derived streams to the title. MPLS is the
+// authoritative source for language metadata on Blu-ray discs, so we always
+// create streams from it rather than trying to enrich existing SINFO streams
+// (which requires fragile stream-type classification that fails on UHD discs).
+// Any existing SINFO streams are left in place for codec/bitrate display.
+// Returns the number of streams created.
 func applyMPLSLanguages(title *TitleInfo, tl mpls.PlayItemLanguages) int {
-	if len(title.Streams) > 0 {
-		return enrichExistingStreams(title, tl)
-	}
 	return createStreamsFromMPLS(title, tl)
 }
 
-// enrichExistingStreams updates language codes on pre-existing streams (from
-// SINFO lines) by matching MPLS entries by type and position.
-func enrichExistingStreams(title *TitleInfo, tl mpls.PlayItemLanguages) int {
-	updated := 0
-	audioIdx := 0
-	subIdx := 0
-	for j := range title.Streams {
-		s := &title.Streams[j]
-		switch {
-		case s.IsAudio():
-			if audioIdx < len(tl.Audio) && tl.Audio[audioIdx].LangCode != "" {
-				if s.Attributes == nil {
-					s.Attributes = make(map[int]string)
-				}
-				s.Attributes[AttrLangCode] = tl.Audio[audioIdx].LangCode
-				if s.LangName() == "" {
-					s.Attributes[AttrLangName] = LangCodeToName(tl.Audio[audioIdx].LangCode)
-				}
-				updated++
-			}
-			audioIdx++
-		case s.IsSubtitle():
-			if subIdx < len(tl.Subtitle) && tl.Subtitle[subIdx].LangCode != "" {
-				if s.Attributes == nil {
-					s.Attributes = make(map[int]string)
-				}
-				s.Attributes[AttrLangCode] = tl.Subtitle[subIdx].LangCode
-				if s.LangName() == "" {
-					s.Attributes[AttrLangName] = LangCodeToName(tl.Subtitle[subIdx].LangCode)
-				}
-				updated++
-			}
-			subIdx++
-		}
-	}
-	return updated
-}
-
-// createStreamsFromMPLS creates StreamInfo objects from MPLS data when
-// makemkvcon didn't output any SINFO lines for the title. This happens on
-// some UHD discs where makemkvcon reads the playlist structure but omits
-// stream-level detail.
+// createStreamsFromMPLS creates StreamInfo objects from MPLS data. These carry
+// correct Matroska-style type prefixes (A_, S_) and language codes that the
+// frontend needs for track selection.
 func createStreamsFromMPLS(title *TitleInfo, tl mpls.PlayItemLanguages) int {
 	created := 0
 	streamIdx := 0

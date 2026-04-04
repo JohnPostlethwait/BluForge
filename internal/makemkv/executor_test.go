@@ -393,15 +393,17 @@ func TestApplyMPLSLanguages_CreatesStreamsWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestApplyMPLSLanguages_EnrichesExistingStreams verifies the existing behavior:
-// when streams exist from SINFO, MPLS data enriches them with language codes.
-func TestApplyMPLSLanguages_EnrichesExistingStreams(t *testing.T) {
+// TestApplyMPLSLanguages_AppendsToExistingStreams verifies that MPLS streams
+// are appended even when SINFO streams already exist. This is the UHD scenario
+// where SINFO streams lack recognizable type prefixes.
+func TestApplyMPLSLanguages_AppendsToExistingStreams(t *testing.T) {
 	title := &TitleInfo{
 		Index:      0,
 		Attributes: map[int]string{},
 		Streams: []StreamInfo{
-			{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{AttrType: "A_AC3"}},
-			{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{AttrType: "S_HDMV/PGS"}},
+			// Existing SINFO streams with unrecognizable types (UHD scenario).
+			{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{AttrType: "Mpeg4"}},
+			{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{AttrType: "DTS-HD MA"}},
 		},
 	}
 
@@ -410,19 +412,20 @@ func TestApplyMPLSLanguages_EnrichesExistingStreams(t *testing.T) {
 		Subtitle: []mpls.StreamEntry{{LangCode: "fra", CodingType: 0x90}},
 	}
 
-	updated := applyMPLSLanguages(title, tl)
-	if updated != 2 {
-		t.Fatalf("expected 2 streams updated, got %d", updated)
+	created := applyMPLSLanguages(title, tl)
+	if created != 2 {
+		t.Fatalf("expected 2 streams created, got %d", created)
 	}
-	// Streams should still be 2 (not 4 — no new streams created).
-	if len(title.Streams) != 2 {
-		t.Fatalf("expected 2 streams (unchanged count), got %d", len(title.Streams))
+	// Original 2 SINFO streams + 2 new MPLS streams = 4.
+	if len(title.Streams) != 4 {
+		t.Fatalf("expected 4 total streams (2 SINFO + 2 MPLS), got %d", len(title.Streams))
 	}
-	if title.Streams[0].LangCode() != "eng" {
-		t.Errorf("stream 0: expected langCode eng, got %q", title.Streams[0].LangCode())
+	// The appended MPLS streams should have language codes.
+	if title.Streams[2].LangCode() != "eng" {
+		t.Errorf("mpls stream 0: expected langCode eng, got %q", title.Streams[2].LangCode())
 	}
-	if title.Streams[1].LangCode() != "fra" {
-		t.Errorf("stream 1: expected langCode fra, got %q", title.Streams[1].LangCode())
+	if title.Streams[3].LangCode() != "fra" {
+		t.Errorf("mpls stream 1: expected langCode fra, got %q", title.Streams[3].LangCode())
 	}
 }
 
