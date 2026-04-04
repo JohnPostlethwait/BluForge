@@ -59,13 +59,14 @@ func buildMPLS(t *testing.T, audioStreams [][]string, subtitleStreams [][]string
 	// Build a PlayItem for one title.
 	buildPlayItem := func(audio, subs []string) []byte {
 		stn := buildSTN(audio, subs)
-		// PlayItem fixed header (30 bytes before STN_Table when still_mode=0, not multi-angle).
-		hdr := make([]byte, 30)
+		// PlayItem fixed header: 30 bytes + 2 bytes still_time/reserved = 32 bytes.
+		hdr := make([]byte, 32)
 		copy(hdr[0:5], []byte("00001")) // Clip_Information_file_name
 		copy(hdr[5:9], []byte("M2TS"))  // Clip_codec_identifier
 		// bytes 9-10: flags (is_multi_angle=0, connection_condition=1)
 		hdr[10] = 0x01
-		// still_mode = 0 (byte 29 in hdr, already 0)
+		// byte 29: still_mode = 0 (already 0)
+		// bytes 30-31: still_time/reserved = 0 (already 0)
 		data := append(hdr, stn...)
 		// Prepend the 2-byte length field.
 		out := make([]byte, 2)

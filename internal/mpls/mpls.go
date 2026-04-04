@@ -147,8 +147,8 @@ func ParseMPLS(data []byte) ([]PlayItemLanguages, error) {
 // parsePlayItemLanguages extracts audio and subtitle language codes from a
 // single PlayItem's binary data (the bytes after the 2-byte length field).
 func parsePlayItemLanguages(item []byte) (PlayItemLanguages, error) {
-	// Minimum PlayItem data required to reach still_mode at byte 29.
-	if len(item) < 30 {
+	// Minimum PlayItem data: 30 bytes of fixed header + 2 bytes still_time/reserved.
+	if len(item) < 32 {
 		return PlayItemLanguages{}, fmt.Errorf("mpls: PlayItem too short (%d bytes)", len(item))
 	}
 
@@ -162,18 +162,16 @@ func parsePlayItemLanguages(item []byte) (PlayItemLanguages, error) {
 	//   [20:28] UO_mask_table
 	//   [28]    random_access_flag|reserved
 	//   [29]    still_mode
-	//   [30...] still_time (2 bytes, only when still_mode==1)
-	//           multi-angle data (when is_multi_angle==1)
+	//   [30:32] still_time (when still_mode==1) or reserved (otherwise)
+	//           — these 2 bytes are ALWAYS present per the BD spec
+	//   [32...] multi-angle data (when is_multi_angle==1)
 	//   [stnOffset...] STN_Table
 
 	// is_multi_angle is bit 4 of item[10] (the low byte of the 16-bit flags field).
 	isMultiAngle := (item[10] >> 4) & 1
-	stillMode := item[29]
 
-	stnOffset := 30
-	if stillMode == 1 {
-		stnOffset += 2 // still_time is present only for finite-still mode
-	}
+	// still_time/reserved is always 2 bytes after still_mode, regardless of mode.
+	stnOffset := 32
 
 	if isMultiAngle == 1 {
 		if stnOffset >= len(item) {
