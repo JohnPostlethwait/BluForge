@@ -140,16 +140,28 @@ func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]Pla
 		slog.Info("mpls: trying playlist directory", "dir", playlistDir)
 
 		result := parseMPLSFromDir(playlistDir, sourceFiles)
-		if len(result) > 0 {
+		if hasStreams(result) {
 			slog.Info("mpls: successfully parsed playlist files",
 				"dir", playlistDir, "parsed", len(result))
 			return result, nil
 		}
 		slog.Info("mpls: no usable playlists in directory, trying next",
-			"dir", playlistDir)
+			"dir", playlistDir, "parsed_but_empty", len(result))
 	}
 
 	return nil, fmt.Errorf("mpls: no MPLS files could be parsed from any PLAYLIST directory under %s", mountPoint)
+}
+
+// hasStreams reports whether any entry in result contains at least one audio
+// or subtitle stream. BACKUP playlist directories on some UHD discs have stub
+// MPLS files that parse without error but contain no stream data.
+func hasStreams(result map[string]PlayItemLanguages) bool {
+	for _, pl := range result {
+		if len(pl.Audio) > 0 || len(pl.Subtitle) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // parseMPLSFromDir reads and parses MPLS files from a single directory.
