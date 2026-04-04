@@ -519,6 +519,19 @@ async function scanDisc(driveIndex) {
 					</div>
 				</template>
 
+				<!-- Already scanned: show continue button -->
+				<template x-if="!$store.drive.scanning && !$store.drive.scanError && $store.drive.titles.length > 0">
+					<div style="text-align: center; padding: 2rem 0;">
+						<p class="text-secondary" style="margin-bottom: 1rem;">
+							Disc already scanned &mdash; <span x-text="$store.drive.titles.length"></span> title(s) found.
+						</p>
+						<div style="display:flex; gap:0.75rem; justify-content:center;">
+							@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary" x-on:click="scanDisc(%d)">Re-scan Disc</button>`, data.DriveIndex))
+							@templ.Raw(`<button class="btn btn-primary" style="padding: 0.6rem 2rem; font-size: 1rem;" x-on:click="goToStep(4)">Continue to Titles</button>`)
+						</div>
+					</div>
+				</template>
+
 				<!-- 0 titles result -->
 				<template x-if="!$store.drive.scanning && !$store.drive.scanError && $store.drive.titles.length === 0 && $store.drive.state !== 'empty'">
 					<div style="text-align: center; padding: 2rem 0;">
@@ -673,7 +686,10 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 5" x-cloak class="step-content">
 			<div class="card">
-				<h2 class="section-title">Confirm &amp; Rip</h2>
+				<div style="display:flex; justify-content:space-between; align-items:center;">
+					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Confirm &amp; Rip</h2>
+					<button class="btn btn-secondary btn-sm" x-on:click="goToStep(4)">&larr; Back</button>
+				</div>
 
 				<p class="text-secondary">
 					Ripping <strong x-text="selectedTitleCount()"></strong> title(s) from
@@ -753,19 +769,16 @@ async function scanDisc(driveIndex) {
 					<div class="mt-3" style="display:flex; align-items:center; gap:0.75rem;">
 						<label style="margin-bottom:0; white-space:nowrap;" class="text-secondary">If file already exists:</label>
 						<select name="duplicate_action" style="width:auto; min-width:140px;">
-							<option value="skip" selected>Skip</option>
+							<option value="rename" selected>Rename</option>
+							<option value="skip">Skip</option>
 							<option value="overwrite">Overwrite</option>
-							<option value="rename">Rename</option>
 						</select>
 					</div>
 
-					<div class="mt-4" style="display:flex; gap:0.75rem; justify-content:flex-end;">
-						<button type="button" class="btn btn-secondary" x-on:click="goToStep(4)">&larr; Back to Titles</button>
+					<div class="mt-4" style="display:flex; justify-content:flex-end;">
 						<button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">Start Rip</button>
 					</div>
 				</form>
-
-				<p class="text-muted" style="margin-top:1rem; font-size:0.9em;">After starting, track progress on the <a href="/activity" style="color:inherit;text-decoration:underline;">Activity</a> page.</p>
 			</div>
 		</div>
 	}
