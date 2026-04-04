@@ -123,14 +123,15 @@ func findMountDarwin() (string, error) {
 	return "", fmt.Errorf("no Blu-ray disc found under /Volumes")
 }
 
-// readFromMountPoint reads MPLS files from the mounted disc. It tries each
-// available PLAYLIST directory (BDMV/BACKUP/PLAYLIST, then BDMV/PLAYLIST)
-// until one yields parseable results. UHD discs sometimes have stub/truncated
-// MPLS files in the BACKUP directory while the main PLAYLIST has full data.
+// readFromMountPoint reads MPLS files from the mounted disc. It tries the
+// primary PLAYLIST directory first, then falls back to BACKUP. UHD discs
+// sometimes have stub MPLS files in BACKUP with valid PlayItem headers but
+// empty STN_Tables (0 audio/subtitle streams), so the primary directory is
+// preferred.
 func readFromMountPoint(mountPoint string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
 	candidates := []string{
-		filepath.Join(mountPoint, "BDMV", "BACKUP", "PLAYLIST"),
 		filepath.Join(mountPoint, "BDMV", "PLAYLIST"),
+		filepath.Join(mountPoint, "BDMV", "BACKUP", "PLAYLIST"),
 	}
 
 	for _, playlistDir := range candidates {

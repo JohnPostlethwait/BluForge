@@ -275,16 +275,31 @@ func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
 		return
 	}
 
+	// Log what MPLS returned so we can diagnose empty-stream issues.
+	for fn, pl := range langs {
+		slog.Info("executor: mpls file loaded",
+			"file", fn, "audio_streams", len(pl.Audio), "subtitle_streams", len(pl.Subtitle))
+	}
+
 	applied := 0
 	if len(sourceFiles) > 0 {
 		// Direct matching: each title's SourceFile names its MPLS playlist.
+		slog.Info("executor: mpls direct match path",
+			"drive_index", scan.DriveIndex,
+			"source_files", sourceFiles, "langs_keys_count", len(langs))
 		for i := range scan.Titles {
 			srcFile := scan.Titles[i].SourceFile()
 			tl, ok := langs[srcFile]
 			if !ok {
+				slog.Info("executor: mpls no match for title source file",
+					"title_index", scan.Titles[i].Index, "source_file", srcFile)
 				continue
 			}
-			applied += applyMPLSLanguages(&scan.Titles[i], tl)
+			n := applyMPLSLanguages(&scan.Titles[i], tl)
+			slog.Info("executor: mpls applied to title",
+				"title_index", scan.Titles[i].Index, "source_file", srcFile,
+				"existing_streams", len(scan.Titles[i].Streams)-n, "applied", n)
+			applied += n
 		}
 	} else {
 		// Fallback: no source file info available (common on UHD discs).

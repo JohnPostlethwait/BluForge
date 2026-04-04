@@ -276,6 +276,39 @@ func TestParseMPLS_RealUHDDisc(t *testing.T) {
 	}
 }
 
+func TestHasStreams(t *testing.T) {
+	// Empty map → false.
+	if hasStreams(map[string]PlayItemLanguages{}) {
+		t.Error("hasStreams(empty) = true, want false")
+	}
+
+	// Map with entries but no audio/subtitle → false (UHD BACKUP stub scenario).
+	stubMap := map[string]PlayItemLanguages{
+		"00100.mpls": {},
+		"00200.mpls": {},
+		"00300.mpls": {},
+	}
+	if hasStreams(stubMap) {
+		t.Error("hasStreams(stubs) = true, want false")
+	}
+
+	// Map with at least one entry having audio → true.
+	withAudio := map[string]PlayItemLanguages{
+		"00100.mpls": {Audio: []StreamEntry{{LangCode: "eng", CodingType: 0x81}}},
+	}
+	if !hasStreams(withAudio) {
+		t.Error("hasStreams(withAudio) = false, want true")
+	}
+
+	// Map with at least one entry having subtitle → true.
+	withSub := map[string]PlayItemLanguages{
+		"00100.mpls": {Subtitle: []StreamEntry{{LangCode: "eng", CodingType: 0x90}}},
+	}
+	if !hasStreams(withSub) {
+		t.Error("hasStreams(withSub) = false, want true")
+	}
+}
+
 func TestDecodeLang(t *testing.T) {
 	cases := []struct {
 		in   []byte

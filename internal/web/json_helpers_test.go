@@ -451,3 +451,87 @@ func TestStreamDataFlowEndToEnd(t *testing.T) {
 		t.Errorf("extractDiscLanguages missing subtitle lang 'spa'")
 	}
 }
+
+// TestStreamDataFlowEndToEnd_MPLSCreated verifies the full data path when
+// streams are created by MPLS enrichment (no SINFO lines from makemkvcon).
+// This is the UHD disc scenario where the UI was showing "Language information
+// not available" because MPLS-created streams weren't reaching the frontend.
+func TestStreamDataFlowEndToEnd_MPLSCreated(t *testing.T) {
+	// Simulate a UHD disc scan where MPLS enrichment has already created
+	// streams (no SINFO from makemkvcon). These streams look exactly like
+	// what createStreamsFromMPLS produces.
+	scan := &makemkv.DiscScan{
+		DriveIndex: 0,
+		DiscName:   "SEINFELD_S8_UHD",
+		TitleCount: 1,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index: 0,
+				Attributes: map[int]string{
+					2:  "Season 8 Disc 1",
+					9:  "3:30:00",
+					10: "25.0 GB",
+					16: "00100.mpls",
+				},
+				Streams: []makemkv.StreamInfo{
+					{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{
+						1: "A_DTSHD", 3: "eng", 4: "English", 6: "DTS-HD MA",
+					}},
+					{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{
+						1: "A_AC3", 3: "eng", 4: "English", 6: "AC3",
+					}},
+					{TitleIndex: 0, StreamIndex: 2, Attributes: map[int]string{
+						1: "S_HDMV/PGS", 3: "eng", 4: "English", 6: "PGS",
+					}},
+					{TitleIndex: 0, StreamIndex: 3, Attributes: map[int]string{
+						1: "S_HDMV/PGS", 3: "eng", 4: "English", 6: "PGS",
+					}},
+				},
+			},
+		},
+	}
+
+	// Verify scanToTitleJSON includes the MPLS-created streams.
+	titles := scanToTitleJSON(scan)
+	if len(titles) != 1 {
+		t.Fatalf("expected 1 title, got %d", len(titles))
+	}
+	if len(titles[0].Streams) != 4 {
+		t.Fatalf("expected 4 streams in TitleJSON, got %d", len(titles[0].Streams))
+	}
+
+	// Verify stream types and language codes survived serialization.
+	for _, s := range titles[0].Streams {
+		if s.LangCode != "eng" {
+			t.Errorf("stream %d: expected langCode 'eng', got %q", s.StreamIndex, s.LangCode)
+		}
+		if s.LangName == "" {
+			t.Errorf("stream %d: langName is empty", s.StreamIndex)
+		}
+		if s.Type != "audio" && s.Type != "subtitle" {
+			t.Errorf("stream %d: expected type audio or subtitle, got %q", s.StreamIndex, s.Type)
+		}
+	}
+
+	// Verify extractDiscLanguages finds the MPLS-created streams.
+	audioLangs, subLangs := extractDiscLanguages(scan, "", "")
+	if len(audioLangs) == 0 {
+		t.Error("extractDiscLanguages returned 0 audio languages — UI will show 'not available'")
+	}
+	if len(subLangs) == 0 {
+		t.Error("extractDiscLanguages returned 0 subtitle languages — UI will show 'not available'")
+	}
+
+	// Verify JSON output has language data.
+	jsonBytes, err := json.Marshal(titles)
+	if err != nil {
+		t.Fatalf("JSON marshal failed: %v", err)
+	}
+	jsonStr := string(jsonBytes)
+	if !strings.Contains(jsonStr, `"langCode":"eng"`) {
+		t.Errorf("JSON output missing langCode 'eng': %s", jsonStr)
+	}
+	if !strings.Contains(jsonStr, `"type":"audio"`) {
+		t.Errorf("JSON output missing type 'audio': %s", jsonStr)
+	}
+}
