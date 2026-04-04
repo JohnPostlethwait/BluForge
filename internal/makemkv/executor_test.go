@@ -426,6 +426,48 @@ func TestApplyMPLSLanguages_EnrichesExistingStreams(t *testing.T) {
 	}
 }
 
+// TestPickRichestMPLS verifies that we select the MPLS entry with the most
+// combined audio + subtitle streams.
+func TestPickRichestMPLS(t *testing.T) {
+	langs := map[string]mpls.PlayItemLanguages{
+		"00100.mpls": {
+			Audio:    []mpls.StreamEntry{{LangCode: "eng", CodingType: 0x81}},
+			Subtitle: []mpls.StreamEntry{},
+		},
+		"00200.mpls": {
+			Audio: []mpls.StreamEntry{
+				{LangCode: "eng", CodingType: 0x83},
+				{LangCode: "jpn", CodingType: 0x81},
+			},
+			Subtitle: []mpls.StreamEntry{
+				{LangCode: "eng", CodingType: 0x90},
+				{LangCode: "spa", CodingType: 0x90},
+			},
+		},
+		"00300.mpls": {
+			Audio:    []mpls.StreamEntry{{LangCode: "eng", CodingType: 0x81}},
+			Subtitle: []mpls.StreamEntry{{LangCode: "eng", CodingType: 0x90}},
+		},
+	}
+
+	best := pickRichestMPLS(langs)
+	if len(best.Audio) != 2 {
+		t.Errorf("expected 2 audio streams from richest, got %d", len(best.Audio))
+	}
+	if len(best.Subtitle) != 2 {
+		t.Errorf("expected 2 subtitle streams from richest, got %d", len(best.Subtitle))
+	}
+}
+
+// TestPickRichestMPLS_Empty verifies the fallback returns an empty result
+// when no MPLS data is available.
+func TestPickRichestMPLS_Empty(t *testing.T) {
+	best := pickRichestMPLS(map[string]mpls.PlayItemLanguages{})
+	if len(best.Audio) != 0 || len(best.Subtitle) != 0 {
+		t.Errorf("expected empty result for empty input, got %d audio / %d sub", len(best.Audio), len(best.Subtitle))
+	}
+}
+
 // TestParseTCOUNTLine verifies that TCOUNT (alternate spelling of TCOUT) is
 // parsed correctly.
 func TestParseTCOUNTLine(t *testing.T) {

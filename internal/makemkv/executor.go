@@ -262,12 +262,10 @@ func (e *Executor) devicePathForDrive(ctx context.Context, driveIndex int) strin
 // Non-fatal: any error is logged at debug level and enrichment is skipped.
 func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
 	// Collect the unique MPLS filenames referenced by this scan's titles.
+	// For some UHD discs, makemkvcon omits TINFO attr 16 (source file), so
+	// sourceFiles may be empty. ReadDiscLanguages handles this by reading
+	// ALL .mpls files from the disc when given an empty list.
 	sourceFiles := collectMPLSFilenames(scan)
-	if len(sourceFiles) == 0 {
-		slog.Debug("executor: no MPLS source files in scan, skipping enrichment",
-			"drive_index", scan.DriveIndex)
-		return
-	}
 
 	langs, err := mpls.ReadDiscLanguages(devicePath, sourceFiles)
 	if err != nil {
@@ -277,13 +275,28 @@ func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
 	}
 
 	applied := 0
-	for i := range scan.Titles {
-		srcFile := scan.Titles[i].SourceFile()
-		tl, ok := langs[srcFile]
-		if !ok {
-			continue
+	if len(sourceFiles) > 0 {
+		// Direct matching: each title's SourceFile names its MPLS playlist.
+		for i := range scan.Titles {
+			srcFile := scan.Titles[i].SourceFile()
+			tl, ok := langs[srcFile]
+			if !ok {
+				continue
+			}
+			applied += applyMPLSLanguages(&scan.Titles[i], tl)
 		}
-		applied += applyMPLSLanguages(&scan.Titles[i], tl)
+	} else {
+		// Fallback: no source file info available (common on UHD discs).
+		// Pick the richest MPLS playlist and apply its languages to all
+		// titles that have no streams. All titles on a disc share the same
+		// set of audio/subtitle languages, so this is safe.
+		best := pickRichestMPLS(langs)
+		slog.Info("executor: mpls fallback — no source file info, using richest playlist",
+			"drive_index", scan.DriveIndex, "mpls_files_found", len(langs),
+			"best_audio", len(best.Audio), "best_subtitle", len(best.Subtitle))
+		for i := range scan.Titles {
+			applied += applyMPLSLanguages(&scan.Titles[i], best)
+		}
 	}
 	slog.Info("executor: mpls enrichment completed",
 		"drive_index", scan.DriveIndex, "streams_updated_or_created", applied)
@@ -307,6 +320,22 @@ func collectMPLSFilenames(scan *DiscScan) []string {
 		}
 	}
 	return out
+}
+
+// pickRichestMPLS returns the PlayItemLanguages with the most combined
+// audio + subtitle streams. This is used as a fallback when makemkvcon doesn't
+// report source file names, so we can't directly map titles to MPLS playlists.
+func pickRichestMPLS(langs map[string]mpls.PlayItemLanguages) mpls.PlayItemLanguages {
+	var best mpls.PlayItemLanguages
+	bestCount := 0
+	for _, tl := range langs {
+		count := len(tl.Audio) + len(tl.Subtitle)
+		if count > bestCount {
+			best = tl
+			bestCount = count
+		}
+	}
+	return best
 }
 
 // applyMPLSLanguages writes language codes from tl into the audio and subtitle
