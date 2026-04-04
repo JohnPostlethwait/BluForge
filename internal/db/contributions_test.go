@@ -250,3 +250,25 @@ func TestSaveContributionDuplicateDiscKey(t *testing.T) {
 		t.Error("expected error on duplicate disc_key, got nil")
 	}
 }
+
+func TestDeleteContribution(t *testing.T) {
+	store := openTestDB(t)
+
+	c := makeTestContribution()
+	id, err := store.SaveContribution(c)
+	if err != nil {
+		t.Fatalf("SaveContribution: %v", err)
+	}
+
+	if err := store.DeleteContribution(id); err != nil {
+		t.Fatalf("DeleteContribution: %v", err)
+	}
+
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution after delete: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil after delete, got %+v", got)
+	}
+}

@@ -323,3 +323,239 @@ func TestReleaseSlug(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamToTrackUHDFallback(t *testing.T) {
+	tests := []struct {
+		codecID  string
+		wantType string
+	}{
+		// Standard Matroska prefixes
+		{"V_MPEG4/ISO/AVC", "video"},
+		{"A_TRUEHD", "audio"},
+		{"S_HDMV/PGS", "subtitle"},
+		// UHD human-readable names
+		{"Mpeg4 AVC High@L5.1", "video"},
+		{"HEVC", "video"},
+		{"DTS-HD MA", "audio"},
+		{"TrueHD Atmos", "audio"},
+		{"AC3", "audio"},
+		{"PGS", "subtitle"},
+		// Unknown
+		{"", ""},
+		{"SomeUnknownCodec", ""},
+	}
+
+	for _, tc := range tests {
+		s := &makemkv.StreamInfo{
+			Attributes: map[int]string{1: tc.codecID},
+		}
+		track := streamToTrack(0, s)
+		if track.Type != tc.wantType {
+			t.Errorf("streamToTrack(codecID=%q): want Type %q, got %q", tc.codecID, tc.wantType, track.Type)
+		}
+	}
+}
+
+func TestGenerateDiscJSON_EmptyTitles(t *testing.T) {
+	scan := &makemkv.DiscScan{
+		DiscName:   "EMPTY_DISC",
+		TitleCount: 0,
+		Titles:     nil,
+	}
+	content := GenerateDiscJSON(scan, "Blu-ray")
+
+	var got DiscJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(got.Titles) != 0 {
+		t.Errorf("expected 0 titles, got %d", len(got.Titles))
+	}
+	// Top-level disc fields should still be populated
+	if got.Format != "Blu-ray" {
+		t.Errorf("Format: want %q, got %q", "Blu-ray", got.Format)
+	}
+}
+
+func TestGenerateDiscJSON_TitleWithNoStreams(t *testing.T) {
+	scan := &makemkv.DiscScan{
+		DiscName:   "NO_STREAMS",
+		TitleCount: 1,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index: 0,
+				Attributes: map[int]string{
+					2: "Feature", 9: "2:00:00", 10: "40 GB", 11: "40000000000", 16: "00001.mpls",
+				},
+				Streams: nil,
+			},
+		},
+	}
+	content := GenerateDiscJSON(scan, "UHD")
+
+	var got DiscJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(got.Titles) != 1 {
+		t.Fatalf("expected 1 title, got %d", len(got.Titles))
+	}
+	if len(got.Titles[0].Tracks) != 0 {
+		t.Errorf("expected 0 tracks, got %d", len(got.Titles[0].Tracks))
+	}
+	if got.Titles[0].Comment != "Feature" {
+		t.Errorf("Comment: want %q, got %q", "Feature", got.Titles[0].Comment)
+	}
+}
+
+func TestGenerateDiscJSON_MissingAttributes(t *testing.T) {
+	// Title with empty attributes map — all fields should default gracefully
+	scan := &makemkv.DiscScan{
+		DiscName:   "SPARSE_DISC",
+		TitleCount: 1,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index:      0,
+				Attributes: map[int]string{}, // no attributes at all
+				Streams: []makemkv.StreamInfo{
+					{
+						TitleIndex:  0,
+						StreamIndex: 0,
+						Attributes:  map[int]string{}, // no stream attributes
+					},
+				},
+			},
+		},
+	}
+	content := GenerateDiscJSON(scan, "DVD")
+
+	var got DiscJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(got.Titles) != 1 {
+		t.Fatalf("expected 1 title, got %d", len(got.Titles))
+	}
+	// All string fields should be empty, not panicking
+	t0 := got.Titles[0]
+	if t0.Comment != "" {
+		t.Errorf("Comment should be empty, got %q", t0.Comment)
+	}
+	if t0.Duration != "" {
+		t.Errorf("Duration should be empty, got %q", t0.Duration)
+	}
+	if t0.Size != 0 {
+		t.Errorf("Size should be 0, got %d", t0.Size)
+	}
+	// Stream track should have empty fields
+	if len(t0.Tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(t0.Tracks))
+	}
+	if t0.Tracks[0].Type != "" {
+		t.Errorf("Track Type should be empty for unknown codec, got %q", t0.Tracks[0].Type)
+	}
+}
+
+func TestGenerateDiscJSON_MalformedSizeBytes(t *testing.T) {
+	scan := &makemkv.DiscScan{
+		DiscName:   "BAD_SIZE",
+		TitleCount: 1,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index: 0,
+				Attributes: map[int]string{
+					2: "Feature", 9: "1:00:00",
+					10: "N/A",          // human-readable size
+					11: "not-a-number", // malformed size bytes
+					16: "00001.mpls",
+				},
+			},
+		},
+	}
+	content := GenerateDiscJSON(scan, "Blu-ray")
+
+	var got DiscJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	// Size should be 0 when parsing fails (strconv.ParseInt returns 0 on error)
+	if got.Titles[0].Size != 0 {
+		t.Errorf("Size: want 0 for malformed input, got %d", got.Titles[0].Size)
+	}
+	// DisplaySize should contain the raw value from the scan
+	if got.Titles[0].DisplaySize != "N/A" {
+		t.Errorf("DisplaySize: want %q, got %q", "N/A", got.Titles[0].DisplaySize)
+	}
+}
+
+func TestGenerateSummary_TitleWithNoLabel(t *testing.T) {
+	scan := testScan() // 2 titles
+	// Only provide label for title 0, none for title 1
+	labels := []TitleLabel{
+		{TitleIndex: 0, Type: "MainMovie", Name: "The Matrix", FileName: "The Matrix.mkv"},
+	}
+	summary := GenerateSummary(scan, labels)
+
+	// Title 1 should still be included with empty label fields
+	if !strings.Contains(summary, "Source file name: 00801.mpls") {
+		t.Error("summary should contain title 1's source file")
+	}
+	// The Name and Type for title 1 should be empty (zero-value TitleLabel)
+	if !strings.Contains(summary, "Name: \n") {
+		t.Error("summary should contain empty Name for unlabeled title")
+	}
+	if !strings.Contains(summary, "Type: \n") {
+		t.Error("summary should contain empty Type for unlabeled title")
+	}
+}
+
+func TestReleaseSlug_EdgeCases(t *testing.T) {
+	tests := []struct {
+		year   int
+		format string
+		want   string
+	}{
+		{0, "Blu-ray", "0-blu-ray"},               // zero year
+		{2024, "", "2024-"},                         // empty format
+		{2024, "UHD Blu-ray", "2024-uhd-blu-ray"},  // space in format (not "UHD" exactly)
+	}
+	for _, tc := range tests {
+		got := ReleaseSlug(tc.year, tc.format)
+		if got != tc.want {
+			t.Errorf("ReleaseSlug(%d, %q): want %q, got %q", tc.year, tc.format, tc.want, got)
+		}
+	}
+}
+
+func TestMediaDirPath_SpecialCharacters(t *testing.T) {
+	// Titles can have colons, apostrophes, etc. — these should pass through unchanged
+	// (TheDiscDB handles sanitization on their end)
+	got := MediaDirPath("movie", "Spider-Man: No Way Home", 2021)
+	want := "movie/Spider-Man: No Way Home (2021)"
+	if got != want {
+		t.Errorf("MediaDirPath: want %q, got %q", want, got)
+	}
+}
+
+func TestGenerateReleaseJSON_EmptyOptionalFields(t *testing.T) {
+	ri := ReleaseInfo{
+		Year:       2024,
+		Format:     "Blu-ray",
+		RegionCode: "A",
+		// UPC intentionally empty
+		// Slug intentionally empty
+	}
+	content := GenerateReleaseJSON(ri, "user")
+
+	var got ReleaseJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	// UPC should be omitted due to omitempty
+	if strings.Contains(content, `"Upc"`) {
+		t.Error("expected Upc to be omitted when empty")
+	}
+	if got.Year != 2024 {
+		t.Errorf("Year: want 2024, got %d", got.Year)
+	}
+}
