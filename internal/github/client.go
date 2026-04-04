@@ -60,18 +60,18 @@ func (c *Client) EnsureFork(ctx context.Context, owner, repo string) (string, er
 	return fork.GetFullName(), nil
 }
 
-// GetDefaultBranchSHA returns the SHA of the default branch's HEAD commit.
-func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo string) (string, error) {
+// GetDefaultBranchSHA returns the default branch name and the SHA of its HEAD commit.
+func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo string) (branch string, sha string, err error) {
 	repository, _, err := c.gh.Repositories.Get(ctx, owner, repo)
 	if err != nil {
-		return "", fmt.Errorf("github: get repo: %w", err)
+		return "", "", fmt.Errorf("github: get repo: %w", err)
 	}
-	branch := repository.GetDefaultBranch()
+	branch = repository.GetDefaultBranch()
 	ref, _, err := c.gh.Git.GetRef(ctx, owner, repo, "refs/heads/"+branch)
 	if err != nil {
-		return "", fmt.Errorf("github: get ref %s: %w", branch, err)
+		return "", "", fmt.Errorf("github: get ref %s: %w", branch, err)
 	}
-	return ref.GetObject().GetSHA(), nil
+	return branch, ref.GetObject().GetSHA(), nil
 }
 
 // CreateBranch creates a new branch on owner/repo from the given base SHA.

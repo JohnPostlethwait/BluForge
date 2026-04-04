@@ -156,6 +156,7 @@ func NewServer(deps ServerDeps) *Server {
 	e.GET("/contributions/:id", s.handleContributionDetail)
 	e.POST("/contributions/:id", s.handleContributionSave)
 	e.POST("/contributions/:id/submit", s.handleContributionSubmit)
+	e.POST("/contributions/:id/delete", s.handleContributionDelete)
 	e.GET("/events", s.handleSSE)
 
 	return s

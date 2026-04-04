@@ -114,6 +114,36 @@ func streamToTrack(idx int, s *makemkv.StreamInfo) TrackJSON {
 		trackType = "subtitle"
 	}
 
+	// Fallback for UHD discs where MakeMKV uses human-readable codec names
+	// instead of Matroska-style prefixes (e.g. "DTS-HD MA" instead of "A_DTS").
+	if trackType == "" && codecID != "" {
+		lower := strings.ToLower(codecID)
+		switch {
+		case strings.Contains(lower, "mpeg") ||
+			strings.Contains(lower, "hevc") ||
+			strings.Contains(lower, "avc") ||
+			strings.Contains(lower, "vc-1") ||
+			strings.Contains(lower, "h.26"):
+			trackType = "video"
+		case strings.Contains(lower, "dts") ||
+			strings.Contains(lower, "truehd") ||
+			strings.Contains(lower, "atmos") ||
+			strings.Contains(lower, "ac3") ||
+			strings.Contains(lower, "ac-3") ||
+			strings.Contains(lower, "lpcm") ||
+			strings.Contains(lower, "pcm") ||
+			strings.Contains(lower, "aac") ||
+			strings.Contains(lower, "flac"):
+			trackType = "audio"
+		case strings.Contains(lower, "pgs") ||
+			strings.Contains(lower, "srt") ||
+			strings.Contains(lower, "ssa") ||
+			strings.Contains(lower, "sub") ||
+			strings.Contains(lower, "hdmv"):
+			trackType = "subtitle"
+		}
+	}
+
 	return TrackJSON{
 		Index:        idx,
 		Name:         s.Attributes[6],

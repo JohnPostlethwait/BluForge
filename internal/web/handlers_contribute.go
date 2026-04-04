@@ -108,6 +108,40 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
 	}
 
+	// Save the current form state before submitting so we don't lose user input.
+	tmdbID := c.FormValue("tmdb_id")
+	upc := c.FormValue("upc")
+	regionCode := c.FormValue("region_code")
+	format := c.FormValue("format")
+	titleLabelsRaw := c.FormValue("title_labels")
+
+	year := 0
+	if v := c.FormValue("year"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			year = n
+		}
+	}
+
+	ri := contribute.ReleaseInfo{
+		UPC:        upc,
+		RegionCode: regionCode,
+		Year:       year,
+		Format:     format,
+		Slug:       contribute.ReleaseSlug(year, format),
+	}
+
+	riBytes, err := json.Marshal(ri)
+	if err != nil {
+		slog.Error("failed to marshal release info", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft before submit.")
+	}
+
+	if err := s.store.UpdateContributionDraft(id, tmdbID, string(riBytes), titleLabelsRaw); err != nil {
+		slog.Error("failed to save draft before submit", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft before submit.")
+	}
+
+	// Now extract media metadata for the submit call.
 	mediaTitle := c.FormValue("media_title")
 	mediaType := c.FormValue("media_type")
 	mediaYear := 0
@@ -130,10 +164,41 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to submit contribution: "+err.Error())
 	}
 
+	sseData, _ := json.Marshal(map[string]any{
+		"id":    id,
+		"prURL": prURL,
+	})
 	s.sseHub.Broadcast(SSEEvent{
 		Event: "contribution_submitted",
-		Data:  fmt.Sprintf(`{"id":%d,"prURL":%q}`, id, prURL),
+		Data:  string(sseData),
 	})
+
+	return c.Redirect(http.StatusSeeOther, "/contributions")
+}
+
+// handleContributionDelete removes a pending/drafting contribution.
+func (s *Server) handleContributionDelete(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+	}
+
+	contrib, err := s.store.GetContribution(id)
+	if err != nil {
+		slog.Error("failed to get contribution for delete", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+	}
+	if contrib == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
+	}
+	if contrib.Status == "submitted" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Cannot delete a submitted contribution.")
+	}
+
+	if err := s.store.DeleteContribution(id); err != nil {
+		slog.Error("failed to delete contribution", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to delete contribution.")
+	}
 
 	return c.Redirect(http.StatusSeeOther, "/contributions")
 }

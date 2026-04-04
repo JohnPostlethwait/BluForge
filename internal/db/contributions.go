@@ -159,6 +159,16 @@ func (s *Store) UpdateContributionStatus(id int64, status, prURL string) error {
 	return nil
 }
 
+// DeleteContribution removes a contribution by ID.
+func (s *Store) DeleteContribution(id int64) error {
+	const q = `DELETE FROM contributions WHERE id = ?`
+	_, err := s.db.Exec(q, id)
+	if err != nil {
+		return fmt.Errorf("delete contribution %d: %w", id, err)
+	}
+	return nil
+}
+
 func scanContribution(s scanner) (*Contribution, error) {
 	var c Contribution
 	err := s.Scan(

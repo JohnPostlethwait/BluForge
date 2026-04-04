@@ -16,7 +16,7 @@ import (
 type GitHubClient interface {
 	GetUser(ctx context.Context) (string, error)
 	EnsureFork(ctx context.Context, owner, repo string) (string, error)
-	GetDefaultBranchSHA(ctx context.Context, owner, repo string) (string, error)
+	GetDefaultBranchSHA(ctx context.Context, owner, repo string) (string, string, error)
 	CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error
 	CommitFiles(ctx context.Context, owner, repo, branch string, files []ghpkg.FileEntry, message string) error
 	CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error)
@@ -60,6 +60,9 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	}
 	if c == nil {
 		return "", fmt.Errorf("contribute: contribution %d not found", contributionID)
+	}
+	if c.Status == "submitted" {
+		return c.PRURL, nil // Already submitted — return existing PR URL
 	}
 
 	// 2. Validate required fields.
@@ -121,7 +124,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	}
 
 	// 4d. Get default branch SHA from the upstream repo (not the fork).
-	baseSHA, err := s.github.GetDefaultBranchSHA(ctx, upstreamOwner, upstreamRepo)
+	baseBranch, baseSHA, err := s.github.GetDefaultBranchSHA(ctx, upstreamOwner, upstreamRepo)
 	if err != nil {
 		return "", fmt.Errorf("contribute: get default branch SHA: %w", err)
 	}
@@ -130,7 +133,10 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	titleSlug := slugify(mediaTitle, mediaYear)
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 	if err := s.github.CreateBranch(ctx, forkOwner, upstreamRepo, branchName, baseSHA); err != nil {
-		return "", fmt.Errorf("contribute: create branch: %w", err)
+		// Branch may already exist from a prior partial attempt — continue if so.
+		if !strings.Contains(err.Error(), "Reference already exists") {
+			return "", fmt.Errorf("contribute: create branch: %w", err)
+		}
 	}
 
 	// 4f. Commit files.
@@ -142,7 +148,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	// 4g. Open pull request. head is "user:branch" format.
 	prTitle := fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
 	prHead := githubUser + ":" + branchName
-	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, "master", prTitle, "")
+	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, "")
 	if err != nil {
 		return "", fmt.Errorf("contribute: create PR: %w", err)
 	}
@@ -155,8 +161,12 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	return prURL, nil
 }
 
-// nonAlphanumHyphen matches characters that are not alphanumeric or a hyphen.
-var nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9-]`)
+var (
+	// nonAlphanumHyphen matches characters that are not alphanumeric or a hyphen.
+	nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9-]`)
+	// multiHyphen collapses runs of consecutive hyphens.
+	multiHyphen = regexp.MustCompile(`-{2,}`)
+)
 
 // slugify returns a URL-safe slug for a title and year.
 // Spaces are replaced with hyphens, non-alphanumeric characters are stripped,
@@ -166,8 +176,7 @@ func slugify(title string, year int) string {
 	withHyphens := strings.ReplaceAll(lower, " ", "-")
 	clean := nonAlphanumHyphen.ReplaceAllString(withHyphens, "")
 	// Collapse multiple consecutive hyphens.
-	multi := regexp.MustCompile(`-{2,}`)
-	clean = multi.ReplaceAllString(clean, "-")
+	clean = multiHyphen.ReplaceAllString(clean, "-")
 	clean = strings.Trim(clean, "-")
 	return fmt.Sprintf("%s-%d", clean, year)
 }

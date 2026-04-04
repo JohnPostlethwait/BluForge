@@ -89,6 +89,8 @@ func contributionFormInit(c db.Contribution) string {
 
 	state := map[string]any{
 		"tmdbID":     c.TmdbID,
+		"mediaTitle": c.DiscName,
+		"mediaType":  "movie",
 		"upc":        ri.UPC,
 		"regionCode": ri.RegionCode,
 		"format":     ri.Format,
@@ -115,6 +117,8 @@ document.addEventListener('alpine:init', () => {
 
 	Alpine.store('contrib', {
 		tmdbID: init.tmdbID || '',
+		mediaTitle: init.mediaTitle || '',
+		mediaType: init.mediaType || 'movie',
 		upc: init.upc || '',
 		regionCode: init.regionCode || '',
 		format: init.format || '',
@@ -157,6 +161,17 @@ document.addEventListener('alpine:init', () => {
 					<div class="form-group">
 						<label for="tmdb_id">TMDB ID</label>
 						<input type="text" id="tmdb_id" x-model="$store.contrib.tmdbID" placeholder="e.g. 12477"/>
+					</div>
+					<div class="form-group">
+						<label for="media_title">Media Title</label>
+						<input type="text" id="media_title" x-model="$store.contrib.mediaTitle" placeholder="e.g. The Matrix"/>
+					</div>
+					<div class="form-group">
+						<label for="media_type">Content Type</label>
+						<select id="media_type" x-model="$store.contrib.mediaType">
+							<option value="movie">Movie</option>
+							<option value="series">Series</option>
+						</select>
 					</div>
 					<div class="form-group">
 						<label for="format">Format</label>
@@ -263,9 +278,9 @@ document.addEventListener('alpine:init', () => {
 					<input type="hidden" name="year" :value="$store.contrib.year"/>
 					<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
 					<!-- Media metadata for submit handler -->
-					<input type="hidden" name="media_title" value={ data.Contribution.DiscName }/>
+					<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
 					<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-					<input type="hidden" name="media_type" :value="$store.contrib.format"/>
+					<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 					<button type="submit" class="btn btn-primary" :disabled="!$store.contrib.isValid">
 						Submit to TheDiscDB
 					</button>
