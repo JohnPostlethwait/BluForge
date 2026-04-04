@@ -1,6 +1,7 @@
 package makemkv
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -120,10 +121,12 @@ func BuildSelectionString(opts SelectionOpts) string {
 }
 
 // WriteTempHome creates a temporary HOME directory containing a MakeMKV
-// settings.conf that encodes the given selectionString. The returned homeDir
-// should be set as the HOME environment variable when invoking makemkvcon.
-// cleanup removes the entire temporary directory tree and must be called when
-// the rip has finished.
+// settings.conf that encodes the given selectionString. The real ~/.MakeMKV
+// settings.conf is copied first so that the registration key, app_DataDir,
+// and all other settings are preserved — only app_DefaultSelectionString is
+// overridden. The returned homeDir should be set as the HOME environment
+// variable when invoking makemkvcon. cleanup removes the entire temporary
+// directory tree and must be called when the rip has finished.
 func WriteTempHome(selectionString string) (homeDir string, cleanup func(), err error) {
 	dir, err := os.MkdirTemp("", "bluforge-makemkv-home-*")
 	if err != nil {
@@ -143,11 +146,68 @@ func WriteTempHome(selectionString string) (homeDir string, cleanup func(), err 
 	}
 
 	confPath := filepath.Join(confDir, "settings.conf")
-	content := fmt.Sprintf("app_DefaultSelectionString = %q\n", selectionString)
-	if err := os.WriteFile(confPath, []byte(content), 0o600); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("makemkv: write settings.conf: %w", err)
+
+	// Copy the real settings.conf so the registration key, app_DataDir, and
+	// other settings survive the HOME override.
+	realHome := os.Getenv("HOME")
+	if realHome == "" {
+		realHome = "/root"
+	}
+	realConf := filepath.Join(realHome, ".MakeMKV", "settings.conf")
+	if data, err := os.ReadFile(realConf); err == nil {
+		if err := os.WriteFile(confPath, data, 0o600); err != nil {
+			cleanup()
+			return "", nil, fmt.Errorf("makemkv: copy settings.conf: %w", err)
+		}
 	}
 
+	// Overlay the selection string onto the (possibly copied) settings.
+	mergeSettingsFile(confPath, map[string]string{
+		"app_DefaultSelectionString": selectionString,
+	})
+
 	return dir, cleanup, nil
+}
+
+// mergeSettingsFile merges key/value pairs into a MakeMKV settings.conf file,
+// preserving all other existing settings. If the file does not exist it is
+// created.
+func mergeSettingsFile(path string, settings map[string]string) {
+	var lines []string
+	written := make(map[string]bool)
+
+	if f, err := os.Open(path); err == nil {
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+			replaced := false
+			for key, val := range settings {
+				prefix := key + " "
+				if strings.HasPrefix(line, prefix) {
+					lines = append(lines, fmt.Sprintf(`%s = "%s"`, key, val))
+					written[key] = true
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				lines = append(lines, line)
+			}
+		}
+		f.Close()
+	}
+
+	for key, val := range settings {
+		if !written[key] {
+			lines = append(lines, fmt.Sprintf(`%s = "%s"`, key, val))
+		}
+	}
+
+	var buf strings.Builder
+	for _, l := range lines {
+		buf.WriteString(l)
+		buf.WriteByte('\n')
+	}
+
+	_ = os.WriteFile(path, []byte(buf.String()), 0o600)
 }
