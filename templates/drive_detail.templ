@@ -678,7 +678,7 @@ async function scanDisc(driveIndex) {
 										<th scope="col">Playlist</th>
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Type</th></template>`)
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Output Filename</th></template>`)
+										<th scope="col">Output Filename</th>
 										<th scope="col">Duration</th>
 										<th scope="col">Size</th>
 									</tr>
@@ -691,7 +691,7 @@ async function scanDisc(driveIndex) {
 											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`)
-											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.outputName" class="text-secondary" x-text="t.outputName"></span><span x-show="!t.outputName" class="text-muted">—</span></td></template>`)
+											@templ.Raw(`<td class="text-secondary" x-text="t.outputName || (($store.drive.discName ? $store.drive.discName + ' - ' : '') + (t.sourceFile ? t.sourceFile.replace(/\.[^.]+$/, '') : 'title') + '.mkv')"></td>`)
 											<td class="text-secondary" x-text="t.duration"></td>
 											<td class="text-secondary" x-text="t.size"></td>
 										</tr>
