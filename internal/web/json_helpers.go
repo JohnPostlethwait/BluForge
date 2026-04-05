@@ -179,9 +179,9 @@ type SearchResultJSON struct {
 	MediaYear    int        `json:"mediaYear"`
 	MediaType    string     `json:"mediaType"`
 	ReleaseTitle string     `json:"releaseTitle"`
-	ReleaseUPC   string     `json:"releaseUPC"`
-	ReleaseASIN  string     `json:"releaseASIN"`
-	RegionCode   string     `json:"regionCode"`
+	ReleaseUPC   string     `json:"releaseUPC,omitempty"`
+	ReleaseASIN  string     `json:"releaseASIN,omitempty"`
+	RegionCode   string     `json:"regionCode,omitempty"`
 	Locale       string     `json:"locale,omitempty"`
 	Format       string     `json:"format"`
 	DiscCount    int        `json:"discCount"`
