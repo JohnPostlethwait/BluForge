@@ -346,7 +346,7 @@ async function scanDisc(driveIndex) {
 
 				<!-- Saved Mapping Banner (from previous rip) -->
 				<template x-if="$store.drive.hasMapping && !$store.drive.selectedRelease">
-					<div class="alert alert-success" role="status" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 0.5rem;">
+					<div class="alert alert-success flex justify-between items-center flex-wrap gap-2" role="status">
 						<span>Previously matched: <strong x-text="$store.drive.matchedMedia"></strong></span>
 						<div class="flex gap-2">
 							@templ.Raw(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`)
@@ -367,7 +367,7 @@ async function scanDisc(driveIndex) {
 						<label for="search-query" class="sr-only">Search TheDiscDB</label>
 						<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
 							x-init="$el.value = $store.drive.discName"
-							style="flex:1;"
+							class="flex-1"
 							x-bind:disabled="$store.drive.searching"/>
 						<button type="submit" class="btn btn-primary btn-sm" x-bind:disabled="$store.drive.searching">
 							<span x-show="!$store.drive.searching">Search</span>
@@ -395,12 +395,12 @@ async function scanDisc(driveIndex) {
 				<!-- ── Step 2b: Disc Picker (shown when a multi-disc release is expanded) ── -->
 				<template x-if="$store.drive.discPickerRelease">
 					<div x-on:keydown.escape.window="backToReleases()">
-						<div style="display:flex; justify-content:space-between; align-items:center;">
-							<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Disc</h2>
+						<div class="step-card-header">
+							<h2 class="section-title-inline">Select a Disc</h2>
 							<button class="btn btn-secondary btn-sm" x-on:click="backToReleases()">&larr; Back to Releases</button>
 						</div>
 						<div class="mt-3" style="padding:0.75rem; background:var(--bg-secondary); border-radius:8px;">
-							<div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+							<div class="flex items-center gap-2 flex-wrap">
 								<strong x-text="$store.drive.discPickerRelease.mediaTitle"></strong>
 								<span class="text-secondary" x-text="'(' + $store.drive.discPickerRelease.mediaYear + ')'"></span>
 								<span class="badge badge-identified" x-text="$store.drive.discPickerRelease.mediaType"></span>
@@ -408,7 +408,7 @@ async function scanDisc(driveIndex) {
 								<span class="text-secondary" x-text="$store.drive.discPickerRelease.releaseTitle"></span>
 							</div>
 						</div>
-						@templ.Raw(fmt.Sprintf(`<div x-data="{ selectedDiscIndex: 0 }" style="display:flex; gap:0.75rem; align-items:center; margin-top:1rem;">
+						@templ.Raw(fmt.Sprintf(`<div x-data="{ selectedDiscIndex: 0 }" class="flex gap-3 items-center mt-4">
 							<select x-model="selectedDiscIndex" class="form-select" x-bind:disabled="$store.drive.selecting">
 								<template x-for="(disc, i) in $store.drive.discPickerRelease.discs" :key="disc.id">
 									<option x-bind:value="i" x-text="disc.name || ('Disc ' + (disc.index + 1))"></option>
@@ -430,13 +430,13 @@ async function scanDisc(driveIndex) {
 				<!-- ── Release Table (hidden when disc picker is active) ── -->
 				<template x-if="!$store.drive.discPickerRelease">
 					<div>
-						<div style="display:flex; justify-content:space-between; align-items:center;">
-							<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Select a Release</h2>
+						<div class="step-card-header">
+							<h2 class="section-title-inline">Select a Release</h2>
 							<button class="btn btn-secondary btn-sm" x-on:click="goToStep(1)">&larr; Search Again</button>
 						</div>
 
 						<template x-if="$store.drive.searchResults.length > 0">
-							<div style="overflow-x:auto;" class="mt-3">
+							<div class="overflow-x-auto mt-3">
 								<table>
 									<thead>
 										<tr>
@@ -480,7 +480,7 @@ async function scanDisc(driveIndex) {
 							</div>
 						</template>
 
-						<div class="mt-3" style="display:flex; justify-content:space-between; align-items:center;">
+						<div class="step-card-header mt-3">
 							<a href="https://thediscdb.com/contribute" target="_blank" rel="noopener" class="skip-link">
 								Not finding it? Contribute to TheDiscDB &rarr;
 							</a>
@@ -494,8 +494,8 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 3: Scan Disc ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 3" x-cloak class="step-content">
 			<div class="card">
-				<div style="display:flex; justify-content:space-between; align-items:center;">
-					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Scan Disc</h2>
+				<div class="step-card-header">
+					<h2 class="section-title-inline">Scan Disc</h2>
 					<button class="btn btn-secondary btn-sm" x-on:click="$store.drive.selectedRelease ? goToStep(2) : goToStep(1)">&larr; Back</button>
 				</div>
 
@@ -522,26 +522,26 @@ async function scanDisc(driveIndex) {
 
 				<!-- Already scanned: show continue button -->
 				<template x-if="!$store.drive.scanning && !$store.drive.scanError && $store.drive.titles.length > 0">
-					<div style="text-align: center; padding: 2rem 0;">
-						<p class="text-secondary" style="margin-bottom: 1rem;">
+					<div class="action-center">
+						<p class="text-secondary">
 							Disc already scanned &mdash; <span x-text="$store.drive.titles.length"></span> title(s) found.
 						</p>
-						<div style="display:flex; gap:0.75rem; justify-content:center;">
+						<div class="flex gap-3 justify-center">
 							@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary" x-on:click="scanDisc(%d)">Re-scan Disc</button>`, data.DriveIndex))
-							@templ.Raw(`<button class="btn btn-primary" style="padding: 0.6rem 2rem; font-size: 1rem;" x-on:click="goToStep(4)">Continue to Titles</button>`)
+							@templ.Raw(`<button class="btn btn-primary btn-lg" x-on:click="goToStep(4)">Continue to Titles</button>`)
 						</div>
 					</div>
 				</template>
 
 				<!-- 0 titles result -->
 				<template x-if="!$store.drive.scanning && !$store.drive.scanError && $store.drive.titles.length === 0 && $store.drive.state !== 'empty'">
-					<div style="text-align: center; padding: 2rem 0;">
+					<div class="action-center">
 						<template x-if="!$store.drive.scanning">
 							<div>
-								<p class="text-secondary" style="margin-bottom: 1rem;">
+								<p class="text-secondary">
 									Read the disc to discover its titles and content.
 								</p>
-								@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary" style="padding: 0.6rem 2rem; font-size: 1rem;" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.state === 'empty'">Scan Disc</button>`, data.DriveIndex))
+								@templ.Raw(fmt.Sprintf(`<button class="btn btn-primary btn-lg" x-on:click="scanDisc(%d)" x-bind:disabled="$store.drive.state === 'empty'">Scan Disc</button>`, data.DriveIndex))
 							</div>
 						</template>
 					</div>
@@ -550,7 +550,7 @@ async function scanDisc(driveIndex) {
 				<!-- Scanning state -->
 				<template x-if="$store.drive.scanning">
 					<div class="empty-state" role="status" aria-live="polite" style="padding: 2rem 1rem;">
-						<div style="display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+						<div class="flex items-center justify-center gap-2">
 							<span class="spinner" aria-hidden="true"></span>
 							<span>Scanning disc&hellip; this may take a moment.</span>
 						</div>
@@ -569,16 +569,16 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 4: Review & Select Titles ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 4" x-cloak class="step-content">
 			<div class="card">
-				<div style="display:flex; justify-content:space-between; align-items:center;">
-					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Review Titles</h2>
-					<div style="display:flex; gap:0.5rem; align-items:center;">
+				<div class="step-card-header">
+					<h2 class="section-title-inline">Review Titles</h2>
+					<div class="flex gap-2 items-center">
 						<button class="btn btn-secondary btn-sm" x-on:click="goToStep(3)">&larr; Back</button>
 					</div>
 				</div>
 
 				<!-- Selected release reminder -->
 				<template x-if="$store.drive.selectedRelease">
-					<p class="text-secondary mt-3" style="font-size: 0.85rem;">
+					<p class="text-secondary text-sm mt-3">
 						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 					</p>
@@ -587,14 +587,14 @@ async function scanDisc(driveIndex) {
 				<!-- Track Selection (disc-level) — always shown once titles are loaded -->
 				@templ.Raw(`<template x-if="$store.drive.titles.length > 0">
 					<div class="track-selection-card mt-3">
-						<h3 style="margin:0 0 0.75rem; font-size:0.95rem;">Track Selection</h3>
+						<h3 class="mb-3" style="font-size:0.95rem;">Track Selection</h3>
 						<template x-if="$store.drive.audioLangs.length > 0">
 							<div class="track-group">
 								<label class="track-group-label">Audio Languages</label>
 								<div class="track-chips">
 									<template x-for="lang in $store.drive.audioLangs" :key="lang.code">
 										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" class="sr-only"/>
 											<span x-text="(lang.name || lang.code)"></span>
 										</label>
 									</template>
@@ -607,7 +607,7 @@ async function scanDisc(driveIndex) {
 								<div class="track-chips">
 									<template x-for="lang in $store.drive.subtitleLangs" :key="lang.code">
 										<label class="track-chip" :class="{ 'track-chip-selected': lang.selected }">
-											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" style="display:none;"/>
+											<input type="checkbox" :checked="lang.selected" x-on:change="lang.selected = $el.checked" class="sr-only"/>
 											<span x-text="(lang.name || lang.code)"></span>
 										</label>
 									</template>
@@ -615,16 +615,16 @@ async function scanDisc(driveIndex) {
 							</div>
 						</template>
 						<template x-if="$store.drive.audioLangs.length === 0 && $store.drive.subtitleLangs.length === 0">
-							<p class="text-muted" style="font-size:0.85rem; margin:0 0 0.5rem;">Language information not available for this disc — all audio and subtitle tracks will be included.</p>
+							<p class="text-muted text-sm mb-2">Language information not available for this disc — all audio and subtitle tracks will be included.</p>
 						</template>
-						<div class="mt-2" style="display:flex; gap:1.5rem; flex-wrap:wrap;">
-							<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
-								<input type="checkbox" :checked="$store.drive.keepForcedSubs" x-on:change="$store.drive.keepForcedSubs = $el.checked" style="width:auto;"/>
+						<div class="mt-2 flex gap-5 flex-wrap">
+							<label class="text-sm flex items-center gap-1">
+								<input type="checkbox" :checked="$store.drive.keepForcedSubs" x-on:change="$store.drive.keepForcedSubs = $el.checked" class="w-auto"/>
 								Keep forced subtitles
 							</label>
 							<template x-if="hasLosslessAudio()">
-								<label style="font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
-									<input type="checkbox" :checked="$store.drive.keepLossless" x-on:change="$store.drive.keepLossless = $el.checked" style="width:auto;"/>
+								<label class="text-sm flex items-center gap-1">
+									<input type="checkbox" :checked="$store.drive.keepLossless" x-on:change="$store.drive.keepLossless = $el.checked" class="w-auto"/>
 									Keep lossless audio (TrueHD, DTS-HD MA)
 								</label>
 							</template>
@@ -635,14 +635,14 @@ async function scanDisc(driveIndex) {
 				<template x-if="$store.drive.titles.length > 0">
 					<div>
 						<!-- Selection count -->
-						<p class="text-muted mt-3" style="font-size: 0.8rem;">
+						<p class="text-muted text-sm mt-3">
 							<span x-text="selectedTitleCount()"></span> of <span x-text="$store.drive.titles.length"></span> titles selected
 						</p>
-						<div style="overflow-x:auto;" class="mt-2">
+						<div class="overflow-x-auto mt-2">
 							<table>
 								<thead>
 									<tr>
-										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
+										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" class="w-auto" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
 										<th scope="col">Track</th>
 										<th scope="col">Playlist</th>
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
@@ -655,7 +655,7 @@ async function scanDisc(driveIndex) {
 								<tbody>
 									<template x-for="t in sortedTitles()" :key="t.index">
 										<tr>
-											<td style="display:flex; align-items:center; gap:0.25rem;"><input type="checkbox" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
+											<td class="flex items-center gap-1"><input type="checkbox" class="w-auto" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
 											<td class="text-muted" x-text="t.index"></td>
 											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
@@ -678,7 +678,7 @@ async function scanDisc(driveIndex) {
 					</div>
 				</template>
 
-				<div class="mt-3" style="display:flex; justify-content:flex-end;">
+				<div class="mt-3 flex justify-end">
 					@templ.Raw(`<button class="btn btn-primary" x-on:click="goToStep(5)" x-bind:disabled="!$store.drive.titles.some(t => t.selected)">Continue to Rip</button>`)
 				</div>
 			</div>
@@ -687,8 +687,8 @@ async function scanDisc(driveIndex) {
 		<!-- ═══════════════ Step 5: Confirm & Rip ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 5" x-cloak class="step-content">
 			<div class="card">
-				<div style="display:flex; justify-content:space-between; align-items:center;">
-					<h2 class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Confirm &amp; Rip</h2>
+				<div class="step-card-header">
+					<h2 class="section-title-inline">Confirm &amp; Rip</h2>
 					<button class="btn btn-secondary btn-sm" x-on:click="goToStep(4)">&larr; Back</button>
 				</div>
 
@@ -698,7 +698,7 @@ async function scanDisc(driveIndex) {
 				</p>
 
 				<template x-if="$store.drive.selectedRelease">
-					<p class="text-secondary mt-2" style="font-size: 0.85rem;">
+					<p class="text-secondary text-sm mt-2">
 						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
@@ -707,7 +707,7 @@ async function scanDisc(driveIndex) {
 
 				<!-- Track selection summary -->
 				@templ.Raw(`<template x-if="$store.drive.audioLangs.length > 0 || $store.drive.subtitleLangs.length > 0">
-					<p class="text-secondary mt-2" style="font-size: 0.85rem;">
+					<p class="text-secondary text-sm mt-2">
 						Tracks: Audio (<span x-text="$store.drive.audioLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
 						| Subtitles (<span x-text="$store.drive.subtitleLangs.filter(l => l.selected).map(l => l.name || l.code).join(', ') || 'All'"></span>)
 						<span x-show="$store.drive.keepForcedSubs"> | Forced subs included</span>
@@ -720,8 +720,8 @@ async function scanDisc(driveIndex) {
 					<template x-for="t in $store.drive.titles.filter(t => t.selected)" :key="t.index">
 						<li>
 							<span class="text-primary" x-text="t.outputName || t.sourceFile"></span>
-							<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.duration"></span>
-							<span class="text-muted" style="margin-left: 0.5rem;" x-text="t.size"></span>
+							<span class="text-muted ml-2" x-text="t.duration"></span>
+							<span class="text-muted ml-2" x-text="t.size"></span>
 						</li>
 					</template>
 				</ul>
@@ -767,16 +767,16 @@ async function scanDisc(driveIndex) {
 					@templ.Raw(`<input type="hidden" name="keep_lossless" :value="$store.drive.keepLossless ? 'true' : 'false'"/>`)
 
 					<!-- Duplicate handling -->
-					<div class="mt-3" style="display:flex; align-items:center; gap:0.75rem;">
-						<label style="margin-bottom:0; white-space:nowrap;" class="text-secondary">If file already exists:</label>
-						<select name="duplicate_action" style="width:auto; min-width:140px;">
+					<div class="mt-3 flex items-center gap-3">
+						<label class="text-secondary mb-0 whitespace-nowrap">If file already exists:</label>
+						<select name="duplicate_action" class="w-auto" style="min-width:140px;">
 							<option value="rename" selected?={ data.DuplicateAction == "rename" }>Rename</option>
 							<option value="skip" selected?={ data.DuplicateAction == "skip" }>Skip</option>
 							<option value="overwrite" selected?={ data.DuplicateAction == "overwrite" }>Overwrite</option>
 						</select>
 					</div>
 
-					<div class="mt-4" style="display:flex; justify-content:flex-end;">
+					<div class="mt-4 flex justify-end">
 						<button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">Start Rip</button>
 					</div>
 				</form>

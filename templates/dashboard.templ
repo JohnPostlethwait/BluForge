@@ -61,12 +61,12 @@ function stepLabel(n) { return stepLabels[n] || '' }
 			<h1>Dashboard</h1>
 		</div>
 
-		<div x-data x-show="$store.drives.contributionAvailable" x-cloak class="card" style="margin-bottom: 1rem; border-left: 3px solid var(--accent-color, #3b82f6);">
-			<p style="margin: 0;">
+		<div x-data x-show="$store.drives.contributionAvailable" x-cloak class="card alert-contribution">
+			<p>
 				<strong x-text="$store.drives.contributionDiscName"></strong> isn't in TheDiscDB yet.
 				<a :href="'/contributions/' + $store.drives.contributionId">Contribute it</a> so others benefit!
 			</p>
-			<button @click="$store.drives.contributionAvailable = false" class="btn btn-sm" style="margin-top: 0.5rem;">Dismiss</button>
+			<button @click="$store.drives.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
 		</div>
 
 		<!-- Status Bar -->
@@ -149,9 +149,9 @@ function stepLabel(n) { return stepLabels[n] || '' }
 								<!-- Rip progress bar -->
 								<template x-if="drive.ripProgress >= 0">
 									<div>
-										<div style="display:flex; justify-content:space-between; margin-bottom:0.25rem;">
-											<span class="text-muted" style="font-size:0.8rem;">Ripping</span>
-											<span class="text-secondary" style="font-size:0.8rem;" x-text="drive.ripProgress + '%'"></span>
+										<div class="flex justify-between mb-1">
+											<span class="text-muted" class="text-sm">Ripping</span>
+											<span class="text-secondary" class="text-sm" x-text="drive.ripProgress + '%'"></span>
 										</div>
 										@components.ProgressBarDynamic("drive.ripProgress", "")
 									</div>
@@ -159,8 +159,8 @@ function stepLabel(n) { return stepLabels[n] || '' }
 								<!-- Workflow step label -->
 								<template x-if="drive.ripProgress < 0">
 									<div class="drive-workflow-step">
-										<span class="text-muted" style="font-size:0.8rem;">Step <span x-text="drive.workflowStep"></span>:</span>
-										<span class="text-secondary" style="font-size:0.8rem;" x-text="stepLabel(drive.workflowStep)"></span>
+										<span class="text-muted" class="text-sm">Step <span x-text="drive.workflowStep"></span>:</span>
+										<span class="text-secondary" class="text-sm" x-text="stepLabel(drive.workflowStep)"></span>
 									</div>
 								</template>
 							</div>
@@ -171,12 +171,12 @@ function stepLabel(n) { return stepLabels[n] || '' }
 
 			<!-- Recent Activity -->
 			<template x-if="$store.drives.recentJobs && $store.drives.recentJobs.length > 0">
-				<div style="margin-top: 2rem;">
-					<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.75rem;">
-						<h2 style="font-size: 1rem; font-weight: 600; color: var(--text-secondary);">Recent Activity</h2>
+				<div class="mt-6">
+					<div class="flex justify-between items-center mb-3">
+						<h2 class="section-title-inline">Recent Activity</h2>
 						<a href="/activity?tab=history" class="btn btn-secondary btn-sm">View All</a>
 					</div>
-					<div class="card" style="padding: 0;">
+					<div class="card card-flush">
 						<table>
 							<thead>
 								<tr>

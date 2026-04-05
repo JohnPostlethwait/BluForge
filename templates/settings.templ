@@ -27,7 +27,7 @@ templ Settings(data SettingsData) {
 		</div>
 		<form method="POST" action="/settings">
 			<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-			<div class="card" style="margin-bottom: 1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">General</h2>
 				<div class="form-group">
 					<label for="output_dir">Output Directory</label>
@@ -35,19 +35,19 @@ templ Settings(data SettingsData) {
 				</div>
 				<div class="form-group">
 					<label>
-						<input type="checkbox" name="auto_rip" value="true" checked?={ data.AutoRip } style="width:auto; margin-right: 0.4rem;"/>
+						<input type="checkbox" name="auto_rip" value="true" checked?={ data.AutoRip } class="checkbox-inline"/>
 						Auto-rip when disc detected
 					</label>
 				</div>
 				<div class="form-group">
 					<label for="min_title_length">Minimum Title Length (seconds)</label>
 					<input type="number" id="min_title_length" name="min_title_length" value={ data.MinTitleLength }/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">Titles shorter than this are excluded from auto-rip. Set to 0 to include all titles.</p>
+					<p class="text-muted mt-1" class="field-hint">Titles shorter than this are excluded from auto-rip. Set to 0 to include all titles.</p>
 				</div>
 				<div class="form-group">
 					<label for="poll_interval">Drive Poll Interval (seconds)</label>
 					<input type="number" id="poll_interval" name="poll_interval" value={ data.PollInterval }/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">How often to check for inserted or ejected discs.</p>
+					<p class="text-muted mt-1" class="field-hint">How often to check for inserted or ejected discs.</p>
 				</div>
 				<div class="form-group">
 					<label for="duplicate_action">Duplicate Action</label>
@@ -58,48 +58,48 @@ templ Settings(data SettingsData) {
 					</select>
 				</div>
 			</div>
-			<div class="card" style="margin-bottom: 1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">MakeMKV License</h2>
-				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+				<p class="text-muted" class="mb-4">
 					Enter your MakeMKV registration key. Applies immediately — no restart required. Leave blank to fall back to the <code>MAKEMKV_KEY</code> environment variable, or run in free trial mode if neither is set.
 				</p>
 				<div class="form-group">
 					<label for="makemkv_key">Registration Key</label>
 					<input type="password" id="makemkv_key" name="makemkv_key" value={ maskSecret(data.MakeMKVKey) } placeholder="Optional" autocomplete="off"/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">A free beta key is available at the <a href="https://www.makemkv.com/forum/viewtopic.php?t=1053" target="_blank" rel="noopener">MakeMKV forum</a>.</p>
+					<p class="text-muted mt-1" class="field-hint">A free beta key is available at the <a href="https://www.makemkv.com/forum/viewtopic.php?t=1053" target="_blank" rel="noopener">MakeMKV forum</a>.</p>
 				</div>
 			</div>
-			<div class="card" style="margin-bottom: 1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">Audio & Subtitle Selection</h2>
-				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+				<p class="text-muted" class="mb-4">
 					Configure default audio and subtitle track preferences for ripping. When set, only tracks matching these languages will be included. Leave empty to include all tracks.
 				</p>
 				<div class="form-group">
 					<label for="preferred_audio_langs">Preferred Audio Languages</label>
 					<input type="text" id="preferred_audio_langs" name="preferred_audio_langs" value={ data.PreferredAudioLangs } placeholder="e.g. eng,jpn"/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
+					<p class="text-muted mt-1" class="field-hint">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
 				</div>
 				<div class="form-group">
 					<label for="preferred_subtitle_langs">Preferred Subtitle Languages</label>
 					<input type="text" id="preferred_subtitle_langs" name="preferred_subtitle_langs" value={ data.PreferredSubtitleLangs } placeholder="e.g. eng"/>
-					<p class="text-muted mt-1" style="font-size: 0.8rem;">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
+					<p class="text-muted mt-1" class="field-hint">Comma-separated ISO 639-2 codes. Common codes: eng (English), fra (French), deu (German), spa (Spanish), jpn (Japanese), zho (Chinese), kor (Korean), ita (Italian), por (Portuguese), rus (Russian).</p>
 				</div>
 				<div class="form-group">
 					<label>
-						<input type="checkbox" name="keep_forced_subtitles" value="true" checked?={ data.KeepForcedSubtitles } style="width:auto; margin-right: 0.4rem;"/>
+						<input type="checkbox" name="keep_forced_subtitles" value="true" checked?={ data.KeepForcedSubtitles } class="checkbox-inline"/>
 						Keep forced subtitles
 					</label>
 				</div>
 				<div class="form-group">
 					<label>
-						<input type="checkbox" name="keep_lossless_audio" value="true" checked?={ data.KeepLosslessAudio } style="width:auto; margin-right: 0.4rem;"/>
+						<input type="checkbox" name="keep_lossless_audio" value="true" checked?={ data.KeepLosslessAudio } class="checkbox-inline"/>
 						Keep lossless audio tracks
 					</label>
 				</div>
 			</div>
-			<div class="card" style="margin-bottom: 1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">TheDiscDB Contribution (optional)</h2>
-				<p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+				<p class="text-muted" class="mb-4">
 					Configure a GitHub Personal Access Token to enable contributing disc data back to
 					<a href="https://thediscdb.com" target="_blank" rel="noopener">TheDiscDB</a>.
 					The token needs <code>public_repo</code> scope.

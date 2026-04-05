@@ -145,17 +145,17 @@ document.addEventListener('alpine:init', () => {
 })
 </script>`, contributionFormInit(data.Contribution)))
 
-		<div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+		<div class="page-header flex items-center justify-between flex-wrap gap-2">
 			<div>
-				<a href="/contributions" class="text-muted" style="font-size:0.85rem; text-decoration:none;">&larr; Contributions</a>
-				<h1 style="margin-top:0.25rem;">{ data.Contribution.DiscName }</h1>
+				<a href="/contributions" class="text-muted text-sm no-underline">&larr; Contributions</a>
+				<h1 class="mt-1">{ data.Contribution.DiscName }</h1>
 			</div>
 			<span class={ "status-badge", statusClass(data.Contribution.Status) }>{ data.Contribution.Status }</span>
 		</div>
 
 		<div x-data>
 			<!-- Release metadata card -->
-			<div class="card" style="margin-bottom:1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">Release Info</h2>
 				<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
 					<div class="form-group">
@@ -206,8 +206,8 @@ document.addEventListener('alpine:init', () => {
 			<!-- Titles table card -->
 			<div class="card" style="margin-bottom:5rem;">
 				<h2 class="section-title">Titles</h2>
-				<p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">Assign a type and optional label to each title. Season/Episode fields appear only for Episode type.</p>
-				<div style="overflow-x:auto;">
+				<p class="text-muted text-sm mb-4">Assign a type and optional label to each title. Season/Episode fields appear only for Episode type.</p>
+				<div class="overflow-x-auto">
 					<table class="data-table">
 						<thead>
 							<tr>
@@ -224,8 +224,8 @@ document.addEventListener('alpine:init', () => {
 							<template x-for="(t, idx) in $store.contrib.titles" :key="t.title_index">
 								<tr>
 									<td x-text="t.title_index + 1"></td>
-									<td x-text="t.duration" class="text-muted" style="font-size:0.8rem; white-space:nowrap;"></td>
-									<td x-text="t.size" class="text-muted" style="font-size:0.8rem; white-space:nowrap;"></td>
+									<td x-text="t.duration" class="text-muted" class="text-sm whitespace-nowrap"></td>
+									<td x-text="t.size" class="text-muted" class="text-sm whitespace-nowrap"></td>
 									<td>
 										<select x-model="t.type" style="width:140px;">
 											<option value="MainMovie">Main Movie</option>
@@ -252,7 +252,7 @@ document.addEventListener('alpine:init', () => {
 			</div>
 
 			<!-- Sticky footer with Save + Submit -->
-			<div style="position:sticky; bottom:0; background:var(--bg-secondary); border-top:1px solid var(--border); padding:1rem 1.5rem; display:flex; gap:0.75rem; align-items:center; z-index:50;">
+			<div class="sticky-footer">
 				<!-- Save Draft form -->
 				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d", data.Contribution.ID)) }
 					@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels()">
@@ -286,7 +286,7 @@ document.addEventListener('alpine:init', () => {
 					</button>
 				</form>
 
-				<span class="text-muted" style="font-size:0.8rem;" x-show="!$store.contrib.isValid">
+				<span class="text-muted text-sm" x-show="!$store.contrib.isValid">
 					TMDB ID, format, and year are required before submitting.
 				</span>
 			</div>

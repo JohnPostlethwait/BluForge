@@ -170,18 +170,18 @@ async function clearFiltered(btn, search, status) {
 			<h1>Activity</h1>
 		</div>
 
-		<div x-data x-show="$store.activity.contributionAvailable" x-cloak class="card" style="margin-bottom: 1rem; border-left: 3px solid var(--accent-color, #3b82f6);">
-			<p style="margin: 0;">
+		<div x-data x-show="$store.activity.contributionAvailable" x-cloak class="card alert-contribution">
+			<p>
 				<strong x-text="$store.activity.contributionDiscName"></strong> isn't in TheDiscDB yet.
 				<a :href="'/contributions/' + $store.activity.contributionId">Contribute it</a> so others benefit!
 			</p>
-			<button @click="$store.activity.contributionAvailable = false" class="btn btn-sm" style="margin-top: 0.5rem;">Dismiss</button>
+			<button @click="$store.activity.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
 		</div>
 
 		if data.Flash != "" {
-			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success" role="status" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
 				<span>{ data.Flash }</span>
-				<button @click="show = false" aria-label="Dismiss" style="background:none; border:none; cursor:pointer; color:#86efac; font-size:1.25rem; line-height:1; padding:0; opacity:0.7;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
+				<button @click="show = false" aria-label="Dismiss" class="btn-close-alert">&times;</button>
 			</div>
 		}
 
@@ -218,9 +218,9 @@ async function clearFiltered(btn, search, status) {
 		</div>
 
 		<!-- ═══════════ Active & Queued Tab ═══════════ -->
-		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak style="display:flex; flex-direction:column; gap:1.5rem;">
+		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak class="flex flex-col gap-5">
 			<!-- Active Jobs -->
-			<div class="card" style="margin-bottom: 1rem;">
+			<div class="card mb-4">
 				<h2 class="section-title">Active</h2>
 				<template x-if="$store.activity.active.length === 0">
 					<div class="empty-state"><p>No active jobs.</p></div>
@@ -228,26 +228,26 @@ async function clearFiltered(btn, search, status) {
 				<template x-if="$store.activity.active.length > 0">
 					<div>
 						<template x-for="j in $store.activity.active" :key="j.id">
-							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Rip job: ' + j.titleName">
-								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+							<div class="card mb-3" :aria-label="'Rip job: ' + j.titleName">
+								<div class="job-card-header">
 									<div>
-										<div style="font-weight:600;" x-text="j.titleName"></div>
-										<div class="text-muted" style="font-size:0.85em;">
-											<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
+										<div class="font-semibold" x-text="j.titleName"></div>
+										<div class="text-muted text-sm">
+											<a :href="'/drives/' + j.driveIndex" class="text-primary no-underline" x-text="j.discName"></a>
 										</div>
 									</div>
 									<span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span>
 								</div>
-								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
+								<div class="job-meta" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
 									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
 									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + (j.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
 									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + (j.subtitleLanguages || []).join(', ')"></span>
 								</div>
-								<div style="display:flex; align-items:center; gap:0.5rem;">
-									<span class="text-secondary" x-text="j.progress + '%'" style="min-width:3ch;"></span>
+								<div class="progress-row">
+									<span class="text-secondary min-w-3ch" x-text="j.progress + '%'"></span>
 									@components.ProgressBarDynamic("j.progress", "flex:1;")
 								</div>
-								<div style="text-align:right; margin-top:0.5rem;">
+								<div class="text-right mt-2">
 									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
 								</div>
 							</div>
@@ -265,23 +265,23 @@ async function clearFiltered(btn, search, status) {
 				<template x-if="$store.activity.pending.length > 0">
 					<div>
 						<template x-for="j in $store.activity.pending" :key="j.id">
-							<div class="card" style="margin-bottom:0.75rem;" :aria-label="'Queued job: ' + j.titleName">
-								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+							<div class="card mb-3" :aria-label="'Queued job: ' + j.titleName">
+								<div class="job-card-header">
 									<div>
-										<div style="font-weight:600;" x-text="j.titleName"></div>
-										<div class="text-muted" style="font-size:0.85em;">
-											<a :href="'/drives/' + j.driveIndex" class="text-primary" style="text-decoration:none;" x-text="j.discName"></a>
+										<div class="font-semibold" x-text="j.titleName"></div>
+										<div class="text-muted text-sm">
+											<a :href="'/drives/' + j.driveIndex" class="text-primary no-underline" x-text="j.discName"></a>
 										</div>
 									</div>
-									<div style="display:flex; gap:0.5rem; align-items:center;">
+									<div class="flex gap-2 items-center">
 										<span class="badge" :class="'badge-' + j.contentType" x-text="j.contentType || '—'"></span>
 										<span class="badge badge-pending" x-text="j.status || 'pending'"></span>
 									</div>
 								</div>
-								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.5rem;" x-show="j.sizeHuman || j.duration">
+								<div class="job-meta" x-show="j.sizeHuman || j.duration">
 									<span x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
 								</div>
-								<div style="text-align:right; margin-top:0.5rem;">
+								<div class="text-right mt-2">
 									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Remove</button>
 								</div>
 							</div>
@@ -301,11 +301,11 @@ async function clearFiltered(btn, search, status) {
 		<div id="tab-panel-history" role="tabpanel" aria-label="Rip history" x-data="{ filter: '', statusFilter: 'all' }" x-show="$store.activityTab === 'history'" x-cloak>
 			<div class="card">
 				<!-- Filters -->
-				<div class="flex gap-2 items-center" style="margin-bottom: 1rem;">
+				<div class="flex gap-2 items-center mb-4">
 					<label for="history-filter" class="sr-only">Filter by disc or title name</label>
-					<input type="search" id="history-filter" x-model="filter" placeholder="Filter by disc or title name…" style="flex:1;"/>
+					<input type="search" id="history-filter" x-model="filter" placeholder="Filter by disc or title name…" class="flex-1"/>
 					<label for="history-status-filter" class="sr-only">Filter by status</label>
-					<select id="history-status-filter" x-model="statusFilter" style="width: auto; min-width: 120px;">
+					<select id="history-status-filter" x-model="statusFilter" class="w-auto" style="min-width: 120px;">
 						<option value="all">All Status</option>
 						<option value="completed">Completed</option>
 						<option value="failed">Failed</option>
@@ -325,29 +325,29 @@ async function clearFiltered(btn, search, status) {
 							const matchesStatus = statusFilter === 'all' || r.status === statusFilter
 							return matchesText && matchesStatus
 						})" :key="r.id">
-							<div class="card" style="margin-bottom:0.75rem;" :class="{'row-failed': r.status === 'failed'}">
-								<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.4rem;">
+							<div class="card mb-3" :class="{'row-failed': r.status === 'failed'}">
+								<div class="job-card-header">
 									<div>
-										<div style="font-weight:600;" x-text="r.titleName"></div>
-										<div class="text-muted" style="font-size:0.85em;" x-text="r.discName"></div>
+										<div class="font-semibold" x-text="r.titleName"></div>
+										<div class="text-muted text-sm" x-text="r.discName"></div>
 									</div>
-									<div style="display:flex; gap:0.5rem; align-items:center;">
+									<div class="flex gap-2 items-center">
 										<span class="badge" :class="'badge-' + r.contentType" x-text="r.contentType || '—'"></span>
 										<span class="badge" :class="'badge-' + r.status" x-text="r.status"></span>
 									</div>
 								</div>
-								<div class="text-secondary" style="font-size:0.85em; margin-bottom:0.4rem;" x-show="r.sizeHuman || r.duration || (r.audioTracks && r.audioTracks.length) || (r.subtitleLanguages && r.subtitleLanguages.length)">
+								<div class="job-meta" x-show="r.sizeHuman || r.duration || (r.audioTracks && r.audioTracks.length) || (r.subtitleLanguages && r.subtitleLanguages.length)">
 									<span x-show="r.sizeHuman || r.duration" x-text="[r.sizeHuman, r.duration].filter(Boolean).join(' · ')"></span>
 									<span x-show="r.audioTracks && r.audioTracks.length" x-text="(r.sizeHuman || r.duration ? ' · ' : '') + (r.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
 									<span x-show="r.subtitleLanguages && r.subtitleLanguages.length" x-text="' · Subs: ' + (r.subtitleLanguages || []).join(', ')"></span>
 								</div>
-								<div class="text-muted" style="font-size:0.8em;">
+								<div class="text-muted text-sm">
 									<span x-text="r.createdAt"></span>
 									<template x-if="r.outputPath">
 										<span> · <span x-text="r.outputPath"></span></span>
 									</template>
 									<template x-if="r.error">
-										<span style="color: var(--color-danger, #e53e3e);"> · <span x-text="r.error"></span></span>
+										<span class="text-error"> · <span x-text="r.error"></span></span>
 									</template>
 								</div>
 							</div>
@@ -356,7 +356,7 @@ async function clearFiltered(btn, search, status) {
 				</template>
 
 				<!-- Pagination -->
-				<div class="flex gap-2 items-center mt-3" style="justify-content:flex-end;">
+				<div class="flex gap-2 items-center mt-3 justify-end">
 					<template x-if="$store.activity.page > 1">
 						<a :href="'/activity?tab=history&page=' + ($store.activity.page - 1)" class="btn btn-secondary btn-sm">&larr; Previous</a>
 					</template>

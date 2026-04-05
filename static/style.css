@@ -329,23 +329,50 @@ tbody td {
 }
 
 /* Utility */
-.text-primary  { color: var(--text-primary); }
-.text-muted    { color: var(--text-muted); }
+.text-primary   { color: var(--text-primary); }
+.text-muted     { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
-.text-success  { color: var(--success); }
-.text-warning  { color: var(--warning); }
-.text-error    { color: var(--error); }
+.text-success   { color: var(--success); }
+.text-warning   { color: var(--warning); }
+.text-error     { color: var(--error); }
 
 .mt-1 { margin-top: 0.25rem; }
 .mt-2 { margin-top: 0.5rem; }
 .mt-3 { margin-top: 0.75rem; }
 .mt-4 { margin-top: 1rem; }
+.mt-5 { margin-top: 1.5rem; }
+.mt-6 { margin-top: 2rem; }
+
+.mb-0 { margin-bottom: 0; }
+.mb-1 { margin-bottom: 0.25rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.mb-4 { margin-bottom: 1rem; }
+
+.ml-2 { margin-left: 0.5rem; }
 
 .flex            { display: flex; }
+.flex-col        { flex-direction: column; }
+.flex-wrap       { flex-wrap: wrap; }
+.flex-1          { flex: 1; }
 .gap-1           { gap: 0.25rem; }
 .gap-2           { gap: 0.5rem; }
+.gap-3           { gap: 0.75rem; }
+.gap-5           { gap: 1.5rem; }
 .items-center    { align-items: center; }
+.items-start     { align-items: flex-start; }
 .justify-between { justify-content: space-between; }
+.justify-end     { justify-content: flex-end; }
+.justify-center  { justify-content: center; }
+
+.text-sm         { font-size: 0.8rem; }
+.font-semibold   { font-weight: 600; }
+.text-right      { text-align: right; }
+.no-underline    { text-decoration: none; }
+.whitespace-nowrap { white-space: nowrap; }
+.overflow-x-auto   { overflow-x: auto; }
+.w-auto          { width: auto; }
+.min-w-3ch       { min-width: 3ch; }
 
 .empty-state {
   text-align: center;
@@ -980,4 +1007,109 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .status-submitted {
     background: #064e3b;
     color: #34d399;
+}
+
+/* ── Reusable Component Classes ── */
+
+/* Contribution alert — left-accented card */
+.alert-contribution {
+  margin-bottom: 1rem;
+  border-left: 3px solid var(--accent-blue);
+}
+.alert-contribution p { margin: 0; }
+
+/* Section title without border, for use inside step card headers */
+.section-title-inline {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* Step card header: title + action button in a row */
+.step-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Job card header row: title+disc on left, badge on right */
+.job-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+/* Secondary metadata line under a job title */
+.job-meta {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+/* Progress percentage + bar in a flex row */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Sticky form-submit footer */
+.sticky-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 1rem 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  z-index: 50;
+}
+
+/* Centered action/prompt area */
+.action-center {
+  text-align: center;
+  padding: 2rem 0;
+}
+.action-center > p { margin-bottom: 1rem; }
+
+/* Checkbox sized for inline use inside a label */
+.checkbox-inline {
+  width: auto;
+  margin-right: 0.4rem;
+}
+
+/* Helper/hint text beneath form fields */
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Card with no padding (table flush to edges) */
+.card-flush {
+  padding: 0;
+}
+
+/* Dismiss button for alert banners */
+.btn-close-alert {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #86efac;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.btn-close-alert:hover { opacity: 1; }
+
+/* Large CTA button (scan/continue primary actions) */
+.btn-lg {
+  padding: 0.6rem 2rem;
+  font-size: 1rem;
 }
