@@ -179,6 +179,11 @@ var langNames = map[string]string{
 	"vie": "Vietnamese",
 }
 
+// IsLosslessAudio reports whether codecShort names a lossless audio codec.
+func IsLosslessAudio(codecShort string) bool {
+	return losslessCodecs[codecShort]
+}
+
 // HasLosslessAudio reports whether any audio stream in the title uses a lossless codec.
 // Lossless codecs: TrueHD, DTS-HD MA, FLAC, PCM.
 func (t *TitleInfo) HasLosslessAudio() bool {

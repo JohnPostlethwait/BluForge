@@ -434,6 +434,7 @@ func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.Dis
 			ContentType:   mapping.MediaType,
 			ContentTitle:  mapping.MediaTitle,
 			Year:          mapping.MediaYear,
+			// Titles rebuilt from a saved mapping have no language context — include all tracks.
 			TrackMetadata: buildTrackMetadata(t, nil),
 		})
 	}
@@ -602,15 +603,6 @@ func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) 
 	o.scanCache[key] = scan
 }
 
-// losslessAudioCodecs is the set of codec short names treated as lossless.
-// Matches the client-side list in drive_detail.templ.
-var losslessAudioCodecs = map[string]bool{
-	"TrueHD":    true,
-	"DTS-HD MA": true,
-	"FLAC":      true,
-	"PCM":       true,
-}
-
 // buildTrackMetadata extracts audio and subtitle metadata from a scanned title,
 // optionally filtering to the tracks permitted by opts. Pass nil for opts to
 // include all tracks (auto-rip with no language filter).
@@ -631,7 +623,8 @@ func buildTrackMetadata(t *makemkv.TitleInfo, opts *makemkv.SelectionOpts) rippe
 					continue
 				}
 			}
-			if opts != nil && !opts.KeepLossless && losslessAudioCodecs[s.CodecShort()] {
+			// lossless codec check delegates to makemkv.IsLosslessAudio
+			if opts != nil && !opts.KeepLossless && makemkv.IsLosslessAudio(s.CodecShort()) {
 				continue
 			}
 			meta.AudioTracks = append(meta.AudioTracks, ripper.AudioTrack{
@@ -641,7 +634,8 @@ func buildTrackMetadata(t *makemkv.TitleInfo, opts *makemkv.SelectionOpts) rippe
 			})
 		case "subtitle":
 			if opts != nil && len(opts.SubtitleLangs) > 0 {
-				if !langInList(opts.SubtitleLangs, s.LangCode()) {
+				isForced := s.IsForced()
+				if !langInList(opts.SubtitleLangs, s.LangCode()) && !(opts.KeepForced && isForced) {
 					continue
 				}
 			}

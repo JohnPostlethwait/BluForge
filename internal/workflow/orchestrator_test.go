@@ -794,6 +794,11 @@ func TestBuildTrackMetadata_LosslessFilter(t *testing.T) {
 	if len(meta.AudioTracks) == 1 && meta.AudioTracks[0].Codec != "AC3" {
 		t.Errorf("expected AC3, got %q", meta.AudioTracks[0].Codec)
 	}
+
+	// Subtitles should be unaffected when SubtitleLangs is empty.
+	if len(meta.SubtitleLanguages) != 2 {
+		t.Errorf("expected 2 subtitle languages (subtitle filter not active), got %d: %v", len(meta.SubtitleLanguages), meta.SubtitleLanguages)
+	}
 }
 
 func TestAutoRip_WithMatch_NoContributionCreated(t *testing.T) {
