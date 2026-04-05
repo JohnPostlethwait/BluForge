@@ -466,7 +466,7 @@ async function scanDisc(driveIndex) {
 												<td class="text-secondary" x-text="r.mediaYear"></td>
 												<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
 												<td class="text-secondary" x-text="r.releaseTitle"></td>
-												<td class="text-muted" x-text="r.releaseUPC"></td>
+												<td class="text-muted" x-text="r.releaseUPC || '—'"></td>
 												<td class="text-muted" x-text="r.releaseASIN || '—'"></td>
 												<td class="text-muted" x-text="r.regionCode || '—'"></td>
 												<td class="text-secondary">
@@ -517,7 +517,7 @@ async function scanDisc(driveIndex) {
 						Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
-						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin">
+						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin || $store.drive.selectedRelease.regionCode">
 							<div class="text-sm mt-1 text-secondary">
 								<span x-show="$store.drive.selectedRelease.upc" x-text="'UPC: ' + $store.drive.selectedRelease.upc"></span>
 								<span x-show="$store.drive.selectedRelease.upc && $store.drive.selectedRelease.asin"> &middot; </span>
@@ -602,7 +602,7 @@ async function scanDisc(driveIndex) {
 						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
-						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin">
+						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin || $store.drive.selectedRelease.regionCode || $store.drive.selectedRelease.locale">
 							<span class="text-muted">
 								&middot;
 								<span x-show="$store.drive.selectedRelease.upc" x-text="'UPC: ' + $store.drive.selectedRelease.upc"></span>
