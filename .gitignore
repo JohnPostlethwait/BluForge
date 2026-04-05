@@ -6,5 +6,5 @@ templates/**/*_templ.go
 
 .superpowers/
 .worktrees/
-docs/superpowers/
+docs/superpowers/plans/
 .claude/settings.local.json
