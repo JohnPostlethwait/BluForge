@@ -141,6 +141,10 @@ async function doSelectRelease(driveIndex, result, discID) {
 			title: result.mediaTitle,
 			year: String(result.mediaYear),
 			type: result.mediaType,
+			upc: result.releaseUPC || '',
+			asin: result.releaseASIN || '',
+			regionCode: result.regionCode || '',
+			locale: result.locale || '',
 		}),
 	})
 
@@ -152,6 +156,10 @@ async function doSelectRelease(driveIndex, result, discID) {
 			title: result.mediaTitle,
 			year: String(result.mediaYear),
 			type: result.mediaType,
+			upc: result.releaseUPC || '',
+			asin: result.releaseASIN || '',
+			regionCode: result.regionCode || '',
+			locale: result.locale || '',
 		}
 		const data = await resp.json()
 		if (data.titles && data.titles.length > 0) {
@@ -445,6 +453,8 @@ async function scanDisc(driveIndex) {
 											<th scope="col">Type</th>
 											<th scope="col">Release</th>
 											<th scope="col">UPC</th>
+											<th scope="col">ASIN</th>
+											<th scope="col">Region</th>
 											<th scope="col">Format</th>
 											<th scope="col"><span class="sr-only">Actions</span></th>
 										</tr>
@@ -457,6 +467,8 @@ async function scanDisc(driveIndex) {
 												<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
 												<td class="text-secondary" x-text="r.releaseTitle"></td>
 												<td class="text-muted" x-text="r.releaseUPC"></td>
+												<td class="text-muted" x-text="r.releaseASIN || '—'"></td>
+												<td class="text-muted" x-text="r.regionCode || '—'"></td>
 												<td class="text-secondary">
 													<span x-text="r.format"></span>
 													<span x-show="r.discCount > 1" class="text-muted" x-text="'(' + r.discCount + ' discs)'"></span>
@@ -505,6 +517,14 @@ async function scanDisc(driveIndex) {
 						Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
 						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin">
+							<div class="text-sm mt-1 text-secondary">
+								<span x-show="$store.drive.selectedRelease.upc" x-text="'UPC: ' + $store.drive.selectedRelease.upc"></span>
+								<span x-show="$store.drive.selectedRelease.upc && $store.drive.selectedRelease.asin"> &middot; </span>
+								<span x-show="$store.drive.selectedRelease.asin" x-text="'ASIN: ' + $store.drive.selectedRelease.asin"></span>
+								<span x-show="$store.drive.selectedRelease.regionCode"> &middot; <span x-text="'Region ' + $store.drive.selectedRelease.regionCode"></span></span>
+							</div>
+						</template>
 					</div>
 				</template>
 
@@ -581,6 +601,17 @@ async function scanDisc(driveIndex) {
 					<p class="text-secondary text-sm mt-3">
 						Organizing as: <strong x-text="$store.drive.selectedRelease.title"></strong>
 						(<span x-text="$store.drive.selectedRelease.year"></span>)
+						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin">
+							<span class="text-muted">
+								&middot;
+								<span x-show="$store.drive.selectedRelease.upc" x-text="'UPC: ' + $store.drive.selectedRelease.upc"></span>
+								<span x-show="$store.drive.selectedRelease.upc && $store.drive.selectedRelease.asin"> &middot; </span>
+								<span x-show="$store.drive.selectedRelease.asin" x-text="'ASIN: ' + $store.drive.selectedRelease.asin"></span>
+								<span x-show="$store.drive.selectedRelease.regionCode"> &middot; <span x-text="'Region ' + $store.drive.selectedRelease.regionCode"></span></span>
+								<span x-show="$store.drive.selectedRelease.locale"> &middot; <span x-text="$store.drive.selectedRelease.locale"></span></span>
+							</span>
+						</template>
 					</p>
 				</template>
 
