@@ -24,6 +24,7 @@ document.addEventListener('alpine:init', () => {
 	const store = %s
 	store.searching = false
 	store.searchError = ''
+	store.searchQuery = store.discName || ''
 	store.selecting = false
 	store.discPickerRelease = null
 	store.audioLangs = store.audioLanguages || []
@@ -48,6 +49,7 @@ document.addEventListener('alpine:init', () => {
 				Alpine.store('drive').selecting = false
 				Alpine.store('drive').scanError = ''
 				Alpine.store('drive').searchError = ''
+				Alpine.store('drive').searchQuery = update.DiscName || ''
 				Alpine.store('drive').discPickerRelease = null
 				Alpine.store('drive').hasMapping = false
 				Alpine.store('drive').currentStep = 1
@@ -70,7 +72,7 @@ function goToStep(step) {
 }
 
 async function searchDiscDB(driveIndex) {
-	const query = document.getElementById('search-query').value.trim()
+	const query = Alpine.store('drive').searchQuery.trim()
 	if (!query) return
 
 	const store = Alpine.store('drive')
@@ -374,7 +376,7 @@ async function scanDisc(driveIndex) {
 					<div class="flex gap-2 items-center">
 						<label for="search-query" class="sr-only">Search TheDiscDB</label>
 						<input type="search" id="search-query" placeholder="Search by title, UPC, ASIN…"
-							x-init="$el.value = $store.drive.discName"
+							x-model="$store.drive.searchQuery"
 							class="flex-1"
 							x-bind:disabled="$store.drive.searching"/>
 						<button type="submit" class="btn btn-primary btn-sm" x-bind:disabled="$store.drive.searching">
@@ -440,7 +442,16 @@ async function scanDisc(driveIndex) {
 					<div>
 						<div class="step-card-header">
 							<h2 class="section-title-inline">Select a Release</h2>
-							<button class="btn btn-secondary btn-sm" x-on:click="goToStep(1)">&larr; Search Again</button>
+							@templ.Raw(fmt.Sprintf(`<form x-on:submit.prevent="searchDiscDB(%d)" class="flex gap-2 items-center">
+								<input type="search" placeholder="Search by title, UPC, ASIN…"
+									x-model="$store.drive.searchQuery"
+									style="width: auto; min-width: 14rem;"
+									x-bind:disabled="$store.drive.searching"/>
+								<button type="submit" class="btn btn-secondary btn-sm" x-bind:disabled="$store.drive.searching">
+									<span x-show="!$store.drive.searching">Search</span>
+									<span x-show="$store.drive.searching" x-cloak>…</span>
+								</button>
+							</form>`, data.DriveIndex))
 						</div>
 
 						<template x-if="$store.drive.searchResults.length > 0">

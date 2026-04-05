@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -184,9 +185,79 @@ func (c *Client) searchMediaItems(ctx context.Context, queryName, whereClause, v
 	return result.MediaItems.Nodes, nil
 }
 
-// SearchByTitle searches for media items whose title contains the given string.
+// SearchByTitle searches for media items matching all words in the title query.
+// For a single word it uses a simple contains filter; for multiple words it
+// requires the title to contain each word individually (and: [...]), so that
+// e.g. "Tron Legacy" matches "TRON: Legacy" even though the colon differs.
 func (c *Client) SearchByTitle(ctx context.Context, title string) ([]MediaItem, error) {
-	return c.searchMediaItems(ctx, "SearchByTitle", "title: { contains: $title }", "title", title)
+	words := splitSearchWords(title)
+	if len(words) == 1 {
+		return c.searchMediaItems(ctx, "SearchByTitle", "title: { contains: $title }", "title", words[0])
+	}
+
+	// Build: query SearchByTitle($w0: String!, $w1: String!, ...) {
+	//   mediaItems(where: { and: [{ title: { contains: $w0 } }, ...] }, first: 50) { ... }
+	// }
+	varDecls := make([]string, len(words))
+	andClauses := make([]string, len(words))
+	vars := make(map[string]any, len(words))
+	for i, w := range words {
+		name := fmt.Sprintf("w%d", i)
+		varDecls[i] = fmt.Sprintf("$%s: String!", name)
+		andClauses[i] = fmt.Sprintf("{ title: { contains: $%s } }", name)
+		vars[name] = w
+	}
+
+	gql := fmt.Sprintf(`
+		query SearchByTitle(%s) {
+			mediaItems(where: { and: [%s] }, first: 50) {
+				nodes {
+					%s
+				}
+			}
+		}
+	`, strings.Join(varDecls, ", "), strings.Join(andClauses, ", "), mediaItemFields)
+
+	data, err := c.query(ctx, gql, vars)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		MediaItems struct {
+			Nodes []MediaItem `json:"nodes"`
+		} `json:"mediaItems"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("discdb: unmarshal SearchByTitle: %w", err)
+	}
+	return result.MediaItems.Nodes, nil
+}
+
+// titleStopWords are common words skipped when splitting a title search query
+// into individual contains clauses. These words are too short or too common to
+// be useful as independent substring filters.
+var titleStopWords = map[string]bool{
+	"a": true, "an": true, "the": true,
+	"of": true, "in": true, "on": true,
+	"at": true, "to": true, "and": true, "or": true,
+}
+
+// splitSearchWords splits a title query into individual words, dropping stop
+// words and any token shorter than 2 characters. If all words are filtered out
+// the original query is returned as a single-element slice so the caller always
+// has something to search with.
+func splitSearchWords(q string) []string {
+	var words []string
+	for _, w := range strings.Fields(q) {
+		if len(w) >= 2 && !titleStopWords[strings.ToLower(w)] {
+			words = append(words, w)
+		}
+	}
+	if len(words) == 0 {
+		return []string{q}
+	}
+	return words
 }
 
 // SearchByUPC searches for media items that have a release matching the given UPC.

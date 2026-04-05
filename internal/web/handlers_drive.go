@@ -161,7 +161,7 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
-	query := strings.TrimSpace(c.FormValue("query"))
+	query := normalizeSearchQuery(strings.TrimSpace(c.FormValue("query")))
 	searchType := c.FormValue("search_type")
 
 	var items []discdb.MediaItem
@@ -470,3 +470,11 @@ func redirectDriveError(c echo.Context, idx int, msg string) error {
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d", idx))
 }
+
+// normalizeSearchQuery cleans up a raw disc name or user-typed query:
+// underscores and hyphens are replaced with spaces, and extra whitespace is collapsed.
+func normalizeSearchQuery(q string) string {
+	r := strings.NewReplacer("_", " ", "-", " ")
+	return strings.Join(strings.Fields(r.Replace(q)), " ")
+}
+
