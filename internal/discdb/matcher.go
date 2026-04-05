@@ -39,26 +39,24 @@ func MatchTitles(scan *makemkv.DiscScan, disc Disc) []ContentMatch {
 			TitleIndex: title.Index,
 			SourceFile: sf,
 		}
-		if dt, ok := lookup[sf]; ok {
+		if dt, ok := lookup[sf]; ok && dt.Item != nil {
 			cm.Matched = true
 			cm.ContentType = dt.ItemType
 			cm.Season = dt.Season
 			cm.Episode = dt.Episode
-			if dt.Item != nil {
-				cm.ContentTitle = dt.Item.Title
-				// Use item-level type when available — this correctly
-				// distinguishes extras from episodes.
-				if dt.Item.Type != "" {
-					cm.ContentType = dt.Item.Type
-				}
-				// Only episodes should carry season/episode data.
-				// The API returns many non-episode types (Extra,
-				// DeletedScene, etc.) that may have season/episode
-				// set to indicate association, not identity.
-				if !IsEpisodeType(cm.ContentType) {
-					cm.Season = ""
-					cm.Episode = ""
-				}
+			cm.ContentTitle = dt.Item.Title
+			// Use item-level type when available — this correctly
+			// distinguishes extras from episodes.
+			if dt.Item.Type != "" {
+				cm.ContentType = dt.Item.Type
+			}
+			// Only episodes should carry season/episode data.
+			// The API returns many non-episode types (Extra,
+			// DeletedScene, etc.) that may have season/episode
+			// set to indicate association, not identity.
+			if !IsEpisodeType(cm.ContentType) {
+				cm.Season = ""
+				cm.Episode = ""
 			}
 		}
 		matches = append(matches, cm)

@@ -498,3 +498,71 @@ func TestBestRelease_MultiDisc_SelectsCorrectDisc(t *testing.T) {
 		t.Errorf("expected Disc.Name='Disc 2', got %q", result.Disc.Name)
 	}
 }
+
+// TestMatchStubDisc verifies that disc titles with no assigned item (Item==nil)
+// produce Matched=false, even when the source file is present in the disc entry.
+func TestMatchStubDisc(t *testing.T) {
+	scan := makeScan("TestDisc", "00800.mpls", "00001.mpls")
+
+	disc := Disc{
+		Titles: []DiscTitle{
+			// Identified title — has item.
+			{
+				SourceFile: "00800.mpls",
+				ItemType:   "MainMovie",
+				Item:       &DiscItemReference{Title: "The Main Feature", Type: "movie"},
+			},
+			// Stub title — source file present in DiscDB but no content assigned.
+			{
+				SourceFile: "00001.mpls",
+				ItemType:   "movie",
+				Item:       nil,
+			},
+		},
+	}
+
+	matches := MatchTitles(scan, disc)
+
+	bySource := make(map[string]ContentMatch)
+	for _, m := range matches {
+		bySource[m.SourceFile] = m
+	}
+
+	main := bySource["00800.mpls"]
+	if !main.Matched {
+		t.Errorf("expected 00800.mpls (has Item) to be Matched=true")
+	}
+	if main.ContentTitle != "The Main Feature" {
+		t.Errorf("expected ContentTitle=%q, got %q", "The Main Feature", main.ContentTitle)
+	}
+
+	stub := bySource["00001.mpls"]
+	if stub.Matched {
+		t.Errorf("expected 00001.mpls (Item==nil) to be Matched=false; got Matched=true")
+	}
+	if stub.ContentTitle != "" {
+		t.Errorf("expected stub ContentTitle to be empty, got %q", stub.ContentTitle)
+	}
+}
+
+// TestMatchAllStubs verifies that a disc with no identified titles returns
+// Matched=false for every scan title (all stubs).
+func TestMatchAllStubs(t *testing.T) {
+	scan := makeScan("TestDisc", "00800.mpls", "00001.mpls", "99999.mpls")
+
+	disc := Disc{
+		Titles: []DiscTitle{
+			{SourceFile: "00800.mpls", ItemType: "movie", Item: nil},
+			{SourceFile: "00001.mpls", ItemType: "extra", Item: nil},
+			// 99999.mpls not in disc at all.
+		},
+	}
+
+	matches := MatchTitles(scan, disc)
+
+	for _, m := range matches {
+		if m.Matched {
+			t.Errorf("expected all stubs to be Matched=false, got Matched=true for %q", m.SourceFile)
+		}
+	}
+}
