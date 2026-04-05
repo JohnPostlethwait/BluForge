@@ -15,6 +15,10 @@ type selectRequest struct {
 	Title       string `json:"title"`
 	Year        string `json:"year"`
 	Type        string `json:"type"`
+	UPC         string `json:"upc"`
+	ASIN        string `json:"asin"`
+	RegionCode  string `json:"regionCode"`
+	Locale      string `json:"locale"`
 }
 
 // handleDriveSelectAlpine persists the user's release selection in the drive session.
@@ -44,14 +48,18 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 
 	// Persist selection in drive session.
 	s.driveSessions.Set(idx, &DriveSession{
-		MediaItemID:      req.MediaItemID,
-		ReleaseID:        req.ReleaseID,
-		DiscID:           req.DiscID,
-		MediaTitle:       req.Title,
-		MediaYear:        req.Year,
-		MediaType:        req.Type,
-		SearchResults:    existingResults,
-		RawSearchResults: existingRawResults,
+		MediaItemID:       req.MediaItemID,
+		ReleaseID:         req.ReleaseID,
+		DiscID:            req.DiscID,
+		MediaTitle:        req.Title,
+		MediaYear:         req.Year,
+		MediaType:         req.Type,
+		ReleaseUPC:        req.UPC,
+		ReleaseASIN:       req.ASIN,
+		ReleaseRegionCode: req.RegionCode,
+		ReleaseLocale:     req.Locale,
+		SearchResults:     existingResults,
+		RawSearchResults:  existingRawResults,
 	})
 
 	// If a scan is cached for this drive, enrich titles with match data and

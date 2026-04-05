@@ -10,14 +10,18 @@ import (
 // release from TheDiscDB and cached search results. This state persists across
 // browser refreshes but is cleared when the disc is ejected.
 type DriveSession struct {
-	MediaItemID      string
-	ReleaseID        string
-	DiscID           string
-	MediaTitle       string
-	MediaYear        string
-	MediaType        string
-	SearchResults    []SearchResultJSON
-	RawSearchResults []discdb.MediaItem
+	MediaItemID       string
+	ReleaseID         string
+	DiscID            string
+	MediaTitle        string
+	MediaYear         string
+	MediaType         string
+	ReleaseUPC        string
+	ReleaseASIN       string
+	ReleaseRegionCode string
+	ReleaseLocale     string
+	SearchResults     []SearchResultJSON
+	RawSearchResults  []discdb.MediaItem
 }
 
 // DriveSessionStore is a thread-safe map of drive index to session state.

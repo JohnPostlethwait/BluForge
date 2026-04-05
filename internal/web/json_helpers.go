@@ -160,6 +160,10 @@ type SelectedReleaseJSON struct {
 	Title       string `json:"title"`
 	Year        string `json:"year"`
 	Type        string `json:"type"`
+	UPC         string `json:"upc,omitempty"`
+	ASIN        string `json:"asin,omitempty"`
+	RegionCode  string `json:"regionCode,omitempty"`
+	Locale      string `json:"locale,omitempty"`
 }
 
 // DiscJSON is the JSON representation of a disc within a release.
@@ -178,6 +182,7 @@ type SearchResultJSON struct {
 	ReleaseUPC   string     `json:"releaseUPC"`
 	ReleaseASIN  string     `json:"releaseASIN"`
 	RegionCode   string     `json:"regionCode"`
+	Locale       string     `json:"locale,omitempty"`
 	Format       string     `json:"format"`
 	DiscCount    int        `json:"discCount"`
 	Discs        []DiscJSON `json:"discs"`
@@ -252,6 +257,7 @@ func mediaItemsToSearchJSON(items []discdb.MediaItem) []SearchResultJSON {
 				ReleaseUPC:   rel.UPC,
 				ReleaseASIN:  rel.ASIN,
 				RegionCode:   rel.RegionCode,
+				Locale:       rel.Locale,
 				Format:       format,
 				DiscCount:    len(rel.Discs),
 				Discs:        discs,

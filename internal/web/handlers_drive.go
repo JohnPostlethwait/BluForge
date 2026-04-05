@@ -89,6 +89,10 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 			Title:       session.MediaTitle,
 			Year:        session.MediaYear,
 			Type:        session.MediaType,
+			UPC:         session.ReleaseUPC,
+			ASIN:        session.ReleaseASIN,
+			RegionCode:  session.ReleaseRegionCode,
+			Locale:      session.ReleaseLocale,
 		}
 		driveStore.SearchResults = session.SearchResults
 		if driveStore.SearchResults == nil {
