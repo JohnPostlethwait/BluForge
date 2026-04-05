@@ -115,6 +115,77 @@ func TestEnrichTitlesWithMatches(t *testing.T) {
 	}
 }
 
+// TestEnrichTitlesWithMatches_StubAndIdentified verifies that when a disc
+// has a mix of identified titles (Item set) and stub titles (Item==nil),
+// only the identified titles are pre-selected.
+func TestEnrichTitlesWithMatches_StubAndIdentified(t *testing.T) {
+	// Scan has 3 titles: one identified, one stub, one not in DiscDB at all.
+	scan := makeWebScan("TestDisc", "00800.mpls", "00001.mpls", "99999.mpls")
+
+	disc := discdb.Disc{
+		Titles: []discdb.DiscTitle{
+			// Identified: has Item.
+			{
+				SourceFile: "00800.mpls",
+				ItemType:   "MainMovie",
+				Item:       &discdb.DiscItemReference{Title: "The Main Feature", Type: "movie"},
+			},
+			// Stub: source file in DiscDB but no item assigned.
+			{
+				SourceFile: "00001.mpls",
+				ItemType:   "movie",
+				Item:       nil,
+			},
+			// 99999.mpls not in disc at all.
+		},
+	}
+
+	titles := enrichTitlesWithMatches(scan, disc)
+
+	byFile := make(map[string]TitleJSON)
+	for _, tj := range titles {
+		byFile[tj.SourceFile] = tj
+	}
+
+	main := byFile["00800.mpls"]
+	if !main.Matched || !main.Selected {
+		t.Errorf("00800.mpls (identified): want Matched=true Selected=true, got Matched=%v Selected=%v", main.Matched, main.Selected)
+	}
+
+	stub := byFile["00001.mpls"]
+	if stub.Matched || stub.Selected {
+		t.Errorf("00001.mpls (stub): want Matched=false Selected=false, got Matched=%v Selected=%v", stub.Matched, stub.Selected)
+	}
+
+	unknown := byFile["99999.mpls"]
+	if unknown.Matched || unknown.Selected {
+		t.Errorf("99999.mpls (not in DiscDB): want Matched=false Selected=false, got Matched=%v Selected=%v", unknown.Matched, unknown.Selected)
+	}
+}
+
+// TestEnrichTitlesWithMatches_AllStubs verifies that when every disc title
+// is a stub (no item), the fallback kicks in and all scan titles are selected.
+// This prevents a fully-unidentified disc from leaving the user with an empty
+// checklist.
+func TestEnrichTitlesWithMatches_AllStubs(t *testing.T) {
+	scan := makeWebScan("TestDisc", "00800.mpls", "00001.mpls")
+
+	disc := discdb.Disc{
+		Titles: []discdb.DiscTitle{
+			{SourceFile: "00800.mpls", ItemType: "movie", Item: nil},
+			{SourceFile: "00001.mpls", ItemType: "extra", Item: nil},
+		},
+	}
+
+	titles := enrichTitlesWithMatches(scan, disc)
+
+	for _, tj := range titles {
+		if !tj.Selected {
+			t.Errorf("%q: expected Selected=true (all-stub fallback), got false", tj.SourceFile)
+		}
+	}
+}
+
 func TestBuildOutputName(t *testing.T) {
 	tests := []struct {
 		name string

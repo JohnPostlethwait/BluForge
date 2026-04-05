@@ -21,6 +21,17 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 		matchByIndex[m.TitleIndex] = m
 	}
 
+	// If no title in the disc has assigned DiscDB content, fall back to
+	// selecting everything — the disc is fully unidentified and we shouldn't
+	// leave the user with an empty checklist.
+	hasAnyIdentified := false
+	for _, m := range matches {
+		if m.Matched {
+			hasAnyIdentified = true
+			break
+		}
+	}
+
 	titles := make([]TitleJSON, 0, len(scan.Titles))
 	for _, t := range scan.Titles {
 		var streams []StreamJSON
@@ -43,6 +54,10 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			tj.Season = m.Season
 			tj.Episode = m.Episode
 			tj.OutputName = buildOutputName(m)
+		} else if !hasAnyIdentified {
+			// Fully-stub disc: select everything so the user isn't left with
+			// nothing checked.
+			tj.Selected = true
 		}
 		titles = append(titles, tj)
 	}
