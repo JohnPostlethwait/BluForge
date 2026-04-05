@@ -21,7 +21,7 @@ type ContentMatch struct {
 }
 
 // MatchTitles builds a lookup from DiscTitle.SourceFile and matches each scan
-// title against it by SourceFile (attribute 33). Returns one ContentMatch per
+// title against it by SourceFile (attribute 16). Returns one ContentMatch per
 // scan title.
 func MatchTitles(scan *makemkv.DiscScan, disc Disc) []ContentMatch {
 	// Build lookup: sourceFile -> DiscTitle
