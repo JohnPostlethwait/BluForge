@@ -15,20 +15,14 @@ import (
 func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJSON {
 	matches := discdb.MatchTitles(scan, disc)
 
-	// Build lookup by TitleIndex for fast access.
+	// Build lookup by TitleIndex for fast access. Track whether any title
+	// has assigned DiscDB content in the same pass.
 	matchByIndex := make(map[int]discdb.ContentMatch, len(matches))
-	for _, m := range matches {
-		matchByIndex[m.TitleIndex] = m
-	}
-
-	// If no title in the disc has assigned DiscDB content, fall back to
-	// selecting everything — the disc is fully unidentified and we shouldn't
-	// leave the user with an empty checklist.
 	hasAnyIdentified := false
 	for _, m := range matches {
+		matchByIndex[m.TitleIndex] = m
 		if m.Matched {
 			hasAnyIdentified = true
-			break
 		}
 	}
 

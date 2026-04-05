@@ -147,17 +147,26 @@ func TestEnrichTitlesWithMatches_StubAndIdentified(t *testing.T) {
 		byFile[tj.SourceFile] = tj
 	}
 
-	main := byFile["00800.mpls"]
+	main, ok := byFile["00800.mpls"]
+	if !ok {
+		t.Fatal("missing title for 00800.mpls")
+	}
 	if !main.Matched || !main.Selected {
 		t.Errorf("00800.mpls (identified): want Matched=true Selected=true, got Matched=%v Selected=%v", main.Matched, main.Selected)
 	}
 
-	stub := byFile["00001.mpls"]
+	stub, ok := byFile["00001.mpls"]
+	if !ok {
+		t.Fatal("missing title for 00001.mpls")
+	}
 	if stub.Matched || stub.Selected {
 		t.Errorf("00001.mpls (stub): want Matched=false Selected=false, got Matched=%v Selected=%v", stub.Matched, stub.Selected)
 	}
 
-	unknown := byFile["99999.mpls"]
+	unknown, ok := byFile["99999.mpls"]
+	if !ok {
+		t.Fatal("missing title for 99999.mpls")
+	}
 	if unknown.Matched || unknown.Selected {
 		t.Errorf("99999.mpls (not in DiscDB): want Matched=false Selected=false, got Matched=%v Selected=%v", unknown.Matched, unknown.Selected)
 	}
