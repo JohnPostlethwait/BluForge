@@ -372,7 +372,7 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 		mediaYear = mapping.MediaYear
 		mediaType = mapping.MediaType
 	} else {
-		titles, mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType = o.autoMatch(ctx, scan)
+		titles, mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType = o.autoMatch(ctx, scan, cfg.SelectionOpts)
 	}
 
 	params := ManualRipParams{
@@ -434,7 +434,7 @@ func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.Dis
 			ContentType:   mapping.MediaType,
 			ContentTitle:  mapping.MediaTitle,
 			Year:          mapping.MediaYear,
-			TrackMetadata: buildTrackMetadata(t),
+			TrackMetadata: buildTrackMetadata(t, nil),
 		})
 	}
 	return titles
@@ -443,7 +443,7 @@ func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.Dis
 // autoMatch searches TheDiscDB for the disc name, scores matches, and returns
 // title selections along with metadata. Falls back to unmatched titles if no
 // confident match is found.
-func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
+func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan, opts *makemkv.SelectionOpts) (
 	titles []TitleSelection,
 	mediaItemID, releaseID, discID, mediaTitle, mediaYear, mediaType string,
 ) {
@@ -456,7 +456,7 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 			if best != nil && score >= 10 {
 				slog.Info("auto-rip: matched via discdb",
 					"title", best.MediaItem.Title, "score", score)
-				titles = o.titlesFromSearchResult(scan, best)
+				titles = o.titlesFromSearchResult(scan, best, opts)
 				mediaItemID = strconv.Itoa(best.MediaItem.ID)
 				releaseID = strconv.Itoa(best.Release.ID)
 				discID = strconv.Itoa(best.Disc.ID)
@@ -470,7 +470,7 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan) (
 
 	slog.Info("auto-rip: no confident match, using unmatched titles",
 		"disc_name", scan.DiscName)
-	titles = o.unmatchedTitles(scan)
+	titles = o.unmatchedTitles(scan, opts)
 
 	// Create a contribution record for this unmatched disc so the user
 	// can contribute it to TheDiscDB later.
@@ -528,7 +528,7 @@ func (o *Orchestrator) createContributionRecord(scan *makemkv.DiscScan) {
 
 // titlesFromSearchResult builds TitleSelections from a TheDiscDB match using
 // MatchTitles to correlate scan titles with disc metadata.
-func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb.SearchResult) []TitleSelection {
+func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb.SearchResult, opts *makemkv.SelectionOpts) []TitleSelection {
 	matches := discdb.MatchTitles(scan, sr.Disc)
 	titles := make([]TitleSelection, 0, len(scan.Titles))
 
@@ -557,7 +557,7 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 		}
 
 		if matchedTitle != nil {
-			sel.TrackMetadata = buildTrackMetadata(matchedTitle)
+			sel.TrackMetadata = buildTrackMetadata(matchedTitle, opts)
 		}
 
 		if cm.Matched {
@@ -575,7 +575,7 @@ func (o *Orchestrator) titlesFromSearchResult(scan *makemkv.DiscScan, sr *discdb
 
 // unmatchedTitles builds TitleSelections with no content metadata — the
 // organizer will place them in an unmatched directory.
-func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection {
+func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan, opts *makemkv.SelectionOpts) []TitleSelection {
 	titles := make([]TitleSelection, 0, len(scan.Titles))
 	for i := range scan.Titles {
 		t := &scan.Titles[i]
@@ -588,7 +588,7 @@ func (o *Orchestrator) unmatchedTitles(scan *makemkv.DiscScan) []TitleSelection 
 			TitleName:     t.Name(),
 			SourceFile:    t.SourceFile(),
 			SizeBytes:     sizeBytes,
-			TrackMetadata: buildTrackMetadata(t),
+			TrackMetadata: buildTrackMetadata(t, opts),
 		})
 	}
 	return titles
@@ -602,8 +602,19 @@ func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) 
 	o.scanCache[key] = scan
 }
 
-// buildTrackMetadata extracts audio and subtitle metadata from a scanned title.
-func buildTrackMetadata(t *makemkv.TitleInfo) ripper.TrackMetadata {
+// losslessAudioCodecs is the set of codec short names treated as lossless.
+// Matches the client-side list in drive_detail.templ.
+var losslessAudioCodecs = map[string]bool{
+	"TrueHD":    true,
+	"DTS-HD MA": true,
+	"FLAC":      true,
+	"PCM":       true,
+}
+
+// buildTrackMetadata extracts audio and subtitle metadata from a scanned title,
+// optionally filtering to the tracks permitted by opts. Pass nil for opts to
+// include all tracks (auto-rip with no language filter).
+func buildTrackMetadata(t *makemkv.TitleInfo, opts *makemkv.SelectionOpts) ripper.TrackMetadata {
 	var meta ripper.TrackMetadata
 	meta.Duration = t.Duration()
 	meta.SizeHuman = t.SizeHuman()
@@ -615,12 +626,25 @@ func buildTrackMetadata(t *makemkv.TitleInfo) ripper.TrackMetadata {
 		s := &t.Streams[i]
 		switch s.Type() {
 		case "audio":
+			if opts != nil && len(opts.AudioLangs) > 0 {
+				if !langInList(opts.AudioLangs, s.LangCode()) {
+					continue
+				}
+			}
+			if opts != nil && !opts.KeepLossless && losslessAudioCodecs[s.CodecShort()] {
+				continue
+			}
 			meta.AudioTracks = append(meta.AudioTracks, ripper.AudioTrack{
 				Language: s.LangName(),
 				Codec:    s.CodecShort(),
 				Channels: s.Channels(),
 			})
 		case "subtitle":
+			if opts != nil && len(opts.SubtitleLangs) > 0 {
+				if !langInList(opts.SubtitleLangs, s.LangCode()) {
+					continue
+				}
+			}
 			lang := s.LangName()
 			if lang != "" && !seen[lang] {
 				seen[lang] = true
@@ -629,6 +653,16 @@ func buildTrackMetadata(t *makemkv.TitleInfo) ripper.TrackMetadata {
 		}
 	}
 	return meta
+}
+
+// langInList returns true when code is present in langs.
+func langInList(langs []string, code string) bool {
+	for _, l := range langs {
+		if l == code {
+			return true
+		}
+	}
+	return false
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.

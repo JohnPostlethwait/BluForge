@@ -705,6 +705,97 @@ func TestAutoRip_NoMatch_BroadcastsSSE(t *testing.T) {
 	}
 }
 
+// makeTitleWithStreams builds a TitleInfo with the given audio and subtitle streams
+// for testing buildTrackMetadata.
+func makeTitleWithStreams(sourceFile string, streams []makemkv.StreamInfo) makemkv.TitleInfo {
+	return makemkv.TitleInfo{
+		Index: 0,
+		Attributes: map[int]string{
+			2:  "Test Title",
+			9:  "2:05:08",
+			10: "56.7 GB",
+			11: "60960036864",
+			16: sourceFile,
+		},
+		Streams: streams,
+	}
+}
+
+func tronStreams() []makemkv.StreamInfo {
+	return []makemkv.StreamInfo{
+		// TrueHD English 7.1
+		{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{1: "A_TRUEHD", 3: "eng", 4: "English", 6: "TrueHD", 14: "7.1"}},
+		// AC3 English 5.1
+		{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{1: "A_AC3", 3: "eng", 4: "English", 6: "AC3", 14: "5.1"}},
+		// DTS-HD MA French
+		{TitleIndex: 0, StreamIndex: 2, Attributes: map[int]string{1: "A_DTSHD", 3: "fra", 4: "French", 6: "DTS-HD MA", 14: "5.1"}},
+		// AC3 French
+		{TitleIndex: 0, StreamIndex: 3, Attributes: map[int]string{1: "A_AC3", 3: "fra", 4: "French", 6: "AC3", 14: "5.1"}},
+		// English subtitle
+		{TitleIndex: 0, StreamIndex: 4, Attributes: map[int]string{1: "S_HDMV/PGS", 3: "eng", 4: "English", 6: "PGS"}},
+		// French subtitle
+		{TitleIndex: 0, StreamIndex: 5, Attributes: map[int]string{1: "S_HDMV/PGS", 3: "fra", 4: "French", 6: "PGS"}},
+	}
+}
+
+func TestBuildTrackMetadata_NoFilter(t *testing.T) {
+	title := makeTitleWithStreams("00800.mpls", tronStreams())
+	meta := buildTrackMetadata(&title, nil)
+
+	if len(meta.AudioTracks) != 4 {
+		t.Errorf("expected 4 audio tracks (nil opts = no filter), got %d", len(meta.AudioTracks))
+	}
+	if len(meta.SubtitleLanguages) != 2 {
+		t.Errorf("expected 2 subtitle languages, got %d: %v", len(meta.SubtitleLanguages), meta.SubtitleLanguages)
+	}
+}
+
+func TestBuildTrackMetadata_AudioLangFilter(t *testing.T) {
+	title := makeTitleWithStreams("00800.mpls", tronStreams())
+	opts := &makemkv.SelectionOpts{
+		AudioLangs:    []string{"eng"},
+		SubtitleLangs: []string{"eng"},
+		KeepLossless:  true,
+	}
+	meta := buildTrackMetadata(&title, opts)
+
+	if len(meta.AudioTracks) != 2 {
+		t.Errorf("expected 2 English audio tracks, got %d", len(meta.AudioTracks))
+		for _, a := range meta.AudioTracks {
+			t.Logf("  audio: %s %s %s", a.Codec, a.Channels, a.Language)
+		}
+	}
+	for _, a := range meta.AudioTracks {
+		if a.Language != "English" {
+			t.Errorf("expected only English audio, got %q", a.Language)
+		}
+	}
+
+	if len(meta.SubtitleLanguages) != 1 || meta.SubtitleLanguages[0] != "English" {
+		t.Errorf("expected [English] subtitle, got %v", meta.SubtitleLanguages)
+	}
+}
+
+func TestBuildTrackMetadata_LosslessFilter(t *testing.T) {
+	title := makeTitleWithStreams("00800.mpls", tronStreams())
+	opts := &makemkv.SelectionOpts{
+		AudioLangs:   []string{"eng"},
+		KeepLossless: false,
+	}
+	meta := buildTrackMetadata(&title, opts)
+
+	// Should keep AC3 English but not TrueHD English.
+	if len(meta.AudioTracks) != 1 {
+		t.Errorf("expected 1 audio track (AC3 English, TrueHD filtered), got %d", len(meta.AudioTracks))
+		for _, a := range meta.AudioTracks {
+			t.Logf("  audio: %s %s %s", a.Codec, a.Channels, a.Language)
+		}
+	}
+	if len(meta.AudioTracks) == 1 && meta.AudioTracks[0].Codec != "AC3" {
+		t.Errorf("expected AC3, got %q", meta.AudioTracks[0].Codec)
+	}
+}
+
 func TestAutoRip_WithMatch_NoContributionCreated(t *testing.T) {
 	scanner := &mockDriveExecutor{}
 	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
