@@ -146,6 +146,20 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 	store.Page = page
 
+	// Collect IDs of jobs currently tracked by the engine so they can be
+	// excluded from the history list. Without this exclusion, active/pending
+	// jobs appear in both their respective sections AND in history, producing
+	// duplicate Alpine x-for keys which causes DOM reconciliation errors.
+	engineIDs := make(map[int64]bool)
+	if s.ripEngine != nil {
+		for _, j := range s.ripEngine.ActiveJobs() {
+			engineIDs[j.ID] = true
+		}
+		for _, j := range s.ripEngine.QueuedJobs() {
+			engineIDs[j.ID] = true
+		}
+	}
+
 	offset := (page - 1) * activityHistoryPageSize
 	dbJobs, err := s.store.ListAllJobs(activityHistoryPageSize+1, offset)
 	if err != nil {
@@ -159,6 +173,9 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 
 	for _, j := range dbJobs {
+		if engineIDs[j.ID] {
+			continue
+		}
 		meta := parseTrackMetadata(j.TrackMetadata)
 		store.History = append(store.History, activityJobJSON{
 			ID:                j.ID,

@@ -55,6 +55,9 @@ document.addEventListener('alpine:init', () => {
 				})
 
 				// Also add to history so it appears in the History tab immediately.
+				// Remove any existing entry for this job first (guards against
+				// duplicates if the page was loaded while the job was in-flight).
+				store.history = store.history.filter(r => r.id !== job.ID)
 				store.history.unshift({
 					id: job.ID,
 					discName: job.DiscName,
