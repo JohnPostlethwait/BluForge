@@ -786,8 +786,17 @@ async function scanDisc(driveIndex) {
 							@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_size_human_' + t.index" :value="t.size || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_duration_' + t.index" :value="t.duration || ''"/>`)
-							@templ.Raw(`<input type="hidden" :name="'title_audio_tracks_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => s.type === 'audio').map(s => ({Codec: s.codec, Channels: s.channels, Language: s.langName})))"/>`)
-							@templ.Raw(`<input type="hidden" :name="'title_subtitle_langs_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => s.type === 'subtitle').map(s => s.langName))"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_audio_tracks_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => {
+    if (s.type !== 'audio') return false
+    if ($store.drive.audioLangs.length > 0 && !$store.drive.audioLangs.some(l => l.selected && l.code === s.langCode)) return false
+    if (!$store.drive.keepLossless && ['TrueHD', 'DTS-HD MA', 'FLAC', 'PCM'].includes(s.codec)) return false
+    return true
+}).map(s => ({Codec: s.codec, Channels: s.channels, Language: s.langName})))"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_subtitle_langs_' + t.index" :value="JSON.stringify([...new Set((t.streams || []).filter(s => {
+    if (s.type !== 'subtitle') return false
+    if ($store.drive.subtitleLangs.length > 0 && !$store.drive.subtitleLangs.some(l => l.selected && l.code === s.langCode)) return false
+    return true
+}).map(s => s.langName))])"/>`)
 						</div>
 					</template>
 
