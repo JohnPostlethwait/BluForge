@@ -27,6 +27,7 @@ type mockGitHub struct {
 	prURL         string
 	prErr         error
 	waitErr       error
+	callOrder     []string
 }
 
 func (m *mockGitHub) GetUser(ctx context.Context) (string, error) {
@@ -42,6 +43,7 @@ func (m *mockGitHub) GetDefaultBranchSHA(ctx context.Context, owner, repo string
 }
 
 func (m *mockGitHub) CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error {
+	m.callOrder = append(m.callOrder, "CreateBranch")
 	return m.createErr
 }
 
@@ -55,6 +57,7 @@ func (m *mockGitHub) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, 
 }
 
 func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error {
+	m.callOrder = append(m.callOrder, "WaitForRepo")
 	return m.waitErr
 }
 
@@ -426,6 +429,45 @@ func TestSubmitFailsWaitForFork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "wait for fork") {
 		t.Errorf("error %q should contain %q", err.Error(), "wait for fork")
+	}
+}
+
+func TestSubmitWaitsForForkBeforeCreatingBranch(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+	}
+
+	svc := NewService(store, gh)
+	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Find positions of WaitForRepo and CreateBranch in the call order.
+	waitIdx, createIdx := -1, -1
+	for i, call := range gh.callOrder {
+		switch call {
+		case "WaitForRepo":
+			waitIdx = i
+		case "CreateBranch":
+			createIdx = i
+		}
+	}
+	if waitIdx == -1 {
+		t.Fatal("WaitForRepo was never called")
+	}
+	if createIdx == -1 {
+		t.Fatal("CreateBranch was never called")
+	}
+	if waitIdx >= createIdx {
+		t.Errorf("WaitForRepo (pos %d) must be called before CreateBranch (pos %d); call order: %v",
+			waitIdx, createIdx, gh.callOrder)
 	}
 }
 
