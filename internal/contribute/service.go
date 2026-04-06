@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 
 	ghpkg "github.com/johnpostlethwait/bluforge/internal/github"
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/tmdb"
 )
 
 // GitHubClient defines the GitHub operations needed for contributions.
@@ -34,15 +37,22 @@ type Store interface {
 	UpdateContributionStatus(id int64, status, prURL string) error
 }
 
+// TMDBFetcher defines the TMDB operations needed for contributions.
+type TMDBFetcher interface {
+	GetDetails(ctx context.Context, id int, mediaType string) (json.RawMessage, *tmdb.MediaDetails, error)
+	DownloadImage(ctx context.Context, posterPath, size string) ([]byte, error)
+}
+
 // Service orchestrates the full TheDiscDB contribution submission flow.
 type Service struct {
 	store  Store
 	github GitHubClient
+	tmdb   TMDBFetcher
 }
 
 // NewService creates a new contribution Service.
-func NewService(store Store, github GitHubClient) *Service {
-	return &Service{store: store, github: github}
+func NewService(store Store, github GitHubClient, tmdb TMDBFetcher) *Service {
+	return &Service{store: store, github: github, tmdb: tmdb}
 }
 
 // Submit executes the full contribution submission flow:
@@ -93,6 +103,30 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 		return "", fmt.Errorf("contribute: parse scan_json: %w", err)
 	}
 
+	// 3a. Parse TMDB ID as integer.
+	tmdbIDInt, err := strconv.Atoi(c.TmdbID)
+	if err != nil {
+		return "", fmt.Errorf("contribute: tmdb_id %q is not a valid integer: %w", c.TmdbID, err)
+	}
+
+	// 3b. Fetch full TMDB details — required for metadata.json and tmdb.json.
+	tmdbRaw, tmdbDetails, err := s.tmdb.GetDetails(ctx, tmdbIDInt, mediaType)
+	if err != nil {
+		return "", fmt.Errorf("contribute: fetch TMDB details for id %d: %w", tmdbIDInt, err)
+	}
+
+	// 3c. Download poster image — soft failure; submission proceeds without images if unavailable.
+	var posterBytes []byte
+	if tmdbDetails.PosterPath != "" {
+		imgBytes, imgErr := s.tmdb.DownloadImage(ctx, tmdbDetails.PosterPath, "original")
+		if imgErr != nil {
+			slog.Warn("contribute: failed to download TMDB poster; submission will proceed without images",
+				"poster_path", tmdbDetails.PosterPath, "error", imgErr)
+		} else {
+			posterBytes = imgBytes
+		}
+	}
+
 	// 4a. Get authenticated GitHub user.
 	githubUser, err := s.github.GetUser(ctx)
 	if err != nil {
@@ -113,20 +147,31 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	}
 
 	// 4c. Generate file contents.
+	titleSlug := slugify(mediaTitle, mediaYear)
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
+	releaseImageURL := ReleaseImageURL(mediaType, titleSlug, releaseSlug)
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
 
-	releaseJSON := GenerateReleaseJSON(ri, githubUser)
+	releaseJSON := GenerateReleaseJSON(ri, githubUser, releaseImageURL)
 	discJSON := GenerateDiscJSON(&scan, ri.Format)
 	summary := GenerateSummary(&scan, labels)
 	rawOutput := c.RawOutput
+	metadataJSON := GenerateMetadataJSON(tmdbDetails, mediaType, mediaTitle, mediaYear)
 
 	files := []ghpkg.FileEntry{
 		{Path: releaseDir + "/release.json", Content: releaseJSON},
 		{Path: releaseDir + "/disc01.json", Content: discJSON},
 		{Path: releaseDir + "/disc01-summary.txt", Content: summary},
 		{Path: releaseDir + "/disc01.txt", Content: rawOutput},
+		{Path: mediaDir + "/metadata.json", Content: metadataJSON},
+		{Path: mediaDir + "/tmdb.json", Content: string(tmdbRaw)},
+	}
+	if len(posterBytes) > 0 {
+		files = append(files,
+			ghpkg.FileEntry{Path: mediaDir + "/cover.jpg", Blob: posterBytes},
+			ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: posterBytes},
+		)
 	}
 
 	// 4d. Get default branch SHA from the upstream repo (not the fork).
@@ -136,7 +181,6 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	}
 
 	// 4e. Create branch.
-	titleSlug := slugify(mediaTitle, mediaYear)
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 	if err := s.github.CreateBranch(ctx, forkOwner, upstreamRepo, branchName, baseSHA); err != nil {
 		// Branch may already exist from a prior partial attempt — continue if so.
@@ -206,20 +250,49 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 		return fmt.Errorf("contribute: get github user: %w", err)
 	}
 
+	// Fetch TMDB details for regenerated files.
+	tmdbIDInt, err := strconv.Atoi(c.TmdbID)
+	if err != nil {
+		return fmt.Errorf("contribute: tmdb_id %q is not a valid integer: %w", c.TmdbID, err)
+	}
+	tmdbRaw, tmdbDetails, err := s.tmdb.GetDetails(ctx, tmdbIDInt, mediaType)
+	if err != nil {
+		return fmt.Errorf("contribute: fetch TMDB details for id %d: %w", tmdbIDInt, err)
+	}
+	var posterBytes []byte
+	if tmdbDetails.PosterPath != "" {
+		imgBytes, imgErr := s.tmdb.DownloadImage(ctx, tmdbDetails.PosterPath, "original")
+		if imgErr != nil {
+			slog.Warn("contribute: resubmit: failed to download TMDB poster; proceeding without images",
+				"poster_path", tmdbDetails.PosterPath, "error", imgErr)
+		} else {
+			posterBytes = imgBytes
+		}
+	}
+
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
+	titleSlug := slugify(mediaTitle, mediaYear)
+	releaseImageURL := ReleaseImageURL(mediaType, titleSlug, releaseSlug)
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
-	titleSlug := slugify(mediaTitle, mediaYear)
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 
 	files := []ghpkg.FileEntry{
-		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser)},
+		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser, releaseImageURL)},
 		{Path: releaseDir + "/disc01.json", Content: GenerateDiscJSON(&scan, ri.Format)},
 		{Path: releaseDir + "/disc01-summary.txt", Content: GenerateSummary(&scan, labels)},
 		{Path: releaseDir + "/disc01.txt", Content: c.RawOutput},
+		{Path: mediaDir + "/metadata.json", Content: GenerateMetadataJSON(tmdbDetails, mediaType, mediaTitle, mediaYear)},
+		{Path: mediaDir + "/tmdb.json", Content: string(tmdbRaw)},
+	}
+	if len(posterBytes) > 0 {
+		files = append(files,
+			ghpkg.FileEntry{Path: mediaDir + "/cover.jpg", Blob: posterBytes},
+			ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: posterBytes},
+		)
 	}
 
-	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: correct Title and SortTitle in release.json", mediaTitle, mediaYear, ri.Format)
+	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: regenerate all contribution files", mediaTitle, mediaYear, ri.Format)
 	if err := s.github.CommitFiles(ctx, githubUser, upstreamRepo, branchName, files, commitMsg); err != nil {
 		return fmt.Errorf("contribute: resubmit commit files: %w", err)
 	}

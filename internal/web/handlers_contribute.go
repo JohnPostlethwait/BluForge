@@ -12,6 +12,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/contribute"
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	ghpkg "github.com/johnpostlethwait/bluforge/internal/github"
+	"github.com/johnpostlethwait/bluforge/internal/tmdb"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
@@ -183,7 +184,12 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create GitHub client.")
 	}
 
-	svc := contribute.NewService(s.store, ghClient)
+	tmdbOpts := []tmdb.Option{}
+	if s.tmdbBaseURL != "" {
+		tmdbOpts = append(tmdbOpts, tmdb.WithBaseURL(s.tmdbBaseURL))
+	}
+	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
+	svc := contribute.NewService(s.store, ghClient, tmdbClient)
 	prURL, err := svc.Submit(c.Request().Context(), id, mediaTitle, mediaYear, mediaType)
 	if err != nil {
 		slog.Error("failed to submit contribution", "id", id, "error", err)
@@ -231,7 +237,12 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create GitHub client.")
 	}
 
-	svc := contribute.NewService(s.store, ghClient)
+	tmdbOpts := []tmdb.Option{}
+	if s.tmdbBaseURL != "" {
+		tmdbOpts = append(tmdbOpts, tmdb.WithBaseURL(s.tmdbBaseURL))
+	}
+	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
+	svc := contribute.NewService(s.store, ghClient, tmdbClient)
 	if err := svc.Resubmit(c.Request().Context(), id, mediaTitle, mediaYear, mediaType); err != nil {
 		slog.Error("failed to resubmit contribution", "id", id, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to resubmit contribution: "+err.Error())

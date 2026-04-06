@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -118,7 +119,22 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, branchName, base
 // FileEntry represents a file to commit.
 type FileEntry struct {
 	Path    string
-	Content string
+	Content string // text content; mutually exclusive with Blob
+	Blob    []byte // binary content; if non-nil, Content is ignored and a blob is created
+}
+
+// CreateBlob creates a base64-encoded blob in the repository and returns its SHA.
+// Use the returned SHA in a tree entry for binary files.
+func (c *Client) CreateBlob(ctx context.Context, owner, repo string, data []byte) (string, error) {
+	blob := &gh.Blob{
+		Content:  gh.Ptr(base64.StdEncoding.EncodeToString(data)),
+		Encoding: gh.Ptr("base64"),
+	}
+	created, _, err := c.gh.Git.CreateBlob(ctx, owner, repo, blob)
+	if err != nil {
+		return "", fmt.Errorf("github: create blob: %w", err)
+	}
+	return created.GetSHA(), nil
 }
 
 // CommitFiles commits multiple files to a branch in a single commit using
@@ -141,12 +157,25 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch string, fi
 	// Build tree entries.
 	var entries []*gh.TreeEntry
 	for _, f := range files {
-		entries = append(entries, &gh.TreeEntry{
-			Path:    gh.Ptr(f.Path),
-			Mode:    gh.Ptr("100644"),
-			Type:    gh.Ptr("blob"),
-			Content: gh.Ptr(f.Content),
-		})
+		if f.Blob != nil {
+			blobSHA, err := c.CreateBlob(ctx, owner, repo, f.Blob)
+			if err != nil {
+				return fmt.Errorf("github: create blob for %s: %w", f.Path, err)
+			}
+			entries = append(entries, &gh.TreeEntry{
+				Path: gh.Ptr(f.Path),
+				Mode: gh.Ptr("100644"),
+				Type: gh.Ptr("blob"),
+				SHA:  gh.Ptr(blobSHA),
+			})
+		} else {
+			entries = append(entries, &gh.TreeEntry{
+				Path:    gh.Ptr(f.Path),
+				Mode:    gh.Ptr("100644"),
+				Type:    gh.Ptr("blob"),
+				Content: gh.Ptr(f.Content),
+			})
+		}
 	}
 
 	// Create tree.

@@ -29,6 +29,7 @@ type ReleaseJSON struct {
 	RegionCode   string            `json:"RegionCode"`
 	Title        string            `json:"Title"`
 	SortTitle    string            `json:"SortTitle"`
+	ImageUrl     string            `json:"ImageUrl,omitempty"`
 	DateAdded    string            `json:"DateAdded"`
 	Contributors []ContributorJSON `json:"Contributors"`
 }
@@ -37,6 +38,30 @@ type ReleaseJSON struct {
 type ContributorJSON struct {
 	Name   string `json:"Name"`
 	Source string `json:"Source"`
+}
+
+// ExternalIdsJSON holds external database identifiers for TheDiscDB metadata.json.
+type ExternalIdsJSON struct {
+	Tmdb string `json:"Tmdb"`
+	Imdb string `json:"Imdb,omitempty"`
+}
+
+// MetadataJSON is the schema for TheDiscDB metadata.json at the title level.
+type MetadataJSON struct {
+	Title          string          `json:"Title"`
+	FullTitle      string          `json:"FullTitle"`
+	SortTitle      string          `json:"SortTitle"`
+	Slug           string          `json:"Slug"`
+	Type           string          `json:"Type"`
+	Year           int             `json:"Year"`
+	ImageUrl       string          `json:"ImageUrl"`
+	ExternalIds    ExternalIdsJSON `json:"ExternalIds"`
+	Groups         []any           `json:"Groups"`
+	Plot           string          `json:"Plot"`
+	Tagline        string          `json:"Tagline,omitempty"`
+	RuntimeMinutes int             `json:"RuntimeMinutes"`
+	ReleaseDate    string          `json:"ReleaseDate"`
+	DateAdded      string          `json:"DateAdded"`
 }
 
 // DiscJSON is the schema for TheDiscDB disc01.json.

@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/tmdb"
 )
 
 // GenerateReleaseJSON produces the TheDiscDB release.json content for a contribution.
-func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
+func GenerateReleaseJSON(ri ReleaseInfo, githubUser, imageURL string) string {
 	r := ReleaseJSON{
 		Slug:       ri.Slug,
 		UPC:        ri.UPC,
@@ -20,6 +21,7 @@ func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
 		RegionCode: ri.RegionCode,
 		Title:      ri.Format,
 		SortTitle:  fmt.Sprintf("%d %s", ri.Year, ri.Format),
+		ImageUrl:   imageURL,
 		DateAdded:  time.Now().UTC().Format(time.RFC3339),
 		Contributors: []ContributorJSON{
 			{Name: githubUser, Source: "github"},
@@ -215,4 +217,66 @@ func ReleaseSlug(year int, format string) string {
 		suffix = strings.ToLower(strings.ReplaceAll(format, " ", "-"))
 	}
 	return fmt.Sprintf("%d-%s", year, suffix)
+}
+
+// titleCaseType returns a Title-cased media type string: "movie" → "Movie", "series" → "Series".
+func titleCaseType(mediaType string) string {
+	if len(mediaType) == 0 {
+		return ""
+	}
+	return strings.ToUpper(mediaType[:1]) + strings.ToLower(mediaType[1:])
+}
+
+// TitleImageURL returns the ImageUrl value for metadata.json.
+// Example: TitleImageURL("movie", "the-matrix-1999") → "Movie/the-matrix-1999/cover.jpg"
+func TitleImageURL(mediaType, titleSlug string) string {
+	return titleCaseType(mediaType) + "/" + titleSlug + "/cover.jpg"
+}
+
+// ReleaseImageURL returns the ImageUrl value for release.json.
+// Example: ReleaseImageURL("movie", "the-matrix-1999", "1999-blu-ray") → "Movie/the-matrix-1999/1999-blu-ray.jpg"
+func ReleaseImageURL(mediaType, titleSlug, releaseSlug string) string {
+	return titleCaseType(mediaType) + "/" + titleSlug + "/" + releaseSlug + ".jpg"
+}
+
+// GenerateMetadataJSON produces the TheDiscDB metadata.json content for a title.
+// details provides TMDB data; mediaType is "movie" or "series"; mediaTitle and mediaYear
+// are the user-provided title and year for the disc.
+func GenerateMetadataJSON(details *tmdb.MediaDetails, mediaType, mediaTitle string, mediaYear int) string {
+	titleSlug := slugify(mediaTitle, mediaYear)
+	imageURL := TitleImageURL(mediaType, titleSlug)
+
+	// Convert TMDB's YYYY-MM-DD release date to RFC3339 (UTC midnight).
+	releaseDateStr := ""
+	if details.ReleaseDate != "" {
+		if t, err := time.Parse("2006-01-02", details.ReleaseDate); err == nil {
+			releaseDateStr = t.UTC().Format(time.RFC3339)
+		}
+	}
+
+	m := MetadataJSON{
+		Title:     mediaTitle,
+		FullTitle: mediaTitle,
+		SortTitle: mediaTitle,
+		Slug:      titleSlug,
+		Type:      titleCaseType(mediaType),
+		Year:      mediaYear,
+		ImageUrl:  imageURL,
+		ExternalIds: ExternalIdsJSON{
+			Tmdb: strconv.Itoa(details.ID),
+			Imdb: details.ImdbID,
+		},
+		Groups:         []any{},
+		Plot:           details.Overview,
+		Tagline:        details.Tagline,
+		RuntimeMinutes: details.RuntimeMinutes,
+		ReleaseDate:    releaseDateStr,
+		DateAdded:      time.Now().UTC().Format(time.RFC3339),
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		panic(fmt.Sprintf("contribute: marshal metadata.json: %v", err))
+	}
+	return string(data) + "\n"
 }
