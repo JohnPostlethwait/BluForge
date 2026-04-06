@@ -20,6 +20,7 @@ type GitHubClient interface {
 	CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error
 	CommitFiles(ctx context.Context, owner, repo, branch string, files []ghpkg.FileEntry, message string) error
 	CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error)
+	WaitForRepo(ctx context.Context, owner, repo string) error
 }
 
 const (
@@ -105,6 +106,11 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	}
 	// fork is "user/data"; extract the owner part.
 	forkOwner := strings.SplitN(fork, "/", 2)[0]
+
+	// 4b-ii. Wait for the fork to be ready (GitHub fork creation is async).
+	if err := s.github.WaitForRepo(ctx, forkOwner, upstreamRepo); err != nil {
+		return "", fmt.Errorf("contribute: wait for fork: %w", err)
+	}
 
 	// 4c. Generate file contents.
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)

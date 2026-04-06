@@ -26,6 +26,7 @@ type mockGitHub struct {
 	commitErr     error
 	prURL         string
 	prErr         error
+	waitErr       error
 }
 
 func (m *mockGitHub) GetUser(ctx context.Context) (string, error) {
@@ -51,6 +52,10 @@ func (m *mockGitHub) CommitFiles(ctx context.Context, owner, repo, branch string
 
 func (m *mockGitHub) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error) {
 	return m.prURL, m.prErr
+}
+
+func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error {
+	return m.waitErr
 }
 
 func openTestStore(t *testing.T) *db.Store {
@@ -401,6 +406,26 @@ func TestSubmitBranchAlreadyExistsContinues(t *testing.T) {
 	// CommitFiles should have been called despite the branch-exists error.
 	if len(gh.commitFiles) != 1 {
 		t.Errorf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+}
+
+func TestSubmitFailsWaitForFork(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	gh := &mockGitHub{
+		user:     "testuser",
+		forkName: "testuser/data",
+		waitErr:  fmt.Errorf("github: wait for repo testuser/data: timed out"),
+	}
+
+	svc := NewService(store, gh)
+	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "wait for fork") {
+		t.Errorf("error %q should contain %q", err.Error(), "wait for fork")
 	}
 }
 
