@@ -80,8 +80,6 @@ func contributionFormInit(c db.Contribution) string {
 			entry.Label = l.Name
 			entry.Season = l.Season
 			entry.Episode = l.Episode
-		} else {
-			entry.Type = "MainMovie"
 		}
 		titles = append(titles, entry)
 	}
@@ -351,7 +349,7 @@ document.addEventListener('alpine:init', () => {
 			<!-- Titles table card -->
 			<div class="card" style="margin-bottom:5rem;">
 				<h2 class="section-title">Titles</h2>
-				<p class="text-muted text-sm mb-4">Assign a type and optional label to each title. Season/Episode fields appear only for Episode type.</p>
+				<p class="text-muted text-sm mb-4">Assign a type and optional label to each title. Titles with no type selected will be omitted from the submission. Season/Episode fields appear only for Episode type.</p>
 				<div class="overflow-x-auto">
 					<table class="data-table">
 						<thead>
@@ -368,13 +366,14 @@ document.addEventListener('alpine:init', () => {
 						</thead>
 						<tbody>
 							<template x-for="(t, idx) in $store.contrib.titles" :key="t.title_index">
-								<tr>
+								<tr :class="t.type === '' ? 'title-omitted' : ''">
 									<td x-text="t.title_index + 1"></td>
 									<td x-text="t.mpls" class="text-muted text-sm font-mono whitespace-nowrap"></td>
 									<td x-text="t.duration" class="text-muted text-sm whitespace-nowrap"></td>
 									<td x-text="t.size" class="text-muted text-sm whitespace-nowrap"></td>
 									<td>
-										<select x-model="t.type" style="width:140px;">
+										<select x-model="t.type" style="width:160px;">
+											<option value="">— Omit from Submission —</option>
 											<option value="MainMovie">Main Movie</option>
 											<option value="Episode">Episode</option>
 											<option value="Extra">Extra</option>
@@ -383,7 +382,7 @@ document.addEventListener('alpine:init', () => {
 										</select>
 									</td>
 									<td>
-										<input type="text" x-model="t.label" placeholder="Optional name" style="width:100%; min-width:160px;"/>
+										<input type="text" x-model="t.label" placeholder="Optional name" style="width:100%; min-width:160px;" :disabled="t.type === ''"/>
 									</td>
 									<td>
 										<input type="number" x-model="t.season" placeholder="S#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>

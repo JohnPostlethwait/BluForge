@@ -150,6 +150,24 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft before submit.")
 	}
 
+	// Reject if all titles are omitted (empty type).
+	var titleLabels []contribute.TitleLabel
+	if titleLabelsRaw != "" {
+		if err := json.Unmarshal([]byte(titleLabelsRaw), &titleLabels); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid title labels.")
+		}
+	}
+	hasTyped := false
+	for _, l := range titleLabels {
+		if l.Type != "" {
+			hasTyped = true
+			break
+		}
+	}
+	if !hasTyped {
+		return echo.NewHTTPError(http.StatusBadRequest, "At least one title must have a type assigned before submitting.")
+	}
+
 	// Now extract media metadata for the submit call.
 	mediaTitle := c.FormValue("media_title")
 	mediaYear := 0

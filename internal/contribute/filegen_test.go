@@ -492,23 +492,20 @@ func TestGenerateDiscJSON_MalformedSizeBytes(t *testing.T) {
 }
 
 func TestGenerateSummary_TitleWithNoLabel(t *testing.T) {
-	scan := testScan() // 2 titles
-	// Only provide label for title 0, none for title 1
+	scan := testScan() // 2 titles: index 0 (00800.mpls) and index 1 (00801.mpls)
+	// Only provide label for title 0; title 1 has no label (empty type = omit).
 	labels := []TitleLabel{
 		{TitleIndex: 0, Type: "MainMovie", Name: "The Matrix", FileName: "The Matrix.mkv"},
 	}
 	summary := GenerateSummary(scan, labels)
 
-	// Title 1 should still be included with empty label fields
-	if !strings.Contains(summary, "Source file name: 00801.mpls") {
-		t.Error("summary should contain title 1's source file")
+	// Title 0 should be present.
+	if !strings.Contains(summary, "Name: The Matrix") {
+		t.Error("summary should contain title 0's name")
 	}
-	// The Name and Type for title 1 should be empty (zero-value TitleLabel)
-	if !strings.Contains(summary, "Name: \n") {
-		t.Error("summary should contain empty Name for unlabeled title")
-	}
-	if !strings.Contains(summary, "Type: \n") {
-		t.Error("summary should contain empty Type for unlabeled title")
+	// Title 1 should be omitted (no type assigned).
+	if strings.Contains(summary, "Source file name: 00801.mpls") {
+		t.Error("summary should not contain title 1 (no type = omitted)")
 	}
 }
 

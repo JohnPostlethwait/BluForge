@@ -314,6 +314,14 @@ tbody tr:hover {
   background-color: var(--bg-tertiary);
 }
 
+tr.title-omitted {
+  opacity: 0.45;
+}
+
+tr.title-omitted td.font-mono {
+  font-style: italic;
+}
+
 tbody td {
   padding: 0.65rem 0.9rem;
   color: var(--text-primary);

@@ -169,6 +169,9 @@ func GenerateSummary(scan *makemkv.DiscScan, labels []TitleLabel) string {
 	for i := range scan.Titles {
 		t := &scan.Titles[i]
 		label := labelByIndex[t.Index]
+		if label.Type == "" {
+			continue
+		}
 
 		var sb strings.Builder
 		sb.WriteString("Name: " + label.Name + "\n")
