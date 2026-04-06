@@ -18,6 +18,7 @@ func clearEnv(t *testing.T) {
 		"BLUFORGE_GITHUB_CLIENT_ID",
 		"BLUFORGE_GITHUB_CLIENT_SECRET",
 		"BLUFORGE_DUPLICATE_ACTION",
+		"BLUFORGE_TMDB_API_KEY",
 		"MAKEMKV_KEY",
 	}
 	for _, v := range vars {
@@ -196,6 +197,7 @@ func TestLoadMakeMKVKeyFromEnv(t *testing.T) {
 }
 
 func TestLoadFromEnv_TMDBApiKey(t *testing.T) {
+	clearEnv(t)
 	t.Setenv("BLUFORGE_TMDB_API_KEY", "test-tmdb-key-123")
 	cfg := LoadFromEnv()
 	if cfg.TMDBApiKey != "test-tmdb-key-123" {
