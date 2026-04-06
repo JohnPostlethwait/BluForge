@@ -16,6 +16,7 @@ type ContributionDetailData struct {
 	CSRFToken             string
 	GitHubTokenConfigured bool
 	TMDBConfigured        bool
+	Flash                 string
 }
 
 // contributionFormInit builds the Alpine x-data JSON for the contribution form.
@@ -203,6 +204,13 @@ document.addEventListener('alpine:init', () => {
 			</div>
 			<span class={ "status-badge", statusClass(data.Contribution.Status) }>{ data.Contribution.Status }</span>
 		</div>
+
+		if data.Flash != "" {
+			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
+				<span>{ data.Flash }</span>
+				<button @click="show = false" aria-label="Dismiss" class="btn-close-alert">&times;</button>
+			</div>
+		}
 
 		if !data.GitHubTokenConfigured {
 			<div class="banner banner-warning mb-4">

@@ -57,12 +57,18 @@ func (s *Server) handleContributionDetail(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
 	}
 
+	flash := c.QueryParam("flash")
+	if len(flash) > 200 {
+		flash = flash[:200]
+	}
+
 	cfg := s.GetConfig()
 	return templates.ContributionDetail(templates.ContributionDetailData{
 		Contribution:          *contrib,
 		CSRFToken:             csrfToken(c),
 		GitHubTokenConfigured: cfg.GitHubToken != "",
 		TMDBConfigured:        cfg.TMDBApiKey != "",
+		Flash:                 flash,
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 

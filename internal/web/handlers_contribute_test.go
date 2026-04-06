@@ -609,3 +609,52 @@ func TestHandleContributions_FlashParamTruncated(t *testing.T) {
 		t.Errorf("expected long flash to be truncated, but found full string in body")
 	}
 }
+
+func TestHandleContributionDetail_FlashParam(t *testing.T) {
+	srv, store := setupContribServer(t)
+	id := seedTestContribution(t, store)
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/contributions/%d?flash=PR+updated", id), nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(fmt.Sprintf("%d", id))
+
+	if err := srv.handleContributionDetail(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "PR updated") {
+		t.Errorf("expected flash message in body, got:\n%s", body)
+	}
+	if !strings.Contains(body, "alert-success") {
+		t.Errorf("expected alert-success class in body")
+	}
+}
+
+func TestHandleContributionDetail_FlashParamTruncated(t *testing.T) {
+	srv, store := setupContribServer(t)
+	id := seedTestContribution(t, store)
+
+	longFlash := strings.Repeat("y", 300)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/contributions/%d?flash=%s", id, longFlash), nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(fmt.Sprintf("%d", id))
+
+	if err := srv.handleContributionDetail(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, longFlash) {
+		t.Errorf("expected long flash to be truncated, but found full string in body")
+	}
+	truncated := strings.Repeat("y", 200)
+	if !strings.Contains(body, truncated) {
+		t.Errorf("expected truncated flash (200 chars) to appear in body")
+	}
+}
