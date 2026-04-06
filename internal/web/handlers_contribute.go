@@ -55,6 +55,7 @@ func (s *Server) handleContributionDetail(c echo.Context) error {
 		Contribution:          *contrib,
 		CSRFToken:             csrfToken(c),
 		GitHubTokenConfigured: cfg.GitHubToken != "",
+		TMDBConfigured:        cfg.TMDBApiKey != "",
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 

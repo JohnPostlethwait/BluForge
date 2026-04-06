@@ -15,6 +15,7 @@ type ContributionDetailData struct {
 	Contribution          db.Contribution
 	CSRFToken             string
 	GitHubTokenConfigured bool
+	TMDBConfigured        bool
 }
 
 // contributionFormInit builds the Alpine x-data JSON for the contribution form.
@@ -127,6 +128,7 @@ document.addEventListener('alpine:init', () => {
 		format: init.format || '',
 		year: init.year || '',
 		titles: init.titles || [],
+		tmdbSelected: init.tmdbID ? { id: parseInt(init.tmdbID) || 0, title: init.mediaTitle || '', year: parseInt(init.year) || 0, posterPath: '' } : null,
 
 		get isValid() {
 			return this.tmdbID.trim() !== '' &&
@@ -143,7 +145,46 @@ document.addEventListener('alpine:init', () => {
 				episode: t.episode || '',
 				file_name: t.file_name || '',
 			})))
-		}
+		},
+
+		tmdbQuery: '',
+		tmdbResults: [],
+		tmdbSearching: false,
+
+		async searchTmdb() {
+			const q = this.tmdbQuery.trim()
+			if (q.length < 2) { this.tmdbResults = []; return }
+			this.tmdbSearching = true
+			try {
+				const resp = await fetch(
+					'/api/tmdb/search?q=' + encodeURIComponent(q) + '&type=' + encodeURIComponent(this.mediaType),
+					{ headers: { 'Accept': 'application/json' } }
+				)
+				if (resp.ok) {
+					this.tmdbResults = await resp.json()
+				} else {
+					this.tmdbResults = []
+				}
+			} finally {
+				this.tmdbSearching = false
+			}
+		},
+
+		selectTmdb(r) {
+			this.tmdbSelected = r
+			this.tmdbID = String(r.id)
+			this.mediaTitle = r.title
+			this.year = String(r.year)
+			this.tmdbResults = []
+			this.tmdbQuery = ''
+		},
+
+		clearTmdb() {
+			this.tmdbSelected = null
+			this.tmdbID = ''
+			this.tmdbQuery = ''
+			this.tmdbResults = []
+		},
 	})
 })
 </script>`, contributionFormInit(data.Contribution)))
@@ -167,13 +208,100 @@ document.addEventListener('alpine:init', () => {
 			<div class="card mb-4">
 				<h2 class="section-title">Release Info</h2>
 				<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
-					<div class="form-group">
-						<label for="tmdb_id">TMDB ID</label>
-						<input type="text" id="tmdb_id" x-model="$store.contrib.tmdbID" placeholder="e.g. 12477"/>
-					</div>
-					<div class="form-group">
-						<label for="media_title">Media Title</label>
-						<input type="text" id="media_title" x-model="$store.contrib.mediaTitle" placeholder="e.g. The Matrix"/>
+					<!-- TMDB Search — full width -->
+					<div style="grid-column: 1 / -1;">
+						if !data.TMDBConfigured {
+							<div class="banner banner-warning mb-3">
+								TMDB API key is not configured. Add one in <a href="/settings">Settings</a> to enable search.
+							</div>
+						}
+
+						<!-- Confirmation row: shown after a result is selected -->
+						<template x-if="$store.contrib.tmdbSelected">
+							<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap;">
+								<img
+									x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
+									x-show="$store.contrib.tmdbSelected.posterPath"
+									style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+									alt="poster"/>
+								<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
+								<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
+								<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
+							</div>
+						</template>
+
+						<!-- Search bar: shown when no selection -->
+						<template x-if="!$store.contrib.tmdbSelected">
+							<div>
+								<div class="form-group mb-3">
+									<label>Search TMDB</label>
+									<div class="flex gap-2">
+										<input
+											type="text"
+											x-model="$store.contrib.tmdbQuery"
+											x-on:input.debounce.300ms="$store.contrib.searchTmdb()"
+											x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
+											placeholder="Search by title…"
+											disabled?={ !data.TMDBConfigured }
+											style="flex:1;"/>
+										<button
+											type="button"
+											class="btn"
+											x-on:click="$store.contrib.searchTmdb()"
+											x-bind:disabled="$store.contrib.tmdbSearching || $store.contrib.tmdbQuery.trim().length < 2"
+											disabled?={ !data.TMDBConfigured }>
+											<span x-show="!$store.contrib.tmdbSearching">Search</span>
+											<span x-show="$store.contrib.tmdbSearching" x-cloak>…</span>
+										</button>
+									</div>
+								</div>
+
+								<!-- Results table -->
+								<template x-if="$store.contrib.tmdbResults.length > 0">
+									<div class="overflow-x-auto mb-3">
+										<table>
+											<thead>
+												<tr>
+													<th scope="col"></th>
+													<th scope="col">Title</th>
+													<th scope="col">Year</th>
+													<th scope="col">Type</th>
+													<th scope="col"><span class="sr-only">Actions</span></th>
+												</tr>
+											</thead>
+											<tbody>
+												<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
+													<tr>
+														<td style="width:40px; padding:4px 8px;">
+															<img
+																x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
+																x-show="r.posterPath"
+																style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+																alt=""/>
+														</td>
+														<td x-text="r.title"></td>
+														<td class="text-secondary" x-text="r.year || '—'"></td>
+														<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
+														<td>
+															<button
+																type="button"
+																class="btn btn-primary btn-sm"
+																x-on:click="$store.contrib.selectTmdb(r)">
+																Select
+															</button>
+														</td>
+													</tr>
+												</template>
+											</tbody>
+										</table>
+									</div>
+								</template>
+
+								<template x-if="$store.contrib.tmdbResults.length === 0 && $store.contrib.tmdbQuery.trim().length >= 2 && !$store.contrib.tmdbSearching">
+									<p class="text-muted text-sm mt-2">No results found.</p>
+								</template>
+							</div>
+						</template>
 					</div>
 					<div class="form-group">
 						<label for="media_type">Content Type</label>
