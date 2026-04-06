@@ -245,7 +245,6 @@ document.addEventListener('alpine:init', () => {
 										<input
 											type="text"
 											x-model="$store.contrib.tmdbQuery"
-											x-on:input.debounce.300ms="$store.contrib.searchTmdb()"
 											x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
 											placeholder="Search by title…"
 											disabled?={ !data.TMDBConfigured }
