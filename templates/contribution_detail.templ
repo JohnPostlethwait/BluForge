@@ -56,6 +56,7 @@ func contributionFormInit(c db.Contribution) string {
 		Duration   string `json:"duration"`
 		Size       string `json:"size"`
 		FileName   string `json:"file_name"`
+		MPLS       string `json:"mpls"`
 		Type       string `json:"type"`
 		Label      string `json:"label"`
 		Season     string `json:"season"`
@@ -70,6 +71,7 @@ func contributionFormInit(c db.Contribution) string {
 			Duration:   t.Duration(),
 			Size:       t.SizeHuman(),
 			FileName:   t.Filename(),
+			MPLS:       t.SourceFile(),
 		}
 		if l, ok := labelByIndex[t.Index]; ok {
 			entry.Type = l.Type
