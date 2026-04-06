@@ -264,44 +264,64 @@ document.addEventListener('alpine:init', () => {
 
 			<!-- Sticky footer with Save + Submit -->
 			<div class="sticky-footer">
-				<!-- Save Draft form -->
-				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d", data.Contribution.ID)) }
-					@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels()">
-					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-					<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
-					<input type="hidden" name="upc" :value="$store.contrib.upc"/>
-					<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
-					<input type="hidden" name="format" :value="$store.contrib.format"/>
-					<input type="hidden" name="year" :value="$store.contrib.year"/>
-					<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
-					<button type="submit" class="btn">Save Draft</button>
-				</form>
+				if data.Contribution.Status != "submitted" {
+					<!-- Save Draft form -->
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d", data.Contribution.ID)) }
+						@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels()">
+						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+						<input type="hidden" name="format" :value="$store.contrib.format"/>
+						<input type="hidden" name="year" :value="$store.contrib.year"/>
+						<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
+						<button type="submit" class="btn">Save Draft</button>
+					</form>
 
-				<!-- Submit to TheDiscDB form -->
-				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
-					@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels()"
-					x-data>
-					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-					<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
-					<input type="hidden" name="upc" :value="$store.contrib.upc"/>
-					<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
-					<input type="hidden" name="format" :value="$store.contrib.format"/>
-					<input type="hidden" name="year" :value="$store.contrib.year"/>
-					<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
-					<!-- Media metadata for submit handler -->
-					<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
-					<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-					<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-					<button type="submit" class="btn btn-primary"
-						disabled?={ !data.GitHubTokenConfigured }
-						:disabled="!$store.contrib.isValid">
-						Submit to TheDiscDB
-					</button>
-				</form>
+					<!-- Submit to TheDiscDB form -->
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
+						@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels()"
+						x-data>
+						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+						<input type="hidden" name="format" :value="$store.contrib.format"/>
+						<input type="hidden" name="year" :value="$store.contrib.year"/>
+						<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
+						<!-- Media metadata for submit handler -->
+						<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
+						<input type="hidden" name="media_year" :value="$store.contrib.year"/>
+						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+						<button type="submit" class="btn btn-primary"
+							disabled?={ !data.GitHubTokenConfigured }
+							:disabled="!$store.contrib.isValid">
+							Submit to TheDiscDB
+						</button>
+					</form>
 
-				<span class="text-muted text-sm" x-show="!$store.contrib.isValid">
-					TMDB ID, format, and year are required before submitting.
-				</span>
+					<span class="text-muted text-sm" x-show="!$store.contrib.isValid">
+						TMDB ID, format, and year are required before submitting.
+					</span>
+				} else {
+					<!-- Fix PR: push corrected files to existing branch -->
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }>
+						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+						<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
+						<input type="hidden" name="media_year" :value="$store.contrib.year"/>
+						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+						<button type="submit" class="btn btn-primary"
+							disabled?={ !data.GitHubTokenConfigured }>
+							Fix PR
+						</button>
+					</form>
+					<span class="text-muted text-sm">
+						Regenerates and pushes corrected files to the existing PR branch.
+					</span>
+					if data.Contribution.PRURL != "" {
+						<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
+					}
+				}
 			</div>
 		</div>
 	}

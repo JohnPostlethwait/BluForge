@@ -30,6 +30,20 @@ body {
   min-height: 100vh;
 }
 
+a {
+  color: var(--accent-teal);
+  text-decoration: none;
+}
+
+a:visited {
+  color: var(--accent-teal);
+}
+
+a:hover {
+  color: #67e8f9;
+  text-decoration: underline;
+}
+
 /* Navigation */
 nav {
   background-color: var(--bg-secondary);

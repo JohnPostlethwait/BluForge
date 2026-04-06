@@ -18,7 +18,8 @@ func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
 		Year:       ri.Year,
 		Locale:     "en-us",
 		RegionCode: ri.RegionCode,
-		Title:      fmt.Sprintf("%d %s", ri.Year, ri.Format),
+		Title:      ri.Format,
+		SortTitle:  fmt.Sprintf("%d %s", ri.Year, ri.Format),
 		DateAdded:  time.Now().UTC().Format(time.RFC3339),
 		Contributors: []ContributorJSON{
 			{Name: githubUser, Source: "github"},

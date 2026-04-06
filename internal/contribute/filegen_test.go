@@ -77,9 +77,12 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	if got.Locale != "en-us" {
 		t.Errorf("Locale: want %q, got %q", "en-us", got.Locale)
 	}
-	wantTitle := "1999 Blu-ray"
-	if got.Title != wantTitle {
-		t.Errorf("Title: want %q, got %q", wantTitle, got.Title)
+	if got.Title != ri.Format {
+		t.Errorf("Title: want %q, got %q", ri.Format, got.Title)
+	}
+	wantSortTitle := "1999 Blu-ray"
+	if got.SortTitle != wantSortTitle {
+		t.Errorf("SortTitle: want %q, got %q", wantSortTitle, got.SortTitle)
 	}
 	// DateAdded must parse as RFC3339 and fall within the test window (RFC3339 is
 	// second-precision, so we truncate both ends and add a 1s pad on the upper bound).

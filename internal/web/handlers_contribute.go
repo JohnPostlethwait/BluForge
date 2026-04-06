@@ -180,6 +180,44 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/contributions")
 }
 
+// handleContributionResubmit pushes a corrective commit to the existing PR branch.
+// Used when the PR was opened with a generation bug and the files need to be
+// regenerated and re-pushed without opening a new PR.
+func (s *Server) handleContributionResubmit(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+	}
+
+	cfg := s.GetConfig()
+	if cfg.GitHubToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
+	}
+
+	mediaTitle := c.FormValue("media_title")
+	mediaType := c.FormValue("media_type")
+	mediaYear := 0
+	if v := c.FormValue("media_year"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			mediaYear = n
+		}
+	}
+
+	ghClient, err := ghpkg.NewClient(cfg.GitHubToken)
+	if err != nil {
+		slog.Error("failed to create GitHub client", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create GitHub client.")
+	}
+
+	svc := contribute.NewService(s.store, ghClient)
+	if err := svc.Resubmit(c.Request().Context(), id, mediaTitle, mediaYear, mediaType); err != nil {
+		slog.Error("failed to resubmit contribution", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to resubmit contribution: "+err.Error())
+	}
+
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d", id))
+}
+
 // handleContributionDelete removes a pending/drafting contribution.
 func (s *Server) handleContributionDelete(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

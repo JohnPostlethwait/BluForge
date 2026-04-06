@@ -167,6 +167,66 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	return prURL, nil
 }
 
+// Resubmit pushes a corrective commit to the existing PR branch without creating
+// a new fork, branch, or pull request. Use this when the generated files had a
+// bug and need to be regenerated and re-pushed.
+//
+// The contribution must already be in "submitted" status. media_title, mediaYear,
+// and mediaType must match what was used at Submit time so the branch name and
+// file paths are reconstructed correctly.
+func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle string, mediaYear int, mediaType string) error {
+	c, err := s.store.GetContribution(contributionID)
+	if err != nil {
+		return fmt.Errorf("contribute: load contribution %d: %w", contributionID, err)
+	}
+	if c == nil {
+		return fmt.Errorf("contribute: contribution %d not found", contributionID)
+	}
+	if c.Status != "submitted" {
+		return fmt.Errorf("contribute: contribution %d is not submitted (status: %s)", contributionID, c.Status)
+	}
+
+	var ri ReleaseInfo
+	if err := json.Unmarshal([]byte(c.ReleaseInfo), &ri); err != nil {
+		return fmt.Errorf("contribute: parse release_info: %w", err)
+	}
+
+	var labels []TitleLabel
+	if err := json.Unmarshal([]byte(c.TitleLabels), &labels); err != nil {
+		return fmt.Errorf("contribute: parse title_labels: %w", err)
+	}
+
+	var scan makemkv.DiscScan
+	if err := json.Unmarshal([]byte(c.ScanJSON), &scan); err != nil {
+		return fmt.Errorf("contribute: parse scan_json: %w", err)
+	}
+
+	githubUser, err := s.github.GetUser(ctx)
+	if err != nil {
+		return fmt.Errorf("contribute: get github user: %w", err)
+	}
+
+	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
+	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
+	releaseDir := mediaDir + "/" + releaseSlug
+	titleSlug := slugify(mediaTitle, mediaYear)
+	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
+
+	files := []ghpkg.FileEntry{
+		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser)},
+		{Path: releaseDir + "/disc01.json", Content: GenerateDiscJSON(&scan, ri.Format)},
+		{Path: releaseDir + "/disc01-summary.txt", Content: GenerateSummary(&scan, labels)},
+		{Path: releaseDir + "/disc01.txt", Content: c.RawOutput},
+	}
+
+	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: correct Title and SortTitle in release.json", mediaTitle, mediaYear, ri.Format)
+	if err := s.github.CommitFiles(ctx, githubUser, upstreamRepo, branchName, files, commitMsg); err != nil {
+		return fmt.Errorf("contribute: resubmit commit files: %w", err)
+	}
+
+	return nil
+}
+
 var (
 	// nonAlphanumHyphen matches characters that are not alphanumeric or a hyphen.
 	nonAlphanumHyphen = regexp.MustCompile(`[^a-z0-9-]`)

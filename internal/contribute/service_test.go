@@ -691,6 +691,66 @@ func TestSubmitFailsMissingTitleLabels(t *testing.T) {
 	}
 }
 
+// --- Resubmit tests ---
+
+func TestResubmitPushesCorrectiveCommit(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	// First submit to put the contribution in "submitted" state.
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+	}
+	svc := NewService(store, gh)
+	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Reset commitFiles to only capture the Resubmit call.
+	gh.commitFiles = nil
+
+	if err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Resubmit: %v", err)
+	}
+
+	// Must commit exactly one batch of 4 files.
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	if len(gh.commitFiles[0]) != 4 {
+		t.Errorf("expected 4 files in resubmit commit, got %d", len(gh.commitFiles[0]))
+	}
+
+	// Status must remain "submitted" — Resubmit does not change it.
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if got.Status != "submitted" {
+		t.Errorf("Status: want %q, got %q after Resubmit", "submitted", got.Status)
+	}
+}
+
+func TestResubmitFailsIfNotSubmitted(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	gh := &mockGitHub{user: "testuser"}
+	svc := NewService(store, gh)
+
+	err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie")
+	if err == nil {
+		t.Fatal("expected error for non-submitted contribution, got nil")
+	}
+	if !strings.Contains(err.Error(), "not submitted") {
+		t.Errorf("error %q should contain %q", err.Error(), "not submitted")
+	}
+}
+
 // --- Slugify tests ---
 
 func TestSlugify(t *testing.T) {

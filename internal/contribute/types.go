@@ -27,6 +27,7 @@ type ReleaseJSON struct {
 	Locale       string            `json:"Locale"`
 	RegionCode   string            `json:"RegionCode"`
 	Title        string            `json:"Title"`
+	SortTitle    string            `json:"SortTitle"`
 	DateAdded    string            `json:"DateAdded"`
 	Contributors []ContributorJSON `json:"Contributors"`
 }
