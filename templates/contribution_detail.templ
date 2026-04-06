@@ -155,6 +155,7 @@ document.addEventListener('alpine:init', () => {
 		tmdbQuery: '',
 		tmdbResults: [],
 		tmdbSearching: false,
+		tmdbSearched: false,
 
 		async searchTmdb() {
 			const q = this.tmdbQuery.trim()
@@ -172,6 +173,7 @@ document.addEventListener('alpine:init', () => {
 				}
 			} finally {
 				this.tmdbSearching = false
+				this.tmdbSearched = true
 			}
 		},
 
@@ -190,6 +192,7 @@ document.addEventListener('alpine:init', () => {
 			this.mediaTitle = ''
 			this.tmdbQuery = ''
 			this.tmdbResults = []
+			this.tmdbSearched = false
 		},
 	})
 })
@@ -302,7 +305,7 @@ document.addEventListener('alpine:init', () => {
 									</div>
 								</template>
 
-								<template x-if="$store.contrib.tmdbResults.length === 0 && $store.contrib.tmdbQuery.trim().length >= 2 && !$store.contrib.tmdbSearching">
+								<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
 									<p class="text-muted text-sm mt-2">No results found.</p>
 								</template>
 							</div>
