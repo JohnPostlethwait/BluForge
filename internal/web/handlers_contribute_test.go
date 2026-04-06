@@ -153,6 +153,28 @@ func TestHandleContributions_NoPATShowsBanner(t *testing.T) {
 	}
 }
 
+func TestHandleContributions_WithPATShowsLink(t *testing.T) {
+	srv, store := setupContribServer(t)
+	srv.cfg.GitHubToken = "ghp_test_token"
+
+	_ = seedTestContribution(t, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/contributions", nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+
+	if err := srv.handleContributions(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `href="/contributions/`) {
+		t.Errorf("expected Contribute link when PAT configured")
+	}
+	if strings.Contains(body, "GitHub token is not configured") {
+		t.Errorf("expected no warning banner when PAT configured")
+	}
+}
+
 func TestHandleContributionDetail_NoPATShowsBanner(t *testing.T) {
 	srv, store := setupContribServer(t)
 	id := seedTestContribution(t, store)
@@ -171,8 +193,8 @@ func TestHandleContributionDetail_NoPATShowsBanner(t *testing.T) {
 	if !strings.Contains(body, "GitHub token is not configured") {
 		t.Errorf("expected PAT warning banner, got body:\n%s", body)
 	}
-	if !strings.Contains(body, "disabled") {
-		t.Errorf("expected disabled attribute on Submit button when PAT missing")
+	if !strings.Contains(body, `btn-primary" disabled`) {
+		t.Errorf("expected server-side disabled attribute on Submit button when PAT missing")
 	}
 }
 
