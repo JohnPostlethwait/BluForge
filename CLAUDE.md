@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## HARD RULES — Never Violate These
 
+- **ALWAYS invoke `superpowers:using-git-worktrees` before writing/editing any source files or creating any implementation plan** for multi-step tasks. Every agent working in parallel MUST have its own isolated worktree. Skip only if already confirmed to be in a worktree (check `git worktree list`).
 - **NEVER run `git push`** unless the user's CURRENT message explicitly contains the word "push". "Fix it", "commit this", "investigate" — none of these mean push.
 - **NEVER create or push a git tag** unless the user's CURRENT message explicitly asks for it (e.g. "tag as v0.1.3"). Tags trigger release workflows.
 - **NEVER run `rm`, `rm -f`, or `rm -rf`** without asking the user first, even on generated files.
