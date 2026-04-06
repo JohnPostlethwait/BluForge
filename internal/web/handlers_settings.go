@@ -23,6 +23,7 @@ func (s *Server) handleSettings(c echo.Context) error {
 		GitHubClientSecret:    cfg.GitHubClientSecret,
 		GitHubToken:           cfg.GitHubToken,
 		MakeMKVKey:            cfg.MakeMKVKey,
+		TMDBApiKey:            cfg.TMDBApiKey,
 		PreferredAudioLangs:   cfg.PreferredAudioLangs,
 		PreferredSubtitleLangs: cfg.PreferredSubtitleLangs,
 		KeepForcedSubtitles:   cfg.KeepForcedSubtitles,
@@ -40,6 +41,7 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	githubClientSecret := c.FormValue("github_client_secret")
 	githubToken := c.FormValue("github_token")
 	makemkvKey := c.FormValue("makemkv_key")
+	tmdbApiKey := c.FormValue("tmdb_api_key")
 	preferredAudioLangs := c.FormValue("preferred_audio_langs")
 	preferredSubtitleLangs := c.FormValue("preferred_subtitle_langs")
 	keepForcedSubtitles := c.FormValue("keep_forced_subtitles") == "true"
@@ -76,6 +78,11 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 		// Only update the token if the user provided a non-masked value.
 		if githubToken != "" && githubToken != "••••••••" {
 			cfg.GitHubToken = githubToken
+		}
+
+		// Only update the TMDB key if the user provided a non-masked value.
+		if tmdbApiKey != "" && tmdbApiKey != "••••••••" {
+			cfg.TMDBApiKey = tmdbApiKey
 		}
 
 		// Only update the key if the user provided a non-masked value.
