@@ -6,12 +6,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
@@ -278,4 +284,60 @@ func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
 	if byIdx[1].Selected {
 		t.Error("title 1 should NOT be selected (unmatched)")
 	}
+}
+
+func TestHandleDriveDetail_ActiveRipSetsStoreFields(t *testing.T) {
+	// Set up a drive manager with a disc loaded.
+	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "THE_BFG"}, nil)
+	mgr.PollOnce(context.Background())
+
+	// Set up a blocking rip engine with one active job on drive index 0.
+	// blockingRipExecutor is defined in handlers_activity_test.go (same package).
+	blocker := &blockingRipExecutor{block: make(chan struct{})}
+	engine := ripper.NewEngine(blocker)
+
+	tmpDir := t.TempDir()
+	job1 := ripper.NewJob(0, 0, "THE_BFG", tmpDir+"/out1")
+	job1.ID = 1
+	jobDone := make(chan struct{})
+	job1.OnComplete = func(_ *ripper.Job, _ error) { close(jobDone) }
+	if err := os.MkdirAll(job1.OutputDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	engine.Submit(job1)
+
+	// Wait for the job to start so it appears in engine.ActiveJobs().
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&blocker.started) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for job to start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	srv := newTestServer(t, mgr)
+	srv.ripEngine = engine
+
+	e := echo.New()
+	e.GET("/drives/:id", srv.handleDriveDetail)
+	req := httptest.NewRequest(http.MethodGet, "/drives/0", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"ripActive":true`) {
+		t.Error("expected ripActive:true in hydrated store JSON")
+	}
+	if !strings.Contains(body, `"activeJobCount":1`) {
+		t.Error("expected activeJobCount:1 in hydrated store JSON")
+	}
+
+	// Release blocker and wait for the engine goroutine to finish writing files
+	// before t.TempDir cleanup runs.
+	close(blocker.block)
+	<-jobDone
 }

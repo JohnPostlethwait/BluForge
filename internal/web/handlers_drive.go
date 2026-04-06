@@ -124,7 +124,15 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 
 	// Compute the wizard step based on current state.
 	// Step 1: Search, Step 2: Select Release, Step 3: Scan, Step 4: Review Titles, Step 5: Rip
-	if s.ripEngine != nil && s.ripEngine.IsActive(idx) {
+	if s.ripEngine != nil {
+		for _, j := range s.ripEngine.ActiveJobs() {
+			if j.DriveIndex == idx {
+				driveStore.RipActive = true
+				driveStore.ActiveJobCount++
+			}
+		}
+	}
+	if driveStore.RipActive {
 		driveStore.CurrentStep = 5
 	} else if len(driveStore.Titles) > 0 {
 		driveStore.CurrentStep = 4

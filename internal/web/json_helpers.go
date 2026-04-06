@@ -217,6 +217,8 @@ type DriveStoreJSON struct {
 	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
 	KeepForcedSubs    bool                 `json:"keepForcedSubs"`
 	KeepLossless      bool                 `json:"keepLossless"`
+	RipActive         bool                 `json:"ripActive"`
+	ActiveJobCount    int                  `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.
