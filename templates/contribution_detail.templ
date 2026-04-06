@@ -214,6 +214,7 @@ document.addEventListener('alpine:init', () => {
 						<thead>
 							<tr>
 								<th>#</th>
+								<th>MPLS</th>
 								<th>Duration</th>
 								<th>Size</th>
 								<th>Type</th>
@@ -226,6 +227,7 @@ document.addEventListener('alpine:init', () => {
 							<template x-for="(t, idx) in $store.contrib.titles" :key="t.title_index">
 								<tr>
 									<td x-text="t.title_index + 1"></td>
+									<td x-text="t.mpls" class="text-muted text-sm font-mono whitespace-nowrap"></td>
 									<td x-text="t.duration" class="text-muted" class="text-sm whitespace-nowrap"></td>
 									<td x-text="t.size" class="text-muted" class="text-sm whitespace-nowrap"></td>
 									<td>
