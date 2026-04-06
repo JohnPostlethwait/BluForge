@@ -451,7 +451,7 @@ document.addEventListener('alpine:init', () => {
 						TMDB ID, format, and year are required before submitting.
 					</span>
 				} else {
-					<!-- Fix PR: push corrected files to existing branch -->
+					<!-- Update PR: push corrected files to existing branch -->
 					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }
 						x-data="{ submitting: false }"
 						@submit="submitting = true">
@@ -462,14 +462,14 @@ document.addEventListener('alpine:init', () => {
 						<button type="submit" class="btn btn-primary"
 							disabled?={ !data.GitHubTokenConfigured }
 							:disabled="submitting">
-							<span x-show="!submitting">Fix PR</span>
+							<span x-show="!submitting">Update PR</span>
 							<span x-show="submitting" x-cloak class="flex items-center gap-2">
-								<span class="spinner" aria-hidden="true"></span> Fixing PR&hellip;
+								<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
 							</span>
 						</button>
 					</form>
 					<span class="text-muted text-sm">
-						Regenerates and pushes corrected files to the existing PR branch.
+						Regenerates and pushes corrected files to the PR branch, reopening it if closed.
 					</span>
 					if data.Contribution.PRURL != "" {
 						<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>

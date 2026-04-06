@@ -65,6 +65,10 @@ func (m *mockGitHub) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, 
 	return m.prURL, m.prErr
 }
 
+func (m *mockGitHub) ReopenPR(_ context.Context, _, _ string, _ int) error {
+	return nil
+}
+
 func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error {
 	m.callOrder = append(m.callOrder, "WaitForRepo")
 	return m.waitErr
