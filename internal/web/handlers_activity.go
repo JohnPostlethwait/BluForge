@@ -29,6 +29,7 @@ type activityJobJSON struct {
 	DriveIndex        int                 `json:"driveIndex"`
 	FinishedAt        string              `json:"finishedAt,omitempty"`
 	StartedAt         string              `json:"startedAt,omitempty"`
+	SizeBytes         int64               `json:"sizeBytes,omitempty"`
 	SizeHuman         string              `json:"sizeHuman,omitempty"`
 	Duration          string              `json:"duration,omitempty"`
 	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
@@ -86,6 +87,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 				Error:             j.Error,
 				DriveIndex:        j.DriveIndex,
 				StartedAt:         startedAt,
+				SizeBytes:         j.TrackMetadata.SizeBytes,
 				SizeHuman:         j.TrackMetadata.SizeHuman,
 				Duration:          j.TrackMetadata.Duration,
 				AudioTracks:       j.TrackMetadata.AudioTracks,
@@ -102,6 +104,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 				ContentType:       normalizeContentType(j.ContentType),
 				Status:            string(j.Status),
 				DriveIndex:        j.DriveIndex,
+				SizeBytes:         j.TrackMetadata.SizeBytes,
 				SizeHuman:         j.TrackMetadata.SizeHuman,
 				Duration:          j.TrackMetadata.Duration,
 				AudioTracks:       j.TrackMetadata.AudioTracks,

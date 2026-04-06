@@ -167,6 +167,11 @@ async function clearFiltered(btn, search, status) {
 	}
 }
 
+function formatBytes(bytes) {
+	if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+	return Math.round(bytes / (1024 * 1024)) + ' MB'
+}
+
 // Note: the modulo operator below uses "%%" because this script is passed through fmt.Sprintf at render time.
 function formatDuration(secs) {
 	if (secs < 60) return '<1m'
@@ -250,7 +255,7 @@ function formatDuration(secs) {
 									<span class="badge" :class="'badge-' + j.contentType" x-show="j.contentType" x-text="j.contentType"></span>
 								</div>
 								<div class="job-meta" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
-									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
+									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeBytes && j.progress > 0 ? formatBytes(Math.round(j.sizeBytes * j.progress / 100)) + ' / ' + j.sizeHuman : j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
 									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + (j.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
 									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + (j.subtitleLanguages || []).join(', ')"></span>
 								</div>
