@@ -51,6 +51,7 @@ type Server struct {
 	orchestrator       *workflow.Orchestrator
 	driveSessions      *DriveSessionStore
 	onMakeMKVKeyChange func(string)
+	tmdbBaseURL        string // empty = use TMDB default; overridden in tests
 }
 
 // NewServer creates and configures a new Server from the provided dependencies.
@@ -88,7 +89,7 @@ func NewServer(deps ServerDeps) *Server {
 			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; " +
 			"style-src 'self' 'unsafe-inline'; " +
 			"connect-src 'self'; " +
-			"img-src 'self' data:;",
+			"img-src 'self' data: https://image.tmdb.org;",
 	}))
 
 	// CSRF protection for state-changing endpoints. The middleware must run on
@@ -158,6 +159,7 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/contributions/:id/submit", s.handleContributionSubmit)
 	e.POST("/contributions/:id/resubmit", s.handleContributionResubmit)
 	e.POST("/contributions/:id/delete", s.handleContributionDelete)
+	e.GET("/api/tmdb/search", s.handleTMDBSearch)
 	e.GET("/events", s.handleSSE)
 
 	return s
