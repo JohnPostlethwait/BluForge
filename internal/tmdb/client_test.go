@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/johnpostlethwait/bluforge/internal/tmdb"
@@ -17,6 +18,9 @@ func TestSearch_ReturnsResults(t *testing.T) {
 		}
 		if r.URL.Query().Get("query") != "Lincoln" {
 			t.Errorf("unexpected query: %s", r.URL.Query().Get("query"))
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Errorf("Authorization: want %q, got %q", "Bearer test-key", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -54,6 +58,9 @@ func TestSearch_TVShow(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/3/search/tv" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Errorf("Authorization: want %q, got %q", "Bearer test-key", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -108,6 +115,20 @@ func TestSearch_HTTPError(t *testing.T) {
 	_, err := c.Search(context.Background(), "Lincoln", "movie")
 	if err == nil {
 		t.Fatal("expected error for HTTP 401, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error should mention status 401, got: %v", err)
+	}
+}
+
+func TestSearch_InvalidMediaType(t *testing.T) {
+	c := tmdb.NewClient("test-key")
+	_, err := c.Search(context.Background(), "Lincoln", "tv")
+	if err == nil {
+		t.Fatal("expected error for unknown mediaType, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown mediaType") {
+		t.Errorf("error should mention unknown mediaType, got: %v", err)
 	}
 }
 

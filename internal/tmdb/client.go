@@ -4,13 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const defaultBaseURL = "https://api.themoviedb.org"
+
+const (
+	MediaTypeMovie  = "movie"
+	MediaTypeSeries = "series"
+)
+
+// Searcher is the subset of Client used by HTTP handlers.
+type Searcher interface {
+	Search(ctx context.Context, query, mediaType string) ([]SearchResult, error)
+}
 
 // SearchResult is a trimmed TMDB search result.
 type SearchResult struct {
@@ -23,9 +35,9 @@ type SearchResult struct {
 
 // Client is a minimal TMDB API client.
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	apiKey     string
+	baseURL    string
+	httpClient *http.Client
 }
 
 // Option is a functional option for Client.
@@ -39,9 +51,9 @@ func WithBaseURL(u string) Option {
 // NewClient creates a TMDB client with the given API key.
 func NewClient(apiKey string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:  apiKey,
-		baseURL: defaultBaseURL,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		apiKey:     apiKey,
+		baseURL:    defaultBaseURL,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 	for _, o := range opts {
 		o(c)
@@ -52,6 +64,10 @@ func NewClient(apiKey string, opts ...Option) *Client {
 // Search searches TMDB for movies or TV shows matching query.
 // mediaType must be "movie" or "series" (mapped to TMDB's "tv").
 func (c *Client) Search(ctx context.Context, query, mediaType string) ([]SearchResult, error) {
+	if mediaType != MediaTypeMovie && mediaType != MediaTypeSeries {
+		return nil, fmt.Errorf("tmdb: unknown mediaType %q: must be %q or %q", mediaType, MediaTypeMovie, MediaTypeSeries)
+	}
+
 	endpoint := "/3/search/movie"
 	if mediaType == "series" {
 		endpoint = "/3/search/tv"
@@ -63,22 +79,23 @@ func (c *Client) Search(ctx context.Context, query, mediaType string) ([]SearchR
 	}
 	q := u.Query()
 	q.Set("query", query)
-	q.Set("api_key", c.apiKey)
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("tmdb: build request: %w", err)
 	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("tmdb: request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tmdb: unexpected status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tmdb: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var raw struct {
