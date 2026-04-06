@@ -452,14 +452,20 @@ document.addEventListener('alpine:init', () => {
 					</span>
 				} else {
 					<!-- Fix PR: push corrected files to existing branch -->
-					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }>
+					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }
+						x-data="{ submitting: false }"
+						@submit="submitting = true">
 						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 						<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
 						<input type="hidden" name="media_year" :value="$store.contrib.year"/>
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 						<button type="submit" class="btn btn-primary"
-							disabled?={ !data.GitHubTokenConfigured }>
-							Fix PR
+							disabled?={ !data.GitHubTokenConfigured }
+							:disabled="submitting">
+							<span x-show="!submitting">Fix PR</span>
+							<span x-show="submitting" x-cloak class="flex items-center gap-2">
+								<span class="spinner" aria-hidden="true"></span> Fixing PR&hellip;
+							</span>
 						</button>
 					</form>
 					<span class="text-muted text-sm">
