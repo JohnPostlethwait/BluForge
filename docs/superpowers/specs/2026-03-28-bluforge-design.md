@@ -122,13 +122,13 @@ Auto-rip: Queue for manual identification
 
 ### Contribution Flow (Opt-In)
 
-TheDiscDB accepts contributions via a database-backed web wizard with a GraphQL mutations API at `/graphql/contributions`. Authentication is GitHub OAuth (read:user scope only, for identity). Contributions go through an admin review queue.
+TheDiscDB accepts contributions via a database-backed web wizard with a GraphQL mutations API at `/graphql/contributions`. Contributions go through an admin review queue.
 
 **Note:** The contribution API is not publicly documented. The mutations schema was discovered through the open-source web repo (`TheDiscDb/web`). Before implementing this feature, we should reach out to the TheDiscDB maintainer (`lfoust`) to confirm API stability and discuss partnership/official access. If the API is unavailable or changes, the contribution feature degrades gracefully — users are instead linked to TheDiscDB's web contribution page to submit manually.
 
 **BluForge contribution flow:**
 
-1. User optionally enables GitHub OAuth in BluForge settings (one-time, requires `BLUFORGE_GITHUB_CLIENT_ID` and `BLUFORGE_GITHUB_CLIENT_SECRET` env vars)
+1. User configures a GitHub Personal Access Token in BluForge settings (one-time, requires `BLUFORGE_GITHUB_TOKEN` env var or settings UI)
 2. On unmatched disc, UI offers: "This disc isn't in TheDiscDB yet. Want to contribute it?"
 3. BluForge pre-fills: TMDB match (user confirms/changes), MakeMKV log data, disc metadata
 4. User labels titles via inline UI on Drive Detail page: dropdown per title for type (MainMovie/Episode/Extra/Trailer/DeletedScene), season/episode fields for series
@@ -136,7 +136,7 @@ TheDiscDB accepts contributions via a database-backed web wizard with a GraphQL 
 6. Contribution enters TheDiscDB's review queue -- no blocking on approval
 7. Rip proceeds immediately with generic names (since mapping isn't confirmed until approved)
 
-Users who don't configure GitHub auth are never prompted. The rip flow is never blocked by contribution.
+Users who don't configure a GitHub token are never prompted. The rip flow is never blocked by contribution.
 
 ## Output Organization
 
@@ -213,8 +213,6 @@ All prefixed with `BLUFORGE_`. All optional.
 | `BLUFORGE_POLL_INTERVAL` | `5` | Seconds between drive polls |
 | `BLUFORGE_MOVIE_TEMPLATE` | `Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})` | Movie naming template |
 | `BLUFORGE_SERIES_TEMPLATE` | `TV/{{.Show}}/Season {{.Season}}/{{.Show}} - S{{.Season}}E{{.Episode}} - {{.EpisodeTitle}}` | Series naming template |
-| `BLUFORGE_GITHUB_CLIENT_ID` | -- | For TheDiscDB contribution OAuth |
-| `BLUFORGE_GITHUB_CLIENT_SECRET` | -- | For TheDiscDB contribution OAuth |
 
 ### Docker Compose Example
 

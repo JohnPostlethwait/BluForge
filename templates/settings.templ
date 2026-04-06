@@ -1,7 +1,5 @@
 package templates
 
-import "fmt"
-
 // SettingsData holds the current settings values for the settings form.
 type SettingsData struct {
 	OutputDir             string
@@ -9,8 +7,6 @@ type SettingsData struct {
 	MinTitleLength        string
 	PollInterval          string
 	DuplicateAction       string
-	GitHubClientID        string
-	GitHubClientSecret    string
 	GitHubToken           string
 	MakeMKVKey            string
 	TMDBApiKey            string
@@ -114,14 +110,6 @@ templ Settings(data SettingsData) {
 					<label for="tmdb_api_key">TMDB Read Access Token (optional)</label>
 					<input type="password" id="tmdb_api_key" name="tmdb_api_key" value={ maskSecret(data.TMDBApiKey) } placeholder="Optional" autocomplete="off"/>
 					<p class="text-muted mt-1" class="field-hint">Required for TMDB search on the contribution page. Use the <strong>API Read Access Token</strong> (not the API Key) found under the API section at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>.</p>
-				</div>
-				<div class="form-group">
-					<label for="github_client_id">GitHub Client ID (for future Device Flow)</label>
-					<input type="text" id="github_client_id" name="github_client_id" value={ data.GitHubClientID } placeholder="Optional"/>
-				</div>
-				<div class="form-group">
-					<label for="github_client_secret">GitHub Client Secret (for future Device Flow)</label>
-					<input type="password" id="github_client_secret" name="github_client_secret" value={ fmt.Sprintf("%s", maskSecret(data.GitHubClientSecret)) } placeholder="Optional"/>
 				</div>
 			</div>
 			<div>

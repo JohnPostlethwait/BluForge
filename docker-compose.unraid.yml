@@ -21,6 +21,3 @@ services:
       - UMASK=0000
       # - BLUFORGE_DUPLICATE_ACTION=skip
       # - BLUFORGE_MIN_TITLE_LENGTH=120
-      # GitHub OAuth (optional, for TheDiscDB authentication):
-      # - BLUFORGE_GITHUB_CLIENT_ID=
-      # - BLUFORGE_GITHUB_CLIENT_SECRET=

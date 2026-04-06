@@ -27,8 +27,6 @@ func testSettingsServer(t *testing.T) *Server {
 		MinTitleLength:     120,
 		PollInterval:       5,
 		DuplicateAction:    "skip",
-		GitHubClientID:     "",
-		GitHubClientSecret: "real-secret",
 		MakeMKVKey:         "existing-key",
 	}
 
@@ -58,8 +56,6 @@ func TestHandleSettingsSave_UpdatesConfig(t *testing.T) {
 	form.Set("min_title_length", "90")
 	form.Set("poll_interval", "10")
 	form.Set("duplicate_action", "overwrite")
-	form.Set("github_client_id", "new-id")
-	form.Set("github_client_secret", "new-secret")
 
 	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -88,43 +84,8 @@ func TestHandleSettingsSave_UpdatesConfig(t *testing.T) {
 	if cfg.DuplicateAction != "overwrite" {
 		t.Errorf("DuplicateAction: expected %q, got %q", "overwrite", cfg.DuplicateAction)
 	}
-	if cfg.GitHubClientID != "new-id" {
-		t.Errorf("GitHubClientID: expected %q, got %q", "new-id", cfg.GitHubClientID)
-	}
-	if cfg.GitHubClientSecret != "new-secret" {
-		t.Errorf("GitHubClientSecret: expected %q, got %q", "new-secret", cfg.GitHubClientSecret)
-	}
 }
 
-func TestHandleSettingsSave_MaskedSecret(t *testing.T) {
-	srv := testSettingsServer(t)
-
-	form := url.Values{}
-	form.Set("output_dir", "/new/output")
-	form.Set("auto_rip", "true")
-	form.Set("min_title_length", "90")
-	form.Set("poll_interval", "10")
-	form.Set("duplicate_action", "overwrite")
-	form.Set("github_client_id", "new-id")
-	form.Set("github_client_secret", "••••••••")
-
-	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	srv.echo.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("expected 303 redirect, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	cfg := srv.GetConfig()
-
-	if cfg.GitHubClientSecret != "real-secret" {
-		t.Errorf("GitHubClientSecret should remain %q when masked value is submitted, got %q",
-			"real-secret", cfg.GitHubClientSecret)
-	}
-}
 
 func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 	srv := testSettingsServer(t)
@@ -166,9 +127,6 @@ func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 	}
 	if cfg.DuplicateAction != "" {
 		t.Errorf("DuplicateAction: expected empty string when omitted, got %q", cfg.DuplicateAction)
-	}
-	if cfg.GitHubClientID != "" {
-		t.Errorf("GitHubClientID: expected empty string when omitted, got %q", cfg.GitHubClientID)
 	}
 }
 

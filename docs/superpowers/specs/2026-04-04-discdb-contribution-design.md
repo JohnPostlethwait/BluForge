@@ -48,7 +48,7 @@ When BluForge scans a disc that isn't found in TheDiscDB, users can contribute t
 
 **`internal/workflow`** — `orchestrator.autoMatch()` inserts a `contributions` row when falling through to `unmatchedTitles()`. SSE broadcasts `contribution_available`.
 
-**`internal/config`** — New `GitHubToken string` field for PAT storage. Existing `GitHubClientID`/`GitHubClientSecret` remain for future Device Flow.
+**`internal/config`** — `GitHubToken string` field for PAT storage.
 
 **`internal/web`** — New handlers and templates for the contribution pages. Existing `/drives/:id/contribute` stub replaced.
 

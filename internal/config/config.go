@@ -16,8 +16,6 @@ type AppConfig struct {
 	AutoRip               bool   `yaml:"auto_rip"`
 	MinTitleLength        int    `yaml:"min_title_length"`
 	PollInterval          int    `yaml:"poll_interval"`
-	GitHubClientID        string `yaml:"github_client_id"`
-	GitHubClientSecret    string `yaml:"github_client_secret"`
 	GitHubToken           string `yaml:"github_token"`
 	DuplicateAction       string `yaml:"duplicate_action"`
 	PreferredAudioLangs   string `yaml:"preferred_audio_langs"`    // comma-separated ISO 639-2 codes, e.g. "eng,jpn"
@@ -77,12 +75,6 @@ func LoadFromEnv() AppConfig {
 		} else {
 			slog.Warn("ignoring invalid env var value", "var", "BLUFORGE_POLL_INTERVAL", "value", v)
 		}
-	}
-	if v := os.Getenv("BLUFORGE_GITHUB_CLIENT_ID"); v != "" {
-		cfg.GitHubClientID = v
-	}
-	if v := os.Getenv("BLUFORGE_GITHUB_CLIENT_SECRET"); v != "" {
-		cfg.GitHubClientSecret = v
 	}
 	if v := os.Getenv("BLUFORGE_GITHUB_TOKEN"); v != "" {
 		cfg.GitHubToken = v

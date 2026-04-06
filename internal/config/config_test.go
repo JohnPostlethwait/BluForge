@@ -15,8 +15,6 @@ func clearEnv(t *testing.T) {
 		"BLUFORGE_AUTO_RIP",
 		"BLUFORGE_MIN_TITLE_LENGTH",
 		"BLUFORGE_POLL_INTERVAL",
-		"BLUFORGE_GITHUB_CLIENT_ID",
-		"BLUFORGE_GITHUB_CLIENT_SECRET",
 		"BLUFORGE_DUPLICATE_ACTION",
 		"BLUFORGE_TMDB_API_KEY",
 		"MAKEMKV_KEY",
@@ -52,12 +50,6 @@ func TestLoadReturnsDefaults(t *testing.T) {
 	}
 	if cfg.PollInterval != 5 {
 		t.Errorf("PollInterval: want 5, got %d", cfg.PollInterval)
-	}
-	if cfg.GitHubClientID != "" {
-		t.Errorf("GitHubClientID: want empty, got %q", cfg.GitHubClientID)
-	}
-	if cfg.GitHubClientSecret != "" {
-		t.Errorf("GitHubClientSecret: want empty, got %q", cfg.GitHubClientSecret)
 	}
 	if cfg.DuplicateAction != "skip" {
 		t.Errorf("DuplicateAction: want skip, got %s", cfg.DuplicateAction)
@@ -131,8 +123,6 @@ func TestSave_RoundTrip(t *testing.T) {
 		AutoRip:            true,
 		MinTitleLength:     90,
 		PollInterval:       10,
-		GitHubClientID:     "gh-id",
-		GitHubClientSecret: "gh-secret",
 		DuplicateAction:    "overwrite",
 	}
 
@@ -162,12 +152,6 @@ func TestSave_RoundTrip(t *testing.T) {
 	}
 	if loaded.PollInterval != cfg.PollInterval {
 		t.Errorf("PollInterval: want %d, got %d", cfg.PollInterval, loaded.PollInterval)
-	}
-	if loaded.GitHubClientID != cfg.GitHubClientID {
-		t.Errorf("GitHubClientID: want %q, got %q", cfg.GitHubClientID, loaded.GitHubClientID)
-	}
-	if loaded.GitHubClientSecret != cfg.GitHubClientSecret {
-		t.Errorf("GitHubClientSecret: want %q, got %q", cfg.GitHubClientSecret, loaded.GitHubClientSecret)
 	}
 	if loaded.DuplicateAction != cfg.DuplicateAction {
 		t.Errorf("DuplicateAction: want %q, got %q", cfg.DuplicateAction, loaded.DuplicateAction)
