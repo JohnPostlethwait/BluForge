@@ -1113,3 +1113,19 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   padding: 0.6rem 2rem;
   font-size: 1rem;
 }
+
+/* Banners */
+.banner {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.banner-warning {
+    background: rgba(234, 179, 8, 0.15);
+    border: 1px solid rgba(234, 179, 8, 0.4);
+    color: #ca8a04;
+}
+.banner-warning a {
+    color: inherit;
+    text-decoration: underline;
+}

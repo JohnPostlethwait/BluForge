@@ -50,9 +50,11 @@ func (s *Server) handleContributionDetail(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
 	}
 
+	cfg := s.GetConfig()
 	return templates.ContributionDetail(templates.ContributionDetailData{
-		Contribution: *contrib,
-		CSRFToken:    csrfToken(c),
+		Contribution:          *contrib,
+		CSRFToken:             csrfToken(c),
+		GitHubTokenConfigured: cfg.GitHubToken != "",
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 
