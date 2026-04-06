@@ -34,7 +34,6 @@ type MediaDetails struct {
 // Fetcher is the interface used by the contribute service for TMDB detail fetching.
 type Fetcher interface {
 	GetDetails(ctx context.Context, id int, mediaType string) (json.RawMessage, *MediaDetails, error)
-	DownloadImage(ctx context.Context, posterPath, size string) ([]byte, error)
 }
 
 // Searcher is the subset of Client used by HTTP handlers.
