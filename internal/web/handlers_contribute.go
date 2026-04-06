@@ -217,7 +217,7 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		Data:  string(sseData),
 	})
 
-	return c.Redirect(http.StatusSeeOther, "/contributions")
+	return c.Redirect(http.StatusSeeOther, "/contributions?flash=Contribution+submitted+%E2%80%94+PR+opened+successfully")
 }
 
 // handleContributionResubmit pushes a corrective commit to the existing PR branch.
@@ -260,7 +260,7 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to resubmit contribution: "+err.Error())
 	}
 
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d", id))
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d?flash=PR+updated+%%E2%%80%%94+corrected+files+pushed+to+branch", id))
 }
 
 // handleContributionDelete removes a pending/drafting contribution.
