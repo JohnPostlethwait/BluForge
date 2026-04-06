@@ -45,7 +45,7 @@ func (c *Client) WaitForRepo(ctx context.Context, owner, repo string) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("github: wait for repo %s/%s: timed out", owner, repo)
+			return fmt.Errorf("github: wait for repo %s/%s: %w", owner, repo, ctx.Err())
 		case <-time.After(2 * time.Second):
 			// retry
 		}
