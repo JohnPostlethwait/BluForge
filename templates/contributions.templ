@@ -17,6 +17,11 @@ templ Contributions(data ContributionsData) {
 		<div class="page-header">
 			<h1>TheDiscDB Contributions</h1>
 		</div>
+		<div class="card mb-4">
+			<p>When BluForge scans a disc that is not in <a href="https://thediscdb.com/" target="_blank" rel="noopener">TheDiscDB</a>, it appears here so you can contribute the data back to the community. Each contribution walks you through labeling the playlist tracks MakeMKV found, searching <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a> to look up movie or TV metadata, and then opens a pull request against the <a href="https://github.com/TheDiscDb/data" target="_blank" rel="noopener">TheDiscDB data repository</a> on your behalf.</p>
+			<p class="mt-2">To use this workflow you need two things configured in <a href="/settings">Settings</a>: a <strong>GitHub Personal Access Token</strong> (with <code>public_repo</code> scope) to open and update pull requests, and a <strong>TMDB API key</strong> to search for movie and TV metadata. Both are free to obtain.</p>
+			<p class="mt-2 text-muted" style="font-size:0.85em">Disc metadata is provided by <a href="https://thediscdb.com/" target="_blank" rel="noopener">TheDiscDB</a>, an open community project by <a href="https://github.com/lfoust" target="_blank" rel="noopener">Luke Foust</a>. Movie and TV metadata is provided by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a>. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+		</div>
 		if data.Flash != "" {
 			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
 				<span>{ data.Flash }</span>

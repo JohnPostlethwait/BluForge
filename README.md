@@ -8,7 +8,7 @@ I made this because while ripping DVD/BluRays/UHD discs is _easy_ with MakeMKV, 
 
 This is intended as step one of digitizing and storing your disc collection. It is not meant to be a full metadata scraper and organizer, but is instead intended to make those programs (the arr's, Tiny Media Manager, etc) work better by having all the filenames already in place. Rip with BluForge, configure it to move them to a directory of your choice with a naming scheme if your choice, have the rest of your toolchain pick them up from there - scraping and storing metadata, and moving them to your final media library location (Plex, Jellyfin, Emby, etc...)
 
-Huge callout to [Luke Foust](https://github.com/lfoust) for his work creating and maintaining [TheDiscDB](https://thediscdb.com/) and to [GuinpinSoft inc.](https://www.makemkv.com/) for their work creating the excellent MakeMKV and makemkvcon (the CLI mechanism to use it). Without those two things this program would not be possible and I'd be spending a lot more time organizing my disc rips.
+Huge callout to [Luke Foust](https://github.com/lfoust) for his work creating and maintaining [TheDiscDB](https://thediscdb.com/) and to [GuinpinSoft inc.](https://www.makemkv.com/) for their work creating the excellent MakeMKV and makemkvcon (the CLI mechanism to use it). Without those two things this program would not be possible and I'd be spending a lot more time organizing my disc rips. Movie and TV metadata on the contribution workflow is powered by [TMDB (The Movie Database)](https://www.themoviedb.org/) — a fantastic open community resource.
 
 ## Features
 
@@ -32,7 +32,8 @@ Huge callout to [Luke Foust](https://github.com/lfoust) for his work creating an
 | Interactivity | [HTMX](https://htmx.org/) + SSE |
 | Database | SQLite via [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) (pure Go, no CGO) |
 | Ripping | [MakeMKV](https://www.makemkv.com/) CLI (`makemkvcon`) |
-| Metadata | [TheDiscDB](https://thediscdb.com/) GraphQL API |
+| Disc metadata | [TheDiscDB](https://thediscdb.com/) GraphQL API |
+| Movie/TV metadata | [TMDB](https://www.themoviedb.org/) REST API |
 
 ## Quick Start
 
@@ -190,3 +191,5 @@ It does **not** bundle or distribute MakeMKV.
 **MakeMKV** (`makemkvcon`) is proprietary software by [GuinpinSoft inc.](https://www.makemkv.com/) It is not included in the BluForge image. Instead, it is downloaded from [makemkv.com](https://www.makemkv.com/) and compiled at first container startup. Setting `MAKEMKV_ACCEPT_EULA=yes` confirms that you have read and accepted the [MakeMKV End User License Agreement](https://www.makemkv.com/eula/). The compiled binaries are cached to your `/config` volume to avoid recompilation on subsequent starts.
 
 **TheDiscDB** disc metadata is provided by [TheDiscDB](https://thediscdb.com/), an open-source community project by Luke Foust. The underlying data is licensed under the [MIT License](https://github.com/TheDiscDb/data). BluForge queries the live API and does not bundle any TheDiscDB data.
+
+**TMDB** movie and TV metadata is provided by [TMDB (The Movie Database)](https://www.themoviedb.org/) via their REST API. This product uses the TMDB API but is not endorsed or certified by TMDB. A free TMDB API key is required to use the contribution workflow; see the [TMDB API documentation](https://developer.themoviedb.org/docs) for how to obtain one.
