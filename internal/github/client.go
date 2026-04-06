@@ -230,6 +230,17 @@ func (c *Client) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head
 	return created.GetHTMLURL(), nil
 }
 
+// ReopenPR reopens a closed pull request. It is a no-op if the PR is already open.
+func (c *Client) ReopenPR(ctx context.Context, owner, repo string, prNumber int) error {
+	_, _, err := c.gh.PullRequests.Edit(ctx, owner, repo, prNumber, &gh.PullRequest{
+		State: gh.Ptr("open"),
+	})
+	if err != nil {
+		return fmt.Errorf("github: reopen PR #%d: %w", prNumber, err)
+	}
+	return nil
+}
+
 // ContributionBranchName returns the standard branch name for a contribution.
 func ContributionBranchName(titleSlug, releaseSlug string) string {
 	return "contribution/" + titleSlug + "/" + releaseSlug

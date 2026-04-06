@@ -24,6 +24,7 @@ type GitHubClient interface {
 	CreateBranch(ctx context.Context, owner, repo, branchName, baseSHA string) error
 	CommitFiles(ctx context.Context, owner, repo, branch string, files []ghpkg.FileEntry, message string) error
 	CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error)
+	ReopenPR(ctx context.Context, owner, repo string, prNumber int) error
 	WaitForRepo(ctx context.Context, owner, repo string) error
 }
 
@@ -306,7 +307,32 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 		return fmt.Errorf("contribute: resubmit commit files: %w", err)
 	}
 
+	// Reopen the PR if it was closed (e.g. user closed it before fixing).
+	if prNum := parsePRNumber(c.PRURL); prNum > 0 {
+		if rerr := s.github.ReopenPR(ctx, upstreamOwner, upstreamRepo, prNum); rerr != nil {
+			slog.Warn("contribute: resubmit: could not reopen PR; files were pushed but PR may still be closed",
+				"pr_url", c.PRURL, "error", rerr)
+		}
+	}
+
 	return nil
+}
+
+// parsePRNumber extracts the pull request number from a GitHub PR URL.
+// Returns 0 if the URL does not match the expected format.
+func parsePRNumber(prURL string) int {
+	if prURL == "" {
+		return 0
+	}
+	parts := strings.Split(prURL, "/")
+	if len(parts) == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // resubmitFresh is called by Resubmit when the contribution branch no longer exists on
