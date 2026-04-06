@@ -103,6 +103,8 @@ BluForge loads configuration from `/config/config.yaml` with environment variabl
 | `movie_template` | `BLUFORGE_MOVIE_TEMPLATE` | `Movies/{{.Title}} ({{.Year}})/{{.Title}} ({{.Year}})` | Movie output path template |
 | `series_template` | `BLUFORGE_SERIES_TEMPLATE` | `TV/{{.Show}}/Season {{.Season}}/...` | TV series output path template |
 | `duplicate_action` | `BLUFORGE_DUPLICATE_ACTION` | `skip` | Handle duplicates: `skip`, `overwrite`, or `rename` |
+| `github_token` | `BLUFORGE_GITHUB_TOKEN` | *(none)* | GitHub Personal Access Token (`public_repo` scope) for contributing disc data to TheDiscDB |
+| `tmdb_api_key` | `BLUFORGE_TMDB_API_KEY` | *(none)* | [TMDB API key](https://www.themoviedb.org/settings/api) for movie/TV search on the contribution page |
 
 ### Path Templates
 

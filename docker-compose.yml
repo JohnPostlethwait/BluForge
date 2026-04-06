@@ -13,6 +13,8 @@ services:
       - MAKEMKV_ACCEPT_EULA=yes           # Required: confirms acceptance of the MakeMKV EULA at https://www.makemkv.com/eula/
       - MAKEMKV_VERSION=1.18.3    # MakeMKV version to install. Tested: 1.18.3
       # - MAKEMKV_KEY=your_key_here  # Optional: MakeMKV registration key. Free beta key: https://www.makemkv.com/forum/viewtopic.php?t=1053
+      # - BLUFORGE_GITHUB_TOKEN=your_pat_here  # Optional: GitHub PAT (public_repo scope) for TheDiscDB contributions
+      # - BLUFORGE_TMDB_API_KEY=your_key_here  # Optional: TMDB API key for movie/TV search on the contribution page
       - BLUFORGE_AUTO_RIP=false
       - USER_ID=1000
       - GROUP_ID=1000
