@@ -119,6 +119,9 @@ func TestSearch_HTTPError(t *testing.T) {
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("error should mention status 401, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "Invalid API key") {
+		t.Errorf("error should include response body text, got: %v", err)
+	}
 }
 
 func TestSearch_InvalidMediaType(t *testing.T) {
