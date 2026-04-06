@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v72/github"
 	"golang.org/x/oauth2"
@@ -22,6 +23,33 @@ func NewClient(token string) (*Client, error) {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(context.Background(), ts)
 	return &Client{gh: gh.NewClient(tc)}, nil
+}
+
+// NewClientFromGH creates a Client from an already-configured go-github client.
+// Used in tests to wire a custom base URL.
+func NewClientFromGH(ghClient *gh.Client) *Client {
+	return &Client{gh: ghClient}
+}
+
+// WaitForRepo polls until owner/repo is reachable or ctx is cancelled.
+// It adds an internal 30-second cap on top of the caller's context.
+// Retries every 2 seconds.
+func (c *Client) WaitForRepo(ctx context.Context, owner, repo string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	for {
+		_, _, err := c.gh.Repositories.Get(ctx, owner, repo)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("github: wait for repo %s/%s: timed out", owner, repo)
+		case <-time.After(2 * time.Second):
+			// retry
+		}
+	}
 }
 
 // GetUser returns the authenticated user's login name.
