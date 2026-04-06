@@ -290,11 +290,11 @@ func TestMediaDirPath(t *testing.T) {
 		year      int
 		want      string
 	}{
-		{"Movie", "The Matrix", 1999, "movie/The Matrix (1999)"},
-		{"movie", "Inception", 2010, "movie/Inception (2010)"},
-		{"Series", "Breaking Bad", 2008, "series/Breaking Bad (2008)"},
-		{"series", "The Wire", 2002, "series/The Wire (2002)"},
-		{"Show", "Chernobyl", 2019, "show/Chernobyl (2019)"},
+		{"Movie", "The Matrix", 1999, "data/movie/The Matrix (1999)"},
+		{"movie", "Inception", 2010, "data/movie/Inception (2010)"},
+		{"Series", "Breaking Bad", 2008, "data/series/Breaking Bad (2008)"},
+		{"series", "The Wire", 2002, "data/series/The Wire (2002)"},
+		{"Show", "Chernobyl", 2019, "data/show/Chernobyl (2019)"},
 	}
 
 	for _, tc := range tests {
@@ -534,7 +534,7 @@ func TestMediaDirPath_SpecialCharacters(t *testing.T) {
 	// Titles can have colons, apostrophes, etc. — these should pass through unchanged
 	// (TheDiscDB handles sanitization on their end)
 	got := MediaDirPath("movie", "Spider-Man: No Way Home", 2021)
-	want := "movie/Spider-Man: No Way Home (2021)"
+	want := "data/movie/Spider-Man: No Way Home (2021)"
 	if got != want {
 		t.Errorf("MediaDirPath: want %q, got %q", want, got)
 	}

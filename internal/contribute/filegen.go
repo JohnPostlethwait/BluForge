@@ -194,11 +194,11 @@ func GenerateSummary(scan *makemkv.DiscScan, labels []TitleLabel) string {
 }
 
 // MediaDirPath returns the TheDiscDB media directory path for a title.
-// "Movie"/"movie" maps to "movie/Title (Year)"; "Series"/"series" maps to
-// "series/Title (Year)". All other types are lowercased as-is.
+// "Movie"/"movie" maps to "data/movie/Title (Year)"; "Series"/"series" maps to
+// "data/series/Title (Year)". All other types are lowercased as-is.
 func MediaDirPath(mediaType, title string, year int) string {
 	dirType := strings.ToLower(mediaType)
-	return fmt.Sprintf("%s/%s (%d)", dirType, title, year)
+	return fmt.Sprintf("data/%s/%s (%d)", dirType, title, year)
 }
 
 // ReleaseSlug returns the release slug for a given year and format.
