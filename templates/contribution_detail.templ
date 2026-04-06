@@ -424,8 +424,8 @@ document.addEventListener('alpine:init', () => {
 
 					<!-- Submit to TheDiscDB form -->
 					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
-						@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels()"
-						x-data>
+						x-data="{ submitting: false }"
+						@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
 						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
 						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
@@ -439,8 +439,11 @@ document.addEventListener('alpine:init', () => {
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 						<button type="submit" class="btn btn-primary"
 							disabled?={ !data.GitHubTokenConfigured }
-							:disabled="!$store.contrib.isValid">
-							Submit to TheDiscDB
+							:disabled="submitting || !$store.contrib.isValid">
+							<span x-show="!submitting">Submit to TheDiscDB</span>
+							<span x-show="submitting" x-cloak class="flex items-center gap-2">
+								<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
+							</span>
 						</button>
 					</form>
 
