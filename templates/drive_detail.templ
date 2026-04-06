@@ -364,6 +364,14 @@ async function scanDisc(driveIndex) {
 		<!-- Disc name subtitle -->
 		<p class="text-secondary" style="margin-top: -1rem; margin-bottom: 1.5rem;" x-data x-text="$store.drive.discName"></p>
 
+		<!-- Empty drive message -->
+		<div x-data x-show="$store.drive.state === 'empty'" x-cloak class="card">
+			<p class="text-muted" style="text-align: center; padding: 1rem 0;">Insert a disc to begin.</p>
+		</div>
+
+		<!-- Workflow (only shown when a disc is present) -->
+		<div x-data x-show="$store.drive.state !== 'empty'" x-cloak>
+
 		<!-- Stepper -->
 		@components.Stepper([]components.StepperStep{
 			{Number: 1, Label: "Search"},
@@ -894,5 +902,7 @@ async function scanDisc(driveIndex) {
 
 			</div>
 		</div>
+
+		</div> <!-- end workflow wrapper -->
 	}
 }

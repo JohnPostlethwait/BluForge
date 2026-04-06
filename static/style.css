@@ -781,6 +781,14 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .drive-card-link:hover {
   border-color: var(--accent-blue);
   transform: translateY(-1px);
+  text-decoration: none;
+  color: inherit;
+}
+
+.drive-card-link:hover .card-title {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
 }
 
 .drive-workflow-step {
