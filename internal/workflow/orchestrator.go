@@ -475,15 +475,15 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan, op
 
 	// Create a contribution record for this unmatched disc so the user
 	// can contribute it to TheDiscDB later.
-	o.createContributionRecord(scan)
+	o.EnsureContributionRecord(scan)
 
 	return
 }
 
-// createContributionRecord stores an unmatched disc scan for potential
+// EnsureContributionRecord stores an unmatched disc scan for potential
 // contribution to TheDiscDB. Silently skips if a contribution already exists
 // for this disc key.
-func (o *Orchestrator) createContributionRecord(scan *makemkv.DiscScan) {
+func (o *Orchestrator) EnsureContributionRecord(scan *makemkv.DiscScan) {
 	discKey := discdb.BuildDiscKey(scan)
 
 	// Check if a contribution already exists for this disc.

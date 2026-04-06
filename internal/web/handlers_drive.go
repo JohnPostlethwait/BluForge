@@ -269,8 +269,9 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 
 	// Build disc key from cached scan (avoid triggering a full rescan).
 	discKey := ""
-	if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-		discKey = discdb.BuildDiscKey(scan)
+	cachedScan := s.orchestrator.GetCachedScanByDrive(idx)
+	if cachedScan != nil {
+		discKey = discdb.BuildDiscKey(cachedScan)
 	}
 
 	duplicateAction := c.FormValue("duplicate_action")
@@ -300,6 +301,11 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	keepLossless := c.FormValue("keep_lossless") == "true"
 
 	params.SelectionOpts = makemkv.NewSelectionOpts(audioLangs, subtitleLangs, keepForcedSubs, keepLossless)
+
+	// If no DiscDB match, ensure a contribution record exists for later submission.
+	if cachedScan != nil && params.MediaItemID == "" {
+		s.orchestrator.EnsureContributionRecord(cachedScan)
+	}
 
 	result := s.orchestrator.ManualRip(params)
 
