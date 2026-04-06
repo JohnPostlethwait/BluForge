@@ -9,6 +9,7 @@ import (
 type ContributionsData struct {
 	Contributions         []db.Contribution
 	GitHubTokenConfigured bool
+	Flash                 string
 }
 
 templ Contributions(data ContributionsData) {
@@ -16,6 +17,12 @@ templ Contributions(data ContributionsData) {
 		<div class="page-header">
 			<h1>TheDiscDB Contributions</h1>
 		</div>
+		if data.Flash != "" {
+			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
+				<span>{ data.Flash }</span>
+				<button @click="show = false" aria-label="Dismiss" class="btn-close-alert">&times;</button>
+			</div>
+		}
 		if !data.GitHubTokenConfigured {
 			<div class="banner banner-warning mb-4">
 				GitHub token is not configured. Contributions cannot be submitted until you add a Personal Access Token in <a href="/settings">Settings</a>.

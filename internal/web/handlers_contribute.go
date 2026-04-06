@@ -28,10 +28,16 @@ func (s *Server) handleContributions(c echo.Context) error {
 		contributions = []db.Contribution{}
 	}
 
+	flash := c.QueryParam("flash")
+	if len(flash) > 200 {
+		flash = flash[:200]
+	}
+
 	cfg := s.GetConfig()
 	return templates.Contributions(templates.ContributionsData{
 		Contributions:         contributions,
 		GitHubTokenConfigured: cfg.GitHubToken != "",
+		Flash:                 flash,
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 

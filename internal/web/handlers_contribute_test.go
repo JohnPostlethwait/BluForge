@@ -570,3 +570,42 @@ func TestHandleContributionDelete_InvalidID(t *testing.T) {
 		t.Errorf("expected 400, got %d", he.Code)
 	}
 }
+
+func TestHandleContributions_FlashParam(t *testing.T) {
+	srv, _ := setupContribServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/contributions?flash=Contribution+submitted", nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+
+	if err := srv.handleContributions(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Contribution submitted") {
+		t.Errorf("expected flash message in body, got:\n%s", body)
+	}
+	if !strings.Contains(body, "alert-success") {
+		t.Errorf("expected alert-success class in body")
+	}
+}
+
+func TestHandleContributions_FlashParamTruncated(t *testing.T) {
+	srv, _ := setupContribServer(t)
+
+	longFlash := strings.Repeat("x", 300)
+	req := httptest.NewRequest(http.MethodGet, "/contributions?flash="+longFlash, nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+
+	if err := srv.handleContributions(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, longFlash) {
+		t.Errorf("expected long flash to be truncated, but found full string in body")
+	}
+}
