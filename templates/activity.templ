@@ -19,6 +19,8 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').contributionAvailable = false
 	Alpine.store('activity').contributionId = null
 	Alpine.store('activity').contributionDiscName = ''
+	Alpine.store('activity').now = Date.now()
+	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
 	window.addEventListener('popstate', () => {
 		Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -35,6 +37,7 @@ document.addEventListener('alpine:init', () => {
 		if (active) {
 			active.progress = job.Progress
 			active.status = job.Status
+			active.startedAt = job.StartedAt
 
 			// Move to completed when done.
 			if (job.Status === 'completed' || job.Status === 'failed') {
@@ -164,6 +167,14 @@ async function clearFiltered(btn, search, status) {
 	}
 }
 
+// Note: the modulo operator below uses "%%" because this script is passed through fmt.Sprintf at render time.
+function formatDuration(secs) {
+	if (secs < 60) return '<1m'
+	const h = Math.floor(secs / 3600)
+	const m = Math.floor((secs %% 3600) / 60)
+	return h > 0 ? h + 'h ' + m + 'm' : m + 'm'
+}
+
 </script>`, data.StoreJSON))
 
 		<div class="page-header">
@@ -247,6 +258,18 @@ async function clearFiltered(btn, search, status) {
 									<span class="text-secondary min-w-3ch" x-text="j.progress + '%'"></span>
 									@components.ProgressBarDynamic("j.progress", "flex:1;")
 								</div>
+								<div class="text-muted text-sm mt-1" x-show="j.startedAt" x-text="j.startedAt ? (() => {
+									const now = $store.activity.now
+									if (!now) return ''
+									const elapsed = Math.max(0, Math.floor((now - new Date(j.startedAt)) / 1000))
+									const elapsedStr = formatDuration(elapsed)
+									if (j.progress >= 5) {
+										const total = elapsed / (j.progress / 100)
+										const remaining = Math.max(0, total - elapsed)
+										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining'
+									}
+									return elapsedStr + ' elapsed'
+								})() : ''"></div>
 								<div class="text-right mt-2">
 									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
 								</div>
