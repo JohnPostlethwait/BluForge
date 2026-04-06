@@ -117,7 +117,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
 
-	releaseJSON := GenerateReleaseJSON(ri, githubUser)
+	releaseJSON := GenerateReleaseJSON(ri, githubUser, "")
 	discJSON := GenerateDiscJSON(&scan, ri.Format)
 	summary := GenerateSummary(&scan, labels)
 	rawOutput := c.RawOutput
@@ -213,7 +213,7 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 
 	files := []ghpkg.FileEntry{
-		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser)},
+		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser, "")},
 		{Path: releaseDir + "/disc01.json", Content: GenerateDiscJSON(&scan, ri.Format)},
 		{Path: releaseDir + "/disc01-summary.txt", Content: GenerateSummary(&scan, labels)},
 		{Path: releaseDir + "/disc01.txt", Content: c.RawOutput},

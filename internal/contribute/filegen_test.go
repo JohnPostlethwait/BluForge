@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/tmdb"
 )
 
 func testScan() *makemkv.DiscScan {
@@ -53,7 +54,7 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Truncate(time.Second)
-	content := GenerateReleaseJSON(ri, "testuser")
+	content := GenerateReleaseJSON(ri, "testuser", "Movie/the-matrix-1999/1999-blu-ray.jpg")
 	after := time.Now().UTC().Add(time.Second).Truncate(time.Second)
 
 	// Must be valid JSON.
@@ -83,6 +84,9 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	wantSortTitle := "1999 Blu-ray"
 	if got.SortTitle != wantSortTitle {
 		t.Errorf("SortTitle: want %q, got %q", wantSortTitle, got.SortTitle)
+	}
+	if got.ImageUrl != "Movie/the-matrix-1999/1999-blu-ray.jpg" {
+		t.Errorf("ImageUrl: want %q, got %q", "Movie/the-matrix-1999/1999-blu-ray.jpg", got.ImageUrl)
 	}
 	// DateAdded must parse as RFC3339 and fall within the test window (RFC3339 is
 	// second-precision, so we truncate both ends and add a 1s pad on the upper bound).
@@ -545,7 +549,7 @@ func TestGenerateReleaseJSON_EmptyOptionalFields(t *testing.T) {
 		// UPC intentionally empty
 		// Slug intentionally empty
 	}
-	content := GenerateReleaseJSON(ri, "user")
+	content := GenerateReleaseJSON(ri, "user", "")
 
 	var got ReleaseJSON
 	if err := json.Unmarshal([]byte(content), &got); err != nil {
@@ -555,7 +559,140 @@ func TestGenerateReleaseJSON_EmptyOptionalFields(t *testing.T) {
 	if strings.Contains(content, `"Upc"`) {
 		t.Error("expected Upc to be omitted when empty")
 	}
+	if strings.Contains(content, `"ImageUrl"`) {
+		t.Error("expected ImageUrl to be omitted when empty")
+	}
 	if got.Year != 2024 {
 		t.Errorf("Year: want 2024, got %d", got.Year)
+	}
+}
+
+func TestGenerateMetadataJSON(t *testing.T) {
+	details := &tmdb.MediaDetails{
+		ID:             603,
+		Title:          "The Matrix",
+		Overview:       "A computer hacker learns the truth about reality.",
+		Tagline:        "Welcome to the Real World.",
+		RuntimeMinutes: 136,
+		ReleaseDate:    "1999-03-31",
+		PosterPath:     "/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+		ImdbID:         "tt0133093",
+	}
+
+	before := time.Now().UTC().Truncate(time.Second)
+	content := GenerateMetadataJSON(details, "movie", "The Matrix", 1999)
+	after := time.Now().UTC().Add(time.Second).Truncate(time.Second)
+
+	var got MetadataJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("GenerateMetadataJSON produced invalid JSON: %v\ncontent:\n%s", err, content)
+	}
+
+	if got.Title != "The Matrix" {
+		t.Errorf("Title: want %q, got %q", "The Matrix", got.Title)
+	}
+	if got.FullTitle != "The Matrix" {
+		t.Errorf("FullTitle: want %q, got %q", "The Matrix", got.FullTitle)
+	}
+	if got.SortTitle != "The Matrix" {
+		t.Errorf("SortTitle: want %q, got %q", "The Matrix", got.SortTitle)
+	}
+	if got.Slug != "the-matrix-1999" {
+		t.Errorf("Slug: want %q, got %q", "the-matrix-1999", got.Slug)
+	}
+	if got.Type != "Movie" {
+		t.Errorf("Type: want %q, got %q", "Movie", got.Type)
+	}
+	if got.Year != 1999 {
+		t.Errorf("Year: want 1999, got %d", got.Year)
+	}
+	if got.ImageUrl != "Movie/the-matrix-1999/cover.jpg" {
+		t.Errorf("ImageUrl: want %q, got %q", "Movie/the-matrix-1999/cover.jpg", got.ImageUrl)
+	}
+	if got.ExternalIds.Tmdb != "603" {
+		t.Errorf("ExternalIds.Tmdb: want %q, got %q", "603", got.ExternalIds.Tmdb)
+	}
+	if got.ExternalIds.Imdb != "tt0133093" {
+		t.Errorf("ExternalIds.Imdb: want %q, got %q", "tt0133093", got.ExternalIds.Imdb)
+	}
+	if got.Plot != "A computer hacker learns the truth about reality." {
+		t.Errorf("Plot mismatch")
+	}
+	if got.Tagline != "Welcome to the Real World." {
+		t.Errorf("Tagline mismatch")
+	}
+	if got.RuntimeMinutes != 136 {
+		t.Errorf("RuntimeMinutes: want 136, got %d", got.RuntimeMinutes)
+	}
+	// ReleaseDate should be RFC3339 format of 1999-03-31.
+	if got.ReleaseDate != "1999-03-31T00:00:00Z" {
+		t.Errorf("ReleaseDate: want %q, got %q", "1999-03-31T00:00:00Z", got.ReleaseDate)
+	}
+	// DateAdded must be valid RFC3339 within the test window.
+	dateAdded, err := time.Parse(time.RFC3339, got.DateAdded)
+	if err != nil {
+		t.Errorf("DateAdded %q is not valid RFC3339: %v", got.DateAdded, err)
+	} else if dateAdded.Before(before) || dateAdded.After(after) {
+		t.Errorf("DateAdded %q not within test window", got.DateAdded)
+	}
+	// Groups must be present as an empty array, not null.
+	if got.Groups == nil {
+		t.Error("Groups should be an empty array, not nil")
+	}
+}
+
+func TestGenerateMetadataJSON_Series(t *testing.T) {
+	details := &tmdb.MediaDetails{
+		ID:          1396,
+		Title:       "Breaking Bad",
+		Overview:    "A chemistry teacher turned drug lord.",
+		ReleaseDate: "2008-01-20",
+		ImdbID:      "tt0903747",
+	}
+	content := GenerateMetadataJSON(details, "series", "Breaking Bad", 2008)
+
+	var got MetadataJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got.Type != "Series" {
+		t.Errorf("Type: want %q, got %q", "Series", got.Type)
+	}
+	if got.ImageUrl != "Series/breaking-bad-2008/cover.jpg" {
+		t.Errorf("ImageUrl: want %q, got %q", "Series/breaking-bad-2008/cover.jpg", got.ImageUrl)
+	}
+}
+
+func TestGenerateMetadataJSON_EmptyReleaseDate(t *testing.T) {
+	details := &tmdb.MediaDetails{
+		ID:          9999,
+		Title:       "Unknown Film",
+		ReleaseDate: "",
+	}
+	content := GenerateMetadataJSON(details, "movie", "Unknown Film", 2020)
+
+	var got MetadataJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	// Empty release date should produce empty string, not a zero-value date.
+	if got.ReleaseDate != "" {
+		t.Errorf("ReleaseDate: want empty, got %q", got.ReleaseDate)
+	}
+}
+
+func TestTitleImageURL(t *testing.T) {
+	got := TitleImageURL("movie", "the-matrix-1999")
+	want := "Movie/the-matrix-1999/cover.jpg"
+	if got != want {
+		t.Errorf("TitleImageURL: want %q, got %q", want, got)
+	}
+}
+
+func TestReleaseImageURL(t *testing.T) {
+	got := ReleaseImageURL("movie", "the-matrix-1999", "1999-blu-ray")
+	want := "Movie/the-matrix-1999/1999-blu-ray.jpg"
+	if got != want {
+		t.Errorf("ReleaseImageURL: want %q, got %q", want, got)
 	}
 }
