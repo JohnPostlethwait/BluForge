@@ -500,6 +500,7 @@ async function scanDisc(driveIndex) {
 						<template x-if="$store.drive.searchResults.length === 0">
 							<div class="empty-state">
 								<p>No results found. Try a different search term.</p>
+								<button type="button" class="btn btn-secondary mt-3" x-on:click="goToStep(3)">Continue Without Match</button>
 							</div>
 						</template>
 
