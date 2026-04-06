@@ -221,13 +221,14 @@ func TestGetDetails_TV(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":             1396,
-			"name":           "Breaking Bad",
-			"overview":       "A teacher turned drug lord.",
-			"tagline":        "",
-			"first_air_date": "2008-01-20",
-			"poster_path":    "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
-			"external_ids":   map[string]any{"imdb_id": "tt0903747"},
+			"id":              1396,
+			"name":            "Breaking Bad",
+			"overview":        "A teacher turned drug lord.",
+			"tagline":         "",
+			"episode_run_time": []int{47},
+			"first_air_date":  "2008-01-20",
+			"poster_path":     "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+			"external_ids":    map[string]any{"imdb_id": "tt0903747"},
 		})
 	}))
 	defer srv.Close()
@@ -245,6 +246,9 @@ func TestGetDetails_TV(t *testing.T) {
 	}
 	if details.ImdbID != "tt0903747" {
 		t.Errorf("ImdbID: want %q, got %q", "tt0903747", details.ImdbID)
+	}
+	if details.RuntimeMinutes != 47 {
+		t.Errorf("RuntimeMinutes: want 47, got %d", details.RuntimeMinutes)
 	}
 }
 

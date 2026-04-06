@@ -122,17 +122,18 @@ func (c *Client) GetDetails(ctx context.Context, id int, mediaType string) (json
 	}
 
 	var parsed struct {
-		ID           int    `json:"id"`
-		Title        string `json:"title"`
-		Name         string `json:"name"`
-		Overview     string `json:"overview"`
-		Tagline      string `json:"tagline"`
-		Runtime      int    `json:"runtime"`
-		ReleaseDate  string `json:"release_date"`
-		FirstAirDate string `json:"first_air_date"`
-		PosterPath   string `json:"poster_path"`
-		ImdbID       string `json:"imdb_id"`
-		ExternalIDs  struct {
+		ID             int    `json:"id"`
+		Title          string `json:"title"`
+		Name           string `json:"name"`
+		Overview       string `json:"overview"`
+		Tagline        string `json:"tagline"`
+		Runtime        int    `json:"runtime"`
+		EpisodeRunTime []int  `json:"episode_run_time"`
+		ReleaseDate    string `json:"release_date"`
+		FirstAirDate   string `json:"first_air_date"`
+		PosterPath     string `json:"poster_path"`
+		ImdbID         string `json:"imdb_id"`
+		ExternalIDs    struct {
 			ImdbID string `json:"imdb_id"`
 		} `json:"external_ids"`
 	}
@@ -149,12 +150,17 @@ func (c *Client) GetDetails(ctx context.Context, id int, mediaType string) (json
 		imdbID = parsed.ExternalIDs.ImdbID
 	}
 
+	runtime := parsed.Runtime
+	if mediaType == MediaTypeSeries && len(parsed.EpisodeRunTime) > 0 {
+		runtime = parsed.EpisodeRunTime[0]
+	}
+
 	details := &MediaDetails{
 		ID:             parsed.ID,
 		Title:          title,
 		Overview:       parsed.Overview,
 		Tagline:        parsed.Tagline,
-		RuntimeMinutes: parsed.Runtime,
+		RuntimeMinutes: runtime,
 		ReleaseDate:    releaseDate,
 		PosterPath:     parsed.PosterPath,
 		ImdbID:         imdbID,
