@@ -528,3 +528,68 @@ func TestHandleActivityClearFiltered_ActiveJobNotDeleted(t *testing.T) {
 	// Release the blocker to allow cleanup.
 	close(blocker.block)
 }
+
+func TestHandleActivity_ActiveJobIncludesStartedAt(t *testing.T) {
+	blocker := &blockingRipExecutor{block: make(chan struct{})}
+	engine := ripper.NewEngine(blocker)
+
+	tmpDir := t.TempDir()
+	job := ripper.NewJob(0, 0, "TestDisc", filepath.Join(tmpDir, "out"))
+	job.ID = 1
+	os.MkdirAll(job.OutputDir, 0o755)
+	engine.Submit(job)
+
+	// Wait for job to start so StartedAt is set.
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&blocker.started) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for job to start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	store, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	srv := &Server{
+		echo:          echo.New(),
+		ripEngine:     engine,
+		store:         store,
+		sseHub:        NewSSEHub(),
+		driveSessions: NewDriveSessionStore(),
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/activity", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := srv.handleActivity(c); err != nil {
+		t.Fatalf("handleActivity: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"startedAt"`) {
+		t.Error(`response body does not contain "startedAt" — field not exposed in activityJobJSON`)
+	}
+
+	const startedAtPrefix = `"startedAt":"`
+	idx := strings.Index(body, startedAtPrefix)
+	if idx == -1 {
+		t.Fatal(`"startedAt" key not found in body`)
+	}
+	val := body[idx+len(startedAtPrefix):]
+	val = val[:strings.IndexByte(val, '"')]
+	if _, err := time.Parse(time.RFC3339, val); err != nil {
+		t.Errorf("startedAt value %q is not a valid RFC3339 timestamp: %v", val, err)
+	}
+
+	close(blocker.block)
+}

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -27,6 +28,7 @@ type activityJobJSON struct {
 	Error             string              `json:"error,omitempty"`
 	DriveIndex        int                 `json:"driveIndex"`
 	FinishedAt        string              `json:"finishedAt,omitempty"`
+	StartedAt         string              `json:"startedAt,omitempty"`
 	SizeHuman         string              `json:"sizeHuman,omitempty"`
 	Duration          string              `json:"duration,omitempty"`
 	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
@@ -70,6 +72,10 @@ func (s *Server) handleActivity(c echo.Context) error {
 	// Active jobs from the rip engine.
 	if s.ripEngine != nil {
 		for _, j := range s.ripEngine.ActiveJobs() {
+			var startedAt string
+			if !j.StartedAt.IsZero() {
+				startedAt = j.StartedAt.UTC().Format(time.RFC3339)
+			}
 			store.Active = append(store.Active, activityJobJSON{
 				ID:                j.ID,
 				DiscName:          j.DiscName,
@@ -79,6 +85,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 				Progress:          j.Progress,
 				Error:             j.Error,
 				DriveIndex:        j.DriveIndex,
+				StartedAt:         startedAt,
 				SizeHuman:         j.TrackMetadata.SizeHuman,
 				Duration:          j.TrackMetadata.Duration,
 				AudioTracks:       j.TrackMetadata.AudioTracks,
