@@ -94,8 +94,13 @@ func contributionFormInit(c db.Contribution) string {
 	state := map[string]any{
 		"tmdbID":     c.TmdbID,
 		"mediaTitle": c.DiscName,
-		"mediaType":  "movie",
-		"upc":        ri.UPC,
+		"mediaType": func() string {
+			if ri.MediaType != "" {
+				return ri.MediaType
+			}
+			return "movie"
+		}(),
+		"upc": ri.UPC,
 		"regionCode": ri.RegionCode,
 		"format":     ri.Format,
 		"year":       yearStr,
@@ -403,6 +408,7 @@ document.addEventListener('alpine:init', () => {
 						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
 						<input type="hidden" name="format" :value="$store.contrib.format"/>
 						<input type="hidden" name="year" :value="$store.contrib.year"/>
+						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 						<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
 						<button type="submit" class="btn">Save Draft</button>
 					</form>

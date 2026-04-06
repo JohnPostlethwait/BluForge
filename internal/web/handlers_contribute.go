@@ -70,6 +70,7 @@ func (s *Server) handleContributionSave(c echo.Context) error {
 	upc := c.FormValue("upc")
 	regionCode := c.FormValue("region_code")
 	format := c.FormValue("format")
+	mediaType := c.FormValue("media_type")
 	titleLabelsRaw := c.FormValue("title_labels")
 
 	year := 0
@@ -85,6 +86,7 @@ func (s *Server) handleContributionSave(c echo.Context) error {
 		Year:       year,
 		Format:     format,
 		Slug:       contribute.ReleaseSlug(year, format),
+		MediaType:  mediaType,
 	}
 
 	riBytes, err := json.Marshal(ri)
@@ -118,6 +120,7 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	upc := c.FormValue("upc")
 	regionCode := c.FormValue("region_code")
 	format := c.FormValue("format")
+	mediaType := c.FormValue("media_type")
 	titleLabelsRaw := c.FormValue("title_labels")
 
 	year := 0
@@ -133,6 +136,7 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 		Year:       year,
 		Format:     format,
 		Slug:       contribute.ReleaseSlug(year, format),
+		MediaType:  mediaType,
 	}
 
 	riBytes, err := json.Marshal(ri)
@@ -148,7 +152,6 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 
 	// Now extract media metadata for the submit call.
 	mediaTitle := c.FormValue("media_title")
-	mediaType := c.FormValue("media_type")
 	mediaYear := 0
 	if v := c.FormValue("media_year"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

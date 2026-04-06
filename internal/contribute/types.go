@@ -5,8 +5,9 @@ type ReleaseInfo struct {
 	UPC        string `json:"upc"`
 	RegionCode string `json:"region_code"`
 	Year       int    `json:"year"`
-	Format     string `json:"format"` // "Blu-ray", "UHD", "DVD"
-	Slug       string `json:"slug"`   // e.g. "2024-blu-ray"
+	Format     string `json:"format"`     // "Blu-ray", "UHD", "DVD"
+	Slug       string `json:"slug"`       // e.g. "2024-blu-ray"
+	MediaType  string `json:"media_type"` // "movie" or "series"; defaults to "movie" if empty
 }
 
 // TitleLabel holds the user's label for a single title.
