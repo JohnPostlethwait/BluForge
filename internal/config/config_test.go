@@ -195,6 +195,14 @@ func TestLoadMakeMKVKeyFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_TMDBApiKey(t *testing.T) {
+	t.Setenv("BLUFORGE_TMDB_API_KEY", "test-tmdb-key-123")
+	cfg := LoadFromEnv()
+	if cfg.TMDBApiKey != "test-tmdb-key-123" {
+		t.Errorf("TMDBApiKey: want %q, got %q", "test-tmdb-key-123", cfg.TMDBApiKey)
+	}
+}
+
 func TestSave_RoundTrip_MakeMKVKey(t *testing.T) {
 	cfg := AppConfig{
 		Port:            9160,

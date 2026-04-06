@@ -25,6 +25,7 @@ type AppConfig struct {
 	KeepForcedSubtitles   bool   `yaml:"keep_forced_subtitles"`    // default: true
 	KeepLosslessAudio     bool   `yaml:"keep_lossless_audio"`      // default: true
 	MakeMKVKey            string `yaml:"makemkv_key"`
+	TMDBApiKey            string `yaml:"tmdb_api_key"`
 }
 
 // defaults returns an AppConfig populated with all default values.
@@ -111,6 +112,9 @@ func LoadFromEnv() AppConfig {
 	}
 	if v := os.Getenv("MAKEMKV_KEY"); v != "" {
 		cfg.MakeMKVKey = v
+	}
+	if v := os.Getenv("BLUFORGE_TMDB_API_KEY"); v != "" {
+		cfg.TMDBApiKey = v
 	}
 
 	return cfg
