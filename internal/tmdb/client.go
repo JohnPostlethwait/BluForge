@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -130,5 +129,5 @@ func ImageURL(posterPath, size string) string {
 	if posterPath == "" {
 		return ""
 	}
-	return "https://image.tmdb.org/t/p/" + size + strings.TrimPrefix(posterPath, "/")
+	return "https://image.tmdb.org/t/p/" + size + posterPath
 }

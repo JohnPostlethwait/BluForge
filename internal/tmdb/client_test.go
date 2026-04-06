@@ -113,7 +113,7 @@ func TestSearch_HTTPError(t *testing.T) {
 
 func TestImageURL(t *testing.T) {
 	got := tmdb.ImageURL("/abc.jpg", "w92")
-	want := "https://image.tmdb.org/t/p/w92abc.jpg"
+	want := "https://image.tmdb.org/t/p/w92/abc.jpg"
 	if got != want {
 		t.Errorf("ImageURL: want %q, got %q", want, got)
 	}
