@@ -201,6 +201,20 @@ function matchDisplay(t) {
 	return t.contentTitle || ''
 }
 
+function fileTypeRank(sourceFile) {
+	const ext = (sourceFile || '').split('.').pop().toLowerCase()
+	if (ext === 'mpls') return 0
+	if (ext === 'm2ts') return 1
+	return 2
+}
+
+function durationToSeconds(dur) {
+	const parts = (dur || '').split(':').map(Number)
+	if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+	if (parts.length === 2) return parts[0] * 60 + parts[1]
+	return 0
+}
+
 function sortedTitles() {
 	const titles = Alpine.store('drive').titles
 	return [...titles].sort((a, b) => {
@@ -216,7 +230,11 @@ function sortedTitles() {
 			if (aSeason !== bSeason) return aSeason - bSeason
 			return parseInt(a.episode || '0', 10) - parseInt(b.episode || '0', 10)
 		}
-		return 0
+		// Group by file type (.mpls first, then .m2ts, then others),
+		// then sort by duration descending within each group.
+		const rankDiff = fileTypeRank(a.sourceFile) - fileTypeRank(b.sourceFile)
+		if (rankDiff !== 0) return rankDiff
+		return durationToSeconds(b.duration) - durationToSeconds(a.duration)
 	})
 }
 
