@@ -3,13 +3,20 @@ package github
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v72/github"
 	"golang.org/x/oauth2"
 )
+
+// ErrBranchNotFound is returned by CommitFiles when the target branch does not
+// exist on the repository. Callers can use errors.Is to detect this case and
+// recreate the branch before retrying.
+var ErrBranchNotFound = errors.New("branch not found")
 
 // Client wraps go-github for TheDiscDB contribution operations.
 type Client struct {
@@ -143,6 +150,10 @@ func (c *Client) CommitFiles(ctx context.Context, owner, repo, branch string, fi
 	// Get the branch ref.
 	ref, _, err := c.gh.Git.GetRef(ctx, owner, repo, "refs/heads/"+branch)
 	if err != nil {
+		var ghErr *gh.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("github: get branch ref: %w", ErrBranchNotFound)
+		}
 		return fmt.Errorf("github: get branch ref: %w", err)
 	}
 	parentSHA := ref.GetObject().GetSHA()

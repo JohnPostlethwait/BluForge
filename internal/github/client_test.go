@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +39,31 @@ func TestContributionBranchName(t *testing.T) {
 	want := "contribution/the-matrix-1999/2024-blu-ray"
 	if got != want {
 		t.Errorf("ContributionBranchName: want %q, got %q", want, got)
+	}
+}
+
+func TestCommitFilesReturnsErrBranchNotFoundOn404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/git/ref/") {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Not Found"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	ghClient := gh.NewClient(nil).WithAuthToken("test-token")
+	srvURL, _ := url.Parse(srv.URL + "/")
+	ghClient.BaseURL = srvURL
+	c := github.NewClientFromGH(ghClient)
+
+	err := c.CommitFiles(context.Background(), "owner", "repo", "missing-branch", []github.FileEntry{
+		{Path: "test.txt", Content: "hello"},
+	}, "test commit")
+
+	if !errors.Is(err, github.ErrBranchNotFound) {
+		t.Fatalf("expected ErrBranchNotFound, got %v", err)
 	}
 }
 

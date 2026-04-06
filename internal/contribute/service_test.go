@@ -25,8 +25,10 @@ type mockGitHub struct {
 	createErr     error
 	commitFiles   [][]ghpkg.FileEntry
 	commitErr     error
+	commitErrList []error // consumed in order; falls back to commitErr when empty
 	prURL         string
 	prErr         error
+	prCalled      bool
 	waitErr       error
 	callOrder     []string
 }
@@ -50,10 +52,16 @@ func (m *mockGitHub) CreateBranch(ctx context.Context, owner, repo, branchName, 
 
 func (m *mockGitHub) CommitFiles(ctx context.Context, owner, repo, branch string, files []ghpkg.FileEntry, message string) error {
 	m.commitFiles = append(m.commitFiles, files)
+	if len(m.commitErrList) > 0 {
+		err := m.commitErrList[0]
+		m.commitErrList = m.commitErrList[1:]
+		return err
+	}
 	return m.commitErr
 }
 
 func (m *mockGitHub) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error) {
+	m.prCalled = true
 	return m.prURL, m.prErr
 }
 
@@ -768,6 +776,77 @@ func TestResubmitPushesCorrectiveCommit(t *testing.T) {
 	if got.Status != "submitted" {
 		t.Errorf("Status: want %q, got %q after Resubmit", "submitted", got.Status)
 	}
+}
+
+func TestResubmitRecreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	// First submit to put the contribution in "submitted" state.
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Simulate the branch being deleted: first CommitFiles call returns ErrBranchNotFound,
+	// second (after branch recreation) succeeds.
+	newPRURL := "https://github.com/TheDiscDb/data/pull/99"
+	gh.commitFiles = nil
+	gh.commitErrList = []error{ghpkg.ErrBranchNotFound}
+	gh.prURL = newPRURL
+	gh.prCalled = false
+	gh.callOrder = nil
+
+	if err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Resubmit: %v", err)
+	}
+
+	// CommitFiles must have been called twice: first returning ErrBranchNotFound, then
+	// succeeding after branch recreation.
+	if len(gh.commitFiles) != 2 {
+		t.Fatalf("expected 2 CommitFiles calls, got %d", len(gh.commitFiles))
+	}
+
+	// A new PR must have been opened.
+	if !gh.prCalled {
+		t.Error("expected CreatePR to be called for branch recreation, but it was not")
+	}
+
+	// CreateBranch and WaitForRepo must have been called.
+	if !contains(gh.callOrder, "CreateBranch") {
+		t.Error("expected CreateBranch to be called during branch recreation")
+	}
+	if !contains(gh.callOrder, "WaitForRepo") {
+		t.Error("expected WaitForRepo to be called during branch recreation")
+	}
+
+	// The DB must be updated with the new PR URL.
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if got.PRURL != newPRURL {
+		t.Errorf("PR URL: want %q, got %q", newPRURL, got.PRURL)
+	}
+	if got.Status != "submitted" {
+		t.Errorf("Status: want %q, got %q", "submitted", got.Status)
+	}
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func TestResubmitFailsIfNotSubmitted(t *testing.T) {

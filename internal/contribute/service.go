@@ -3,6 +3,7 @@ package contribute
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -293,8 +294,59 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 	}
 
 	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: regenerate all contribution files", mediaTitle, mediaYear, ri.Format)
-	if err := s.github.CommitFiles(ctx, githubUser, upstreamRepo, branchName, files, commitMsg); err != nil {
+	err = s.github.CommitFiles(ctx, githubUser, upstreamRepo, branchName, files, commitMsg)
+	if errors.Is(err, ghpkg.ErrBranchNotFound) {
+		// The original branch was deleted (e.g. PR was closed and branch removed).
+		// Recreate the branch from upstream and open a new PR.
+		slog.Info("contribute: resubmit: branch not found, recreating branch and opening new PR",
+			"branch", branchName)
+		return s.resubmitFresh(ctx, c.ID, githubUser, branchName, mediaTitle, mediaYear, ri.Format, files, commitMsg)
+	}
+	if err != nil {
 		return fmt.Errorf("contribute: resubmit commit files: %w", err)
+	}
+
+	return nil
+}
+
+// resubmitFresh is called by Resubmit when the contribution branch no longer exists on
+// GitHub (e.g. the PR was closed and the branch deleted). It recreates the branch from
+// the upstream default branch, commits the files, opens a new PR, and updates the DB.
+func (s *Service) resubmitFresh(ctx context.Context, contributionID int64, githubUser, branchName, mediaTitle string, mediaYear int, format string, files []ghpkg.FileEntry, commitMsg string) error {
+	fork, err := s.github.EnsureFork(ctx, upstreamOwner, upstreamRepo)
+	if err != nil {
+		return fmt.Errorf("contribute: resubmit ensure fork: %w", err)
+	}
+	forkOwner := strings.SplitN(fork, "/", 2)[0]
+
+	if err := s.github.WaitForRepo(ctx, forkOwner, upstreamRepo); err != nil {
+		return fmt.Errorf("contribute: resubmit wait for fork: %w", err)
+	}
+
+	baseBranch, baseSHA, err := s.github.GetDefaultBranchSHA(ctx, upstreamOwner, upstreamRepo)
+	if err != nil {
+		return fmt.Errorf("contribute: resubmit get default branch SHA: %w", err)
+	}
+
+	if err := s.github.CreateBranch(ctx, forkOwner, upstreamRepo, branchName, baseSHA); err != nil {
+		if !strings.Contains(err.Error(), "Reference already exists") {
+			return fmt.Errorf("contribute: resubmit create branch: %w", err)
+		}
+	}
+
+	if err := s.github.CommitFiles(ctx, forkOwner, upstreamRepo, branchName, files, commitMsg); err != nil {
+		return fmt.Errorf("contribute: resubmit commit files (fresh): %w", err)
+	}
+
+	prTitle := fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, format)
+	prHead := githubUser + ":" + branchName
+	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, "")
+	if err != nil {
+		return fmt.Errorf("contribute: resubmit create PR: %w", err)
+	}
+
+	if err := s.store.UpdateContributionStatus(contributionID, "submitted", prURL); err != nil {
+		return fmt.Errorf("contribute: resubmit update status: %w", err)
 	}
 
 	return nil
