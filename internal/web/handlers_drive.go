@@ -460,6 +460,7 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 		Episode:      c.FormValue(fmt.Sprintf("title_episode_%d", titleIdx)),
 		SourceFile:   c.FormValue(fmt.Sprintf("title_source_file_%d", titleIdx)),
 		TrackMetadata: ripper.TrackMetadata{
+			SizeBytes:         parseSizeBytes(c.FormValue(fmt.Sprintf("title_size_bytes_%d", titleIdx))),
 			SizeHuman:         c.FormValue(fmt.Sprintf("title_size_human_%d", titleIdx)),
 			Duration:          c.FormValue(fmt.Sprintf("title_duration_%d", titleIdx)),
 			AudioTracks:       audioTracks,
@@ -470,6 +471,12 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 
 // redirectDriveError redirects to the drive detail page. When msg is non-empty
 // it appends an ?error= query parameter so the page can surface the message.
+func parseSizeBytes(s string) int64 {
+	var n int64
+	fmt.Sscanf(s, "%d", &n)
+	return n
+}
+
 func redirectDriveError(c echo.Context, idx int, msg string) error {
 	if msg != "" {
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/drives/%d?error=%s", idx, url.QueryEscape(msg)))

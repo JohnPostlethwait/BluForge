@@ -32,11 +32,16 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 		for i := range t.Streams {
 			streams = append(streams, streamToJSON(&t.Streams[i]))
 		}
+		var sizeBytes int64
+		if s := t.SizeBytes(); s != "" {
+			fmt.Sscanf(s, "%d", &sizeBytes)
+		}
 		tj := TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),
 			Duration:   t.Duration(),
 			Size:       t.SizeHuman(),
+			SizeBytes:  sizeBytes,
 			SourceFile: t.SourceFile(),
 			Streams:    streams,
 		}
@@ -127,6 +132,7 @@ type TitleJSON struct {
 	Name         string       `json:"name"`
 	Duration     string       `json:"duration"`
 	Size         string       `json:"size"`
+	SizeBytes    int64        `json:"sizeBytes,omitempty"`
 	SourceFile   string       `json:"sourceFile"`
 	OutputName   string       `json:"outputName,omitempty"`
 	Selected     bool         `json:"selected"`
@@ -294,11 +300,16 @@ func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
 		for i := range t.Streams {
 			streams = append(streams, streamToJSON(&t.Streams[i]))
 		}
+		var sizeBytes int64
+		if s := t.SizeBytes(); s != "" {
+			fmt.Sscanf(s, "%d", &sizeBytes)
+		}
 		titles = append(titles, TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),
 			Duration:   t.Duration(),
 			Size:       t.SizeHuman(),
+			SizeBytes:  sizeBytes,
 			SourceFile: t.SourceFile(),
 			Selected:   true,
 			Streams:    streams,

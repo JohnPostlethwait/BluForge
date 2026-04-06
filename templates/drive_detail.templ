@@ -815,6 +815,7 @@ async function scanDisc(driveIndex) {
 							@templ.Raw(`<input type="hidden" :name="'title_episode_' + t.index" :value="t.episode || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_source_file_' + t.index" :value="t.sourceFile || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_size_human_' + t.index" :value="t.size || ''"/>`)
+							@templ.Raw(`<input type="hidden" :name="'title_size_bytes_' + t.index" :value="t.sizeBytes || 0"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_duration_' + t.index" :value="t.duration || ''"/>`)
 							@templ.Raw(`<input type="hidden" :name="'title_audio_tracks_' + t.index" :value="JSON.stringify((t.streams || []).filter(s => {
     if (s.type !== 'audio') return false
