@@ -126,6 +126,56 @@ func TestHandleContributions_WithEntries(t *testing.T) {
 	}
 }
 
+func TestHandleContributions_NoPATShowsBanner(t *testing.T) {
+	srv, store := setupContribServer(t)
+
+	// Seed a pending contribution so the table renders.
+	_ = seedTestContribution(t, store)
+
+	// cfg.GitHubToken is empty by default (setupContribServer uses &config.AppConfig{}).
+	req := httptest.NewRequest(http.MethodGet, "/contributions", nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+
+	if err := srv.handleContributions(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "GitHub token is not configured") {
+		t.Errorf("expected PAT warning banner, got body:\n%s", body)
+	}
+	// Contribute button must be a disabled <button>, not an <a>.
+	if strings.Contains(body, `href="/contributions/`) {
+		t.Errorf("expected no 'Contribute' link when PAT missing, but found href")
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Errorf("expected disabled attribute on Contribute button when PAT missing")
+	}
+}
+
+func TestHandleContributionDetail_NoPATShowsBanner(t *testing.T) {
+	srv, store := setupContribServer(t)
+	id := seedTestContribution(t, store)
+
+	// cfg.GitHubToken is empty by default.
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/contributions/%d", id), nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(fmt.Sprintf("%d", id))
+
+	if err := srv.handleContributionDetail(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "GitHub token is not configured") {
+		t.Errorf("expected PAT warning banner, got body:\n%s", body)
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Errorf("expected disabled attribute on Submit button when PAT missing")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GET /contributions/:id (detail page)
 // ---------------------------------------------------------------------------

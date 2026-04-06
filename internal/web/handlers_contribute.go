@@ -27,8 +27,10 @@ func (s *Server) handleContributions(c echo.Context) error {
 		contributions = []db.Contribution{}
 	}
 
+	cfg := s.GetConfig()
 	return templates.Contributions(templates.ContributionsData{
-		Contributions: contributions,
+		Contributions:         contributions,
+		GitHubTokenConfigured: cfg.GitHubToken != "",
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 

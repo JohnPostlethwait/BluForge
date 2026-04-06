@@ -12,8 +12,9 @@ import (
 
 // ContributionDetailData holds data for the contribution detail/editing form.
 type ContributionDetailData struct {
-	Contribution db.Contribution
-	CSRFToken    string
+	Contribution          db.Contribution
+	CSRFToken             string
+	GitHubTokenConfigured bool
 }
 
 // contributionFormInit builds the Alpine x-data JSON for the contribution form.
@@ -155,6 +156,12 @@ document.addEventListener('alpine:init', () => {
 			<span class={ "status-badge", statusClass(data.Contribution.Status) }>{ data.Contribution.Status }</span>
 		</div>
 
+		if !data.GitHubTokenConfigured {
+			<div class="banner banner-warning mb-4">
+				GitHub token is not configured. Contributions cannot be submitted until you add a Personal Access Token in <a href="/settings">Settings</a>.
+			</div>
+		}
+
 		<div x-data>
 			<!-- Release metadata card -->
 			<div class="card mb-4">
@@ -285,7 +292,9 @@ document.addEventListener('alpine:init', () => {
 					<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
 					<input type="hidden" name="media_year" :value="$store.contrib.year"/>
 					<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-					<button type="submit" class="btn btn-primary" :disabled="!$store.contrib.isValid">
+					<button type="submit" class="btn btn-primary"
+						disabled?={ !data.GitHubTokenConfigured }
+						:disabled="!$store.contrib.isValid">
 						Submit to TheDiscDB
 					</button>
 				</form>
