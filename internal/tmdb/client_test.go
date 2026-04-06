@@ -1,6 +1,7 @@
 package tmdb_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -277,5 +278,53 @@ func TestGetDetails_InvalidMediaType(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown mediaType") {
 		t.Errorf("error should mention unknown mediaType, got: %v", err)
+	}
+}
+
+func TestDownloadImage(t *testing.T) {
+	fakeImage := []byte{0xFF, 0xD8, 0xFF, 0xE0} // JPEG magic bytes
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/t/p/original/poster.jpg" {
+			t.Errorf("unexpected image path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(fakeImage)
+	}))
+	defer srv.Close()
+
+	c := tmdb.NewClient("test-key", tmdb.WithImageBaseURL(srv.URL))
+	data, err := c.DownloadImage(context.Background(), "/poster.jpg", "original")
+	if err != nil {
+		t.Fatalf("DownloadImage: %v", err)
+	}
+	if !bytes.Equal(data, fakeImage) {
+		t.Errorf("image data mismatch: want %v, got %v", fakeImage, data)
+	}
+}
+
+func TestDownloadImage_EmptyPath(t *testing.T) {
+	c := tmdb.NewClient("test-key")
+	data, err := c.DownloadImage(context.Background(), "", "original")
+	if err != nil {
+		t.Fatalf("expected nil error for empty poster path, got: %v", err)
+	}
+	if data != nil {
+		t.Errorf("expected nil data for empty poster path, got %v", data)
+	}
+}
+
+func TestDownloadImage_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := tmdb.NewClient("test-key", tmdb.WithImageBaseURL(srv.URL))
+	_, err := c.DownloadImage(context.Background(), "/missing.jpg", "original")
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error should mention 404, got: %v", err)
 	}
 }

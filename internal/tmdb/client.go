@@ -34,6 +34,7 @@ type MediaDetails struct {
 // Fetcher is the interface used by the contribute service for TMDB detail fetching.
 type Fetcher interface {
 	GetDetails(ctx context.Context, id int, mediaType string) (json.RawMessage, *MediaDetails, error)
+	DownloadImage(ctx context.Context, posterPath, size string) ([]byte, error)
 }
 
 // Searcher is the subset of Client used by HTTP handlers.
@@ -52,9 +53,10 @@ type SearchResult struct {
 
 // Client is a minimal TMDB API client.
 type Client struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
+	apiKey       string
+	baseURL      string
+	imageBaseURL string
+	httpClient   *http.Client
 }
 
 // Option is a functional option for Client.
@@ -65,12 +67,18 @@ func WithBaseURL(u string) Option {
 	return func(c *Client) { c.baseURL = u }
 }
 
+// WithImageBaseURL overrides the TMDB image base URL (used in tests).
+func WithImageBaseURL(u string) Option {
+	return func(c *Client) { c.imageBaseURL = u }
+}
+
 // NewClient creates a TMDB client with the given API key.
 func NewClient(apiKey string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:     apiKey,
-		baseURL:    defaultBaseURL,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		apiKey:       apiKey,
+		baseURL:      defaultBaseURL,
+		imageBaseURL: "https://image.tmdb.org",
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 	for _, o := range opts {
 		o(c)
@@ -167,6 +175,34 @@ func (c *Client) GetDetails(ctx context.Context, id int, mediaType string) (json
 	}
 
 	return json.RawMessage(raw), details, nil
+}
+
+// DownloadImage downloads a TMDB poster image and returns its bytes.
+// posterPath is the TMDB poster_path value (e.g. "/abc.jpg").
+// size is the TMDB image size (e.g. "original", "w500").
+// Returns nil, nil if posterPath is empty.
+func (c *Client) DownloadImage(ctx context.Context, posterPath, size string) ([]byte, error) {
+	if posterPath == "" {
+		return nil, nil
+	}
+	imgURL := c.imageBaseURL + "/t/p/" + size + posterPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("tmdb: build image request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tmdb: image request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tmdb: image status %d for %s", resp.StatusCode, posterPath)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("tmdb: read image: %w", err)
+	}
+	return data, nil
 }
 
 // Search searches TMDB for movies or TV shows matching query.
