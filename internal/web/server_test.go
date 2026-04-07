@@ -99,3 +99,29 @@ func TestUpdateConfig_Persists(t *testing.T) {
 		t.Error("config file is empty after save")
 	}
 }
+
+// TestUpdateConfig_RejectsInvalidConfig verifies that UpdateConfig returns an
+// error and does not modify the in-memory config when the mutation would produce
+// an invalid configuration (e.g. a relative OutputDir).
+func TestUpdateConfig_RejectsInvalidConfig(t *testing.T) {
+	cfg := config.AppConfig{
+		OutputDir:       "/valid/output",
+		PollInterval:    5,
+		Port:            9160,
+		DuplicateAction: "skip",
+	}
+	s, _ := newTestServer(t, cfg)
+
+	err := s.UpdateConfig(func(c *config.AppConfig) {
+		c.OutputDir = "relative/path" // invalid: not absolute
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid OutputDir, got nil")
+	}
+
+	// In-memory config must be unchanged.
+	got := s.GetConfig()
+	if got.OutputDir != "/valid/output" {
+		t.Errorf("OutputDir changed despite validation failure: got %q", got.OutputDir)
+	}
+}
