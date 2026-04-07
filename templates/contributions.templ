@@ -29,7 +29,7 @@ templ Contributions(data ContributionsData) {
 			</div>
 		}
 		if !data.GitHubTokenConfigured {
-			<div class="banner banner-warning mb-4">
+			<div id="github-token-warning" class="banner banner-warning mb-4">
 				GitHub token is not configured. Contributions cannot be submitted until you add a Personal Access Token in <a href="/settings">Settings</a>.
 			</div>
 		}
@@ -69,7 +69,7 @@ templ Contributions(data ContributionsData) {
 											if data.GitHubTokenConfigured {
 												<a href={ templ.SafeURL(fmt.Sprintf("/contributions/%d", c.ID)) } class="btn btn-sm btn-primary">Contribute</a>
 											} else {
-												<button type="button" class="btn btn-sm btn-primary" disabled>Contribute</button>
+												<button type="button" class="btn btn-sm btn-primary" disabled aria-describedby="github-token-warning">Contribute</button>
 											}
 											<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/delete", c.ID)) } onsubmit="return confirm('Delete this contribution?')">
 												<button type="submit" class="btn btn-sm btn-danger">Delete</button>

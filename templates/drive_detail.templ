@@ -436,9 +436,12 @@ async function scanDisc(driveIndex) {
 
 				<!-- ── Step 2b: Disc Picker (shown when a multi-disc release is expanded) ── -->
 				<template x-if="$store.drive.discPickerRelease">
-					<div x-on:keydown.escape.window="backToReleases()">
+					<div x-on:keydown.escape.window="backToReleases()"
+						role="region"
+						aria-labelledby="disc-picker-heading"
+						x-init="$nextTick(() => { const el = $el.querySelector('button, select, [tabindex]'); if(el) el.focus() })">
 						<div class="step-card-header">
-							<h2 class="section-title-inline">Select a Disc</h2>
+							<h2 id="disc-picker-heading" class="section-title-inline">Select a Disc</h2>
 							<button class="btn btn-secondary btn-sm" x-on:click="backToReleases()">&larr; Back to Releases</button>
 						</div>
 						<div class="mt-3" style="padding:0.75rem; background:var(--bg-secondary); border-radius:8px;">

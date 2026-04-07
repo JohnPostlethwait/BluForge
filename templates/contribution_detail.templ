@@ -213,7 +213,7 @@ document.addEventListener('alpine:init', () => {
 		}
 
 		if !data.GitHubTokenConfigured {
-			<div class="banner banner-warning mb-4">
+			<div id="github-token-warning" class="banner banner-warning mb-4">
 				GitHub token is not configured. Contributions cannot be submitted until you add a Personal Access Token in <a href="/settings">Settings</a>.
 			</div>
 		}
@@ -238,7 +238,7 @@ document.addEventListener('alpine:init', () => {
 									x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
 									x-show="$store.contrib.tmdbSelected.posterPath"
 									style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-									alt="poster"/>
+									:alt="$store.contrib.tmdbSelected.title ? 'Poster for ' + $store.contrib.tmdbSelected.title : 'Movie poster'"/>
 								<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
 								<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
 								<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
@@ -249,10 +249,11 @@ document.addEventListener('alpine:init', () => {
 						<template x-if="!$store.contrib.tmdbSelected">
 							<div>
 								<div class="form-group mb-3">
-									<label>Search TMDB</label>
+									<label for="tmdb-search">Search TMDB</label>
 									<div class="flex gap-2">
 										<input
 											type="text"
+											id="tmdb-search"
 											x-model="$store.contrib.tmdbQuery"
 											x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
 											placeholder="Search by title…"
@@ -271,49 +272,51 @@ document.addEventListener('alpine:init', () => {
 								</div>
 
 								<!-- Results table -->
-								<template x-if="$store.contrib.tmdbResults.length > 0">
-									<div class="overflow-x-auto mb-3">
-										<table>
-											<thead>
-												<tr>
-													<th scope="col"></th>
-													<th scope="col">Title</th>
-													<th scope="col">Year</th>
-													<th scope="col">Type</th>
-													<th scope="col"><span class="sr-only">Actions</span></th>
-												</tr>
-											</thead>
-											<tbody>
-												<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
+								<div aria-live="polite" aria-atomic="false">
+									<template x-if="$store.contrib.tmdbResults.length > 0">
+										<div class="overflow-x-auto mb-3">
+											<table>
+												<thead>
 													<tr>
-														<td style="width:40px; padding:4px 8px;">
-															<img
-																x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
-																x-show="r.posterPath"
-																style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-																alt=""/>
-														</td>
-														<td x-text="r.title"></td>
-														<td class="text-secondary" x-text="r.year || '—'"></td>
-														<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
-														<td>
-															<button
-																type="button"
-																class="btn btn-primary btn-sm"
-																x-on:click="$store.contrib.selectTmdb(r)">
-																Select
-															</button>
-														</td>
+														<th scope="col"></th>
+														<th scope="col">Title</th>
+														<th scope="col">Year</th>
+														<th scope="col">Type</th>
+														<th scope="col"><span class="sr-only">Actions</span></th>
 													</tr>
-												</template>
-											</tbody>
-										</table>
-									</div>
-								</template>
+												</thead>
+												<tbody>
+													<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
+														<tr>
+															<td style="width:40px; padding:4px 8px;">
+																<img
+																	x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
+																	x-show="r.posterPath"
+																	style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+																	:alt="r.title ? 'Poster for ' + r.title : ''"/>
+															</td>
+															<td x-text="r.title"></td>
+															<td class="text-secondary" x-text="r.year || '—'"></td>
+															<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
+															<td>
+																<button
+																	type="button"
+																	class="btn btn-primary btn-sm"
+																	x-on:click="$store.contrib.selectTmdb(r)">
+																	Select
+																</button>
+															</td>
+														</tr>
+													</template>
+												</tbody>
+											</table>
+										</div>
+									</template>
 
-								<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
-									<p class="text-muted text-sm mt-2">No results found.</p>
-								</template>
+									<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
+										<p class="text-muted text-sm mt-2">No results found.</p>
+									</template>
+								</div>
 							</div>
 						</template>
 					</div>
@@ -380,7 +383,7 @@ document.addEventListener('alpine:init', () => {
 									<td x-text="t.duration" class="text-muted text-sm whitespace-nowrap"></td>
 									<td x-text="t.size" class="text-muted text-sm whitespace-nowrap"></td>
 									<td>
-										<select x-model="t.type" style="width:160px;">
+										<select x-model="t.type" aria-label="Title type" style="width:160px;">
 											<option value="">— Omit from Submission —</option>
 											<option value="MainMovie">Main Movie</option>
 											<option value="Episode">Episode</option>
@@ -390,13 +393,13 @@ document.addEventListener('alpine:init', () => {
 										</select>
 									</td>
 									<td>
-										<input type="text" x-model="t.label" placeholder="Optional name" style="width:100%; min-width:160px;" :disabled="t.type === ''"/>
+										<input type="text" x-model="t.label" aria-label="Title name" placeholder="Optional name" style="width:100%; min-width:160px;" :disabled="t.type === ''"/>
 									</td>
 									<td>
-										<input type="number" x-model="t.season" placeholder="S#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
+										<input type="number" x-model="t.season" aria-label="Season number" placeholder="S#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
 									</td>
 									<td>
-										<input type="number" x-model="t.episode" placeholder="E#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
+										<input type="number" x-model="t.episode" aria-label="Episode number" placeholder="E#" style="width:60px;" x-show="t.type === 'Episode'" x-cloak/>
 									</td>
 								</tr>
 							</template>
@@ -439,7 +442,8 @@ document.addEventListener('alpine:init', () => {
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 						<button type="submit" class="btn btn-primary"
 							disabled?={ !data.GitHubTokenConfigured }
-							:disabled="submitting || !$store.contrib.isValid">
+							:disabled="submitting || !$store.contrib.isValid"
+							aria-describedby="contrib-validation-msg github-token-warning">
 							<span x-show="!submitting">Submit to TheDiscDB</span>
 							<span x-show="submitting" x-cloak class="flex items-center gap-2">
 								<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
@@ -447,7 +451,7 @@ document.addEventListener('alpine:init', () => {
 						</button>
 					</form>
 
-					<span class="text-muted text-sm" x-show="!$store.contrib.isValid">
+					<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid">
 						TMDB ID, format, and year are required before submitting.
 					</span>
 				} else {
@@ -461,7 +465,8 @@ document.addEventListener('alpine:init', () => {
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
 						<button type="submit" class="btn btn-primary"
 							disabled?={ !data.GitHubTokenConfigured }
-							:disabled="submitting">
+							:disabled="submitting"
+							aria-describedby="github-token-warning">
 							<span x-show="!submitting">Update PR</span>
 							<span x-show="submitting" x-cloak class="flex items-center gap-2">
 								<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;

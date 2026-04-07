@@ -21,6 +21,7 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').contributionDiscName = ''
 	Alpine.store('activity').now = Date.now()
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
+	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
 	window.addEventListener('popstate', () => {
 		Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -110,11 +111,11 @@ async function cancelJob(jobId, btn) {
 			store.pending = store.pending.filter(j => j.id !== jobId)
 		} else {
 			const data = await resp.json().catch(() => ({}))
-			alert('Cancel failed: ' + (data.message || resp.statusText))
+			Alpine.store('activityError', 'Cancel failed: ' + (data.message || resp.statusText))
 			if (btn) btn.disabled = false
 		}
 	} catch (e) {
-		alert('Cancel failed: ' + e.message)
+		Alpine.store('activityError', 'Cancel failed: ' + e.message)
 		if (btn) btn.disabled = false
 	}
 }
@@ -132,10 +133,10 @@ async function clearHistory(btn) {
 			Alpine.store('activity').page = 1
 		} else {
 			const data = await resp.json().catch(() => ({}))
-			alert('Clear failed: ' + (data.message || resp.statusText))
+			Alpine.store('activityError', 'Clear failed: ' + (data.message || resp.statusText))
 		}
 	} catch (e) {
-		alert('Clear failed: ' + e.message)
+		Alpine.store('activityError', 'Clear failed: ' + e.message)
 	} finally {
 		if (btn) btn.disabled = false
 	}
@@ -158,10 +159,10 @@ async function clearFiltered(btn, search, status) {
 			})
 		} else {
 			const data = await resp.json().catch(() => ({}))
-			alert('Clear failed: ' + (data.message || resp.statusText))
+			Alpine.store('activityError', 'Clear failed: ' + (data.message || resp.statusText))
 		}
 	} catch (e) {
-		alert('Clear failed: ' + e.message)
+		Alpine.store('activityError', 'Clear failed: ' + e.message)
 	} finally {
 		if (btn) btn.disabled = false
 	}
@@ -201,10 +202,17 @@ function formatDuration(secs) {
 			</div>
 		}
 
+		<div x-data x-show="$store.activityError" x-cloak role="alert" aria-live="assertive" class="alert alert-error flex justify-between items-center mb-4">
+			<span x-text="$store.activityError"></span>
+			<button @click="$store.activityError = ''" aria-label="Dismiss" class="btn-close-alert">&times;</button>
+		</div>
+
 		<!-- Tab Bar -->
 		<div class="tab-bar" x-data role="tablist" aria-label="Activity views"
-			x-on:keydown.arrow-right.prevent="$el.querySelector('[role=tab]:not(.tab-active)')?.focus()?.click()"
-			x-on:keydown.arrow-left.prevent="$el.querySelector('[role=tab]:not(.tab-active)')?.focus()?.click()"
+			x-on:keydown.arrow-right.prevent="(function(){ const tabs = Array.from($el.querySelectorAll('[role=tab]')); const i = tabs.indexOf(document.activeElement); const next = tabs[(i+1)%tabs.length]; if(next){next.focus();next.click()} })()"
+			x-on:keydown.arrow-left.prevent="(function(){ const tabs = Array.from($el.querySelectorAll('[role=tab]')); const i = tabs.indexOf(document.activeElement); const prev = tabs[(i-1+tabs.length)%tabs.length]; if(prev){prev.focus();prev.click()} })()"
+			x-on:keydown.home.prevent="(function(){ const first = $el.querySelector('[role=tab]'); if(first){first.focus();first.click()} })()"
+			x-on:keydown.end.prevent="(function(){ const tabs = $el.querySelectorAll('[role=tab]'); const last = tabs[tabs.length-1]; if(last){last.focus();last.click()} })()"
 		>
 			<button
 				class="tab-btn"
@@ -386,11 +394,11 @@ function formatDuration(secs) {
 				<!-- Pagination -->
 				<div class="flex gap-2 items-center mt-3 justify-end">
 					<template x-if="$store.activity.page > 1">
-						<a :href="'/activity?tab=history&page=' + ($store.activity.page - 1)" class="btn btn-secondary btn-sm">&larr; Previous</a>
+						<a :href="'/activity?tab=history&page=' + ($store.activity.page - 1)" aria-label="Previous page" class="btn btn-secondary btn-sm">&larr; Previous</a>
 					</template>
 					<span class="text-muted" x-text="'Page ' + $store.activity.page"></span>
 					<template x-if="$store.activity.hasMore">
-						<a :href="'/activity?tab=history&page=' + ($store.activity.page + 1)" class="btn btn-secondary btn-sm">Next &rarr;</a>
+						<a :href="'/activity?tab=history&page=' + ($store.activity.page + 1)" aria-label="Next page" class="btn btn-secondary btn-sm">Next &rarr;</a>
 					</template>
 				</div>
 			</div>
