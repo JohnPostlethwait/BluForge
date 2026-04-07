@@ -121,6 +121,33 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	destPath := o.buildDestPath(params, sel)
 	fullDest := filepath.Join(params.OutputDir, destPath)
 
+	// Guard against path traversal: ensure the destination stays within OutputDir.
+	// SanitizeFilename strips / and \ but not bare "..", which filepath.Join cleans
+	// into a traversal (e.g. filepath.Join("/output", "..") == "/").
+	absBase, err := filepath.Abs(params.OutputDir)
+	if err != nil {
+		return TitleResult{
+			TitleIndex: sel.TitleIndex,
+			Status:     "failed",
+			Reason:     fmt.Sprintf("resolve output dir: %v", err),
+		}
+	}
+	absDest, err := filepath.Abs(fullDest)
+	if err != nil {
+		return TitleResult{
+			TitleIndex: sel.TitleIndex,
+			Status:     "failed",
+			Reason:     fmt.Sprintf("resolve destination path: %v", err),
+		}
+	}
+	if !strings.HasPrefix(absDest, absBase+string(filepath.Separator)) {
+		return TitleResult{
+			TitleIndex: sel.TitleIndex,
+			Status:     "failed",
+			Reason:     "destination path escapes output directory",
+		}
+	}
+
 	// 2. Check for duplicates.
 	if organizer.FileExists(fullDest) {
 		switch params.DuplicateAction {
@@ -139,19 +166,6 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		default:
 			slog.Warn("unknown duplicate_action, defaulting to overwrite",
 				"action", params.DuplicateAction, "dest", fullDest)
-		}
-	}
-
-	// Guard against path traversal: ensure the destination stays within OutputDir.
-	// SanitizeFilename strips / and \ but not bare "..", which filepath.Join cleans
-	// into a traversal (e.g. filepath.Join("/output", "..") == "/").
-	absBase, _ := filepath.Abs(params.OutputDir)
-	absDest, _ := filepath.Abs(fullDest)
-	if !strings.HasPrefix(absDest, absBase+string(filepath.Separator)) {
-		return TitleResult{
-			TitleIndex: sel.TitleIndex,
-			Status:     "failed",
-			Reason:     "destination path escapes output directory",
 		}
 	}
 
