@@ -9,6 +9,14 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
+// parseSizeBytes parses a decimal integer from s (e.g. "4294967296") and returns
+// it as an int64. Returns 0 if s is empty or not parseable.
+func parseSizeBytes(s string) int64 {
+	var n int64
+	fmt.Sscanf(s, "%d", &n)
+	return n
+}
+
 // enrichTitlesWithMatches builds TitleJSON entries for all titles in scan,
 // enriched with match data from disc. Matched titles have Selected=true;
 // unmatched titles have Selected=false.
@@ -32,10 +40,7 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 		for i := range t.Streams {
 			streams = append(streams, streamToJSON(&t.Streams[i]))
 		}
-		var sizeBytes int64
-		if s := t.SizeBytes(); s != "" {
-			fmt.Sscanf(s, "%d", &sizeBytes)
-		}
+		sizeBytes := parseSizeBytes(t.SizeBytes())
 		tj := TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),
@@ -302,10 +307,7 @@ func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
 		for i := range t.Streams {
 			streams = append(streams, streamToJSON(&t.Streams[i]))
 		}
-		var sizeBytes int64
-		if s := t.SizeBytes(); s != "" {
-			fmt.Sscanf(s, "%d", &sizeBytes)
-		}
+		sizeBytes := parseSizeBytes(t.SizeBytes())
 		titles = append(titles, TitleJSON{
 			Index:      t.Index,
 			Name:       t.Name(),

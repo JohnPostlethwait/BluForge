@@ -209,14 +209,9 @@ func (s *Server) handleActivity(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to build activity data.")
 	}
 
-	flash := c.QueryParam("flash")
-	if len(flash) > 200 {
-		flash = flash[:200]
-	}
-
 	return templates.Activity(templates.ActivityPageData{
 		StoreJSON: string(storeBytes),
-		Flash:     flash,
+		Flash:     truncateFlash(c),
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 
@@ -244,18 +239,26 @@ func (s *Server) handleActivityCancel(c echo.Context) error {
 	return echo.NewHTTPError(http.StatusNotFound, "job not found in active or queued")
 }
 
+// activeAndQueuedJobIDs returns the DB IDs of all currently active and queued
+// rip jobs. Used to exclude in-flight jobs from bulk history delete operations.
+func (s *Server) activeAndQueuedJobIDs() []int64 {
+	if s.ripEngine == nil {
+		return nil
+	}
+	var ids []int64
+	for _, j := range s.ripEngine.ActiveJobs() {
+		ids = append(ids, j.ID)
+	}
+	for _, j := range s.ripEngine.QueuedJobs() {
+		ids = append(ids, j.ID)
+	}
+	return ids
+}
+
 // handleActivityClearHistory deletes all rip jobs from the DB that are not
 // currently active or queued in the rip engine.
 func (s *Server) handleActivityClearHistory(c echo.Context) error {
-	var excludeIDs []int64
-	if s.ripEngine != nil {
-		for _, j := range s.ripEngine.ActiveJobs() {
-			excludeIDs = append(excludeIDs, j.ID)
-		}
-		for _, j := range s.ripEngine.QueuedJobs() {
-			excludeIDs = append(excludeIDs, j.ID)
-		}
-	}
+	excludeIDs := s.activeAndQueuedJobIDs()
 
 	if err := s.store.DeleteJobsExcept(excludeIDs); err != nil {
 		slog.Error("failed to clear job history", "error", err)
@@ -281,15 +284,7 @@ func (s *Server) handleActivityClearFiltered(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "at least one filter is required")
 	}
 
-	var excludeIDs []int64
-	if s.ripEngine != nil {
-		for _, j := range s.ripEngine.ActiveJobs() {
-			excludeIDs = append(excludeIDs, j.ID)
-		}
-		for _, j := range s.ripEngine.QueuedJobs() {
-			excludeIDs = append(excludeIDs, j.ID)
-		}
-	}
+	excludeIDs := s.activeAndQueuedJobIDs()
 
 	if err := s.store.DeleteJobsByFilter(req.Search, req.Status, excludeIDs); err != nil {
 		slog.Error("failed to clear filtered job history", "error", err)

@@ -152,12 +152,7 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 
 	// Check for error flash. Truncate to prevent abuse via crafted URLs.
 	// Templ auto-escapes the output, but limiting length reduces phishing surface.
-	if errMsg := c.QueryParam("error"); errMsg != "" {
-		if len(errMsg) > 200 {
-			errMsg = errMsg[:200]
-		}
-		data.Error = errMsg
-	}
+	data.Error = truncateQueryParam(c, "error")
 
 	return templates.DriveDetail(data).Render(c.Request().Context(), c.Response().Writer)
 }
@@ -236,7 +231,7 @@ func (s *Server) searchDiscDB(c echo.Context, searchType, query string) []discdb
 	if s.discdbCache != nil {
 		if data, err := json.Marshal(items); err == nil {
 			if err := s.discdbCache.Set(cacheKey, data); err != nil {
-				slog.Warn("failed to cache discdb results", "key", cacheKey, "err", err)
+				slog.WarnContext(ctx, "failed to cache discdb results", "key", cacheKey, "err", err)
 			}
 		}
 	}
@@ -477,12 +472,20 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 	}
 }
 
-// redirectDriveError redirects to the drive detail page. When msg is non-empty
-// it appends an ?error= query parameter so the page can surface the message.
-func parseSizeBytes(s string) int64 {
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
-	return n
+// truncateQueryParam returns c.QueryParam(key) capped at 200 characters.
+// Used for user-visible flash and error messages to limit phishing surface
+// (Templ auto-escapes, but length still matters).
+func truncateQueryParam(c echo.Context, key string) string {
+	v := c.QueryParam(key)
+	if len(v) > 200 {
+		return v[:200]
+	}
+	return v
+}
+
+// truncateFlash returns c.QueryParam("flash") capped at 200 characters.
+func truncateFlash(c echo.Context) string {
+	return truncateQueryParam(c, "flash")
 }
 
 func redirectDriveError(c echo.Context, idx int, msg string) error {

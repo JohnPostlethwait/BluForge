@@ -16,69 +16,19 @@ import (
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
-// handleContributions renders the contributions queue page.
-func (s *Server) handleContributions(c echo.Context) error {
-	contributions, err := s.store.ListContributions("")
-	if err != nil {
-		slog.Error("failed to list contributions", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contributions.")
-	}
-
-	if contributions == nil {
-		contributions = []db.Contribution{}
-	}
-
-	flash := c.QueryParam("flash")
-	if len(flash) > 200 {
-		flash = flash[:200]
-	}
-
-	cfg := s.GetConfig()
-	return templates.Contributions(templates.ContributionsData{
-		Contributions:         contributions,
-		GitHubTokenConfigured: cfg.GitHubToken != "",
-		Flash:                 flash,
-	}).Render(c.Request().Context(), c.Response().Writer)
-}
-
-// handleContributionDetail renders the contribution detail/editing form.
-func (s *Server) handleContributionDetail(c echo.Context) error {
+// parseContribID extracts and validates the ":id" route parameter as an int64.
+func parseContribID(c echo.Context) (int64, error) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+		return 0, echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
 	}
-
-	contrib, err := s.store.GetContribution(id)
-	if err != nil {
-		slog.Error("failed to get contribution", "id", id, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
-	}
-	if contrib == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
-	}
-
-	flash := c.QueryParam("flash")
-	if len(flash) > 200 {
-		flash = flash[:200]
-	}
-
-	cfg := s.GetConfig()
-	return templates.ContributionDetail(templates.ContributionDetailData{
-		Contribution:          *contrib,
-		CSRFToken:             csrfToken(c),
-		GitHubTokenConfigured: cfg.GitHubToken != "",
-		TMDBConfigured:        cfg.TMDBApiKey != "",
-		Flash:                 flash,
-	}).Render(c.Request().Context(), c.Response().Writer)
+	return id, nil
 }
 
-// handleContributionSave saves a draft contribution from form values.
-func (s *Server) handleContributionSave(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
-	}
-
+// parseAndSaveDraft reads the contribution form fields from c, builds the
+// ReleaseInfo JSON blob, and persists a draft via the store. Returns an HTTP
+// error on any failure.
+func (s *Server) parseAndSaveDraft(c echo.Context, id int64) error {
 	tmdbID := c.FormValue("tmdb_id")
 	upc := c.FormValue("upc")
 	regionCode := c.FormValue("region_code")
@@ -113,14 +63,74 @@ func (s *Server) handleContributionSave(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
 	}
 
+	return nil
+}
+
+// handleContributions renders the contributions queue page.
+func (s *Server) handleContributions(c echo.Context) error {
+	contributions, err := s.store.ListContributions("")
+	if err != nil {
+		slog.Error("failed to list contributions", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contributions.")
+	}
+
+	if contributions == nil {
+		contributions = []db.Contribution{}
+	}
+
+	cfg := s.GetConfig()
+	return templates.Contributions(templates.ContributionsData{
+		Contributions:         contributions,
+		GitHubTokenConfigured: cfg.GitHubToken != "",
+		Flash:                 truncateFlash(c),
+	}).Render(c.Request().Context(), c.Response().Writer)
+}
+
+// handleContributionDetail renders the contribution detail/editing form.
+func (s *Server) handleContributionDetail(c echo.Context) error {
+	id, err := parseContribID(c)
+	if err != nil {
+		return err
+	}
+
+	contrib, err := s.store.GetContribution(id)
+	if err != nil {
+		slog.Error("failed to get contribution", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+	}
+	if contrib == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
+	}
+
+	cfg := s.GetConfig()
+	return templates.ContributionDetail(templates.ContributionDetailData{
+		Contribution:          *contrib,
+		CSRFToken:             csrfToken(c),
+		GitHubTokenConfigured: cfg.GitHubToken != "",
+		TMDBConfigured:        cfg.TMDBApiKey != "",
+		Flash:                 truncateFlash(c),
+	}).Render(c.Request().Context(), c.Response().Writer)
+}
+
+// handleContributionSave saves a draft contribution from form values.
+func (s *Server) handleContributionSave(c echo.Context) error {
+	id, err := parseContribID(c)
+	if err != nil {
+		return err
+	}
+
+	if err := s.parseAndSaveDraft(c, id); err != nil {
+		return err
+	}
+
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d", id))
 }
 
 // handleContributionSubmit submits a contribution to GitHub as a PR.
 func (s *Server) handleContributionSubmit(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := parseContribID(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+		return err
 	}
 
 	cfg := s.GetConfig()
@@ -129,41 +139,12 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	}
 
 	// Save the current form state before submitting so we don't lose user input.
-	tmdbID := c.FormValue("tmdb_id")
-	upc := c.FormValue("upc")
-	regionCode := c.FormValue("region_code")
-	format := c.FormValue("format")
-	mediaType := c.FormValue("media_type")
-	titleLabelsRaw := c.FormValue("title_labels")
-
-	year := 0
-	if v := c.FormValue("year"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			year = n
-		}
-	}
-
-	ri := contribute.ReleaseInfo{
-		UPC:        upc,
-		RegionCode: regionCode,
-		Year:       year,
-		Format:     format,
-		Slug:       contribute.ReleaseSlug(year, format),
-		MediaType:  mediaType,
-	}
-
-	riBytes, err := json.Marshal(ri)
-	if err != nil {
-		slog.Error("failed to marshal release info", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft before submit.")
-	}
-
-	if err := s.store.UpdateContributionDraft(id, tmdbID, string(riBytes), titleLabelsRaw); err != nil {
-		slog.Error("failed to save draft before submit", "id", id, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft before submit.")
+	if err := s.parseAndSaveDraft(c, id); err != nil {
+		return err
 	}
 
 	// Reject if all titles are omitted (empty type).
+	titleLabelsRaw := c.FormValue("title_labels")
 	var titleLabels []contribute.TitleLabel
 	if titleLabelsRaw != "" {
 		if err := json.Unmarshal([]byte(titleLabelsRaw), &titleLabels); err != nil {
@@ -183,6 +164,7 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 
 	// Now extract media metadata for the submit call.
 	mediaTitle := c.FormValue("media_title")
+	mediaType := c.FormValue("media_type")
 	mediaYear := 0
 	if v := c.FormValue("media_year"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -224,9 +206,9 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 // Used when the PR was opened with a generation bug and the files need to be
 // regenerated and re-pushed without opening a new PR.
 func (s *Server) handleContributionResubmit(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := parseContribID(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+		return err
 	}
 
 	cfg := s.GetConfig()
@@ -265,9 +247,9 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 
 // handleContributionDelete removes a pending/drafting contribution.
 func (s *Server) handleContributionDelete(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := parseContribID(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid contribution id")
+		return err
 	}
 
 	contrib, err := s.store.GetContribution(id)
