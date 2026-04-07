@@ -343,27 +343,40 @@ func TestHandleDriveDetail_ActiveRipSetsStoreFields(t *testing.T) {
 }
 
 func TestHandleDriveRip_InvalidLangCode(t *testing.T) {
-	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
-	srv := newTestServer(t, mgr)
-	srv.echo.POST("/drives/:id/rip", srv.handleDriveRip)
-
-	form := url.Values{}
-	form.Set("audio_langs", "english") // 7 chars, not a valid ISO 639-2 code
-
-	req := httptest.NewRequest(http.MethodPost, "/drives/0/rip", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	srv.echo.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("expected 303 redirect, got %d: %s", rec.Code, rec.Body.String())
+	tests := []struct {
+		name     string
+		field    string
+		value    string
+		wantTerm string
+	}{
+		{"invalid audio lang", "audio_langs", "english", "audio"},
+		{"invalid subtitle lang", "subtitle_langs", "japanese", "subtitle"},
 	}
-	loc := rec.Header().Get("Location")
-	if !strings.Contains(loc, "error") {
-		t.Errorf("expected Location to contain 'error', got %q", loc)
-	}
-	if !strings.Contains(loc, "audio") {
-		t.Errorf("expected Location to mention 'audio', got %q", loc)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := drivemanager.NewManager(&stubExecutor{}, nil)
+			srv := newTestServer(t, mgr)
+			srv.echo.POST("/drives/:id/rip", srv.handleDriveRip)
+
+			form := url.Values{}
+			form.Set(tc.field, tc.value)
+
+			req := httptest.NewRequest(http.MethodPost, "/drives/0/rip", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+
+			srv.echo.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("expected 303 redirect, got %d: %s", rec.Code, rec.Body.String())
+			}
+			loc := rec.Header().Get("Location")
+			if !strings.Contains(loc, "error") {
+				t.Errorf("expected Location to contain 'error', got %q", loc)
+			}
+			if !strings.Contains(loc, tc.wantTerm) {
+				t.Errorf("expected Location to mention %q, got %q", tc.wantTerm, loc)
+			}
+		})
 	}
 }
