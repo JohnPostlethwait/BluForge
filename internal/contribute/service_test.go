@@ -74,6 +74,14 @@ func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error 
 	return m.waitErr
 }
 
+func (m *mockGitHub) GetFileContent(ctx context.Context, owner, repo, path string) (string, error) {
+	return "", nil
+}
+
+func (m *mockGitHub) FileExists(ctx context.Context, owner, repo, path string) (bool, error) {
+	return false, nil
+}
+
 // mockTMDB implements TMDBFetcher for testing.
 type mockTMDB struct {
 	raw     json.RawMessage

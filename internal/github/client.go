@@ -241,6 +241,33 @@ func (c *Client) ReopenPR(ctx context.Context, owner, repo string, prNumber int)
 	return nil
 }
 
+// GetFileContent fetches and returns the decoded text content of a file in a GitHub repository.
+// Returns an error if the file does not exist or cannot be decoded.
+func (c *Client) GetFileContent(ctx context.Context, owner, repo, path string) (string, error) {
+	fileContent, _, _, err := c.gh.Repositories.GetContents(ctx, owner, repo, path, nil)
+	if err != nil {
+		return "", fmt.Errorf("github: get file content %s: %w", path, err)
+	}
+	decoded, err := fileContent.GetContent()
+	if err != nil {
+		return "", fmt.Errorf("github: decode file content %s: %w", path, err)
+	}
+	return decoded, nil
+}
+
+// FileExists returns true if the file at path exists in owner/repo, false if it
+// does not exist (404), and an error for any other failure.
+func (c *Client) FileExists(ctx context.Context, owner, repo, path string) (bool, error) {
+	_, _, resp, err := c.gh.Repositories.GetContents(ctx, owner, repo, path, nil)
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("github: check file existence %s: %w", path, err)
+	}
+	return true, nil
+}
+
 // ContributionBranchName returns the standard branch name for a contribution.
 func ContributionBranchName(titleSlug, releaseSlug string) string {
 	return "contribution/" + titleSlug + "/" + releaseSlug

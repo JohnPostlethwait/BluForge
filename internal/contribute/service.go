@@ -26,6 +26,8 @@ type GitHubClient interface {
 	CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error)
 	ReopenPR(ctx context.Context, owner, repo string, prNumber int) error
 	WaitForRepo(ctx context.Context, owner, repo string) error
+	GetFileContent(ctx context.Context, owner, repo, path string) (string, error)
+	FileExists(ctx context.Context, owner, repo, path string) (bool, error)
 }
 
 const (
