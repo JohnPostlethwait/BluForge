@@ -10,6 +10,18 @@ type ReleaseInfo struct {
 	MediaType  string `json:"media_type"` // "movie" or "series"; defaults to "movie" if empty
 }
 
+// MatchInfo holds the TheDiscDB identifiers for a matched disc release.
+// Stored as JSON in contributions.match_info; only set for contribution_type == "update".
+type MatchInfo struct {
+	MediaSlug   string `json:"media_slug"`
+	MediaType   string `json:"media_type"`
+	MediaTitle  string `json:"media_title"`
+	MediaYear   int    `json:"media_year"`
+	ReleaseSlug string `json:"release_slug"`
+	DiscIndex   int    `json:"disc_index"`
+	ImageURL    string `json:"image_url"`
+}
+
 // TitleLabel holds the user's label for a single title.
 type TitleLabel struct {
 	TitleIndex int    `json:"title_index"`
@@ -18,6 +30,7 @@ type TitleLabel struct {
 	Season     string `json:"season"`
 	Episode    string `json:"episode"`
 	FileName   string `json:"file_name"`
+	Matched    bool   `json:"matched"` // true when pre-filled from TheDiscDB
 }
 
 // ReleaseJSON is the schema for TheDiscDB release.json.
@@ -76,14 +89,15 @@ type DiscJSON struct {
 
 // DiscTitleJSON represents a single title entry in disc01.json.
 type DiscTitleJSON struct {
-	Index       int         `json:"Index"`
-	Comment     string      `json:"Comment,omitempty"`
-	SourceFile  string      `json:"SourceFile"`
-	SegmentMap  string      `json:"SegmentMap"`
-	Duration    string      `json:"Duration"`
-	Size        int64       `json:"Size"`
-	DisplaySize string      `json:"DisplaySize"`
-	Tracks      []TrackJSON `json:"Tracks"`
+	Index       int              `json:"Index"`
+	Comment     string           `json:"Comment,omitempty"`
+	SourceFile  string           `json:"SourceFile"`
+	SegmentMap  string           `json:"SegmentMap"`
+	Duration    string           `json:"Duration"`
+	Size        int64            `json:"Size"`
+	DisplaySize string           `json:"DisplaySize"`
+	Item        *DiscTitleItemJSON `json:"Item,omitempty"`
+	Tracks      []TrackJSON      `json:"Tracks"`
 }
 
 // TrackJSON represents a single stream/track entry.
@@ -96,4 +110,17 @@ type TrackJSON struct {
 	AudioType    string `json:"AudioType,omitempty"`
 	LanguageCode string `json:"LanguageCode,omitempty"`
 	Language     string `json:"Language,omitempty"`
+}
+
+// DiscTitleItemJSON holds content metadata within a TheDiscDB disc title entry.
+type DiscTitleItemJSON struct {
+	Title    string        `json:"Title,omitempty"`
+	Type     string        `json:"Type,omitempty"`
+	Chapters []ChapterJSON `json:"Chapters"`
+}
+
+// ChapterJSON represents a single chapter entry within a disc title item.
+type ChapterJSON struct {
+	Number int    `json:"Number"`
+	Title  string `json:"Title"`
 }
