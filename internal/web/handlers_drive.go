@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,22 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
+
+// langCodeRe matches valid ISO 639-2 language codes: exactly 3 lowercase ASCII letters.
+var langCodeRe = regexp.MustCompile(`^[a-z]{3}$`)
+
+// validateLangCodes checks that every non-empty code in the comma-separated raw
+// string matches the ISO 639-2 format (exactly 3 lowercase letters). label is
+// used in the returned error message (e.g. "audio language").
+func validateLangCodes(raw, label string) error {
+	for _, code := range strings.Split(raw, ",") {
+		c := strings.TrimSpace(code)
+		if c != "" && !langCodeRe.MatchString(c) {
+			return fmt.Errorf("invalid %s code %q: must be a 3-letter ISO 639-2 code", label, c)
+		}
+	}
+	return nil
+}
 
 // parseDriveIndex extracts and validates the ":id" path parameter as an int.
 func parseDriveIndex(c echo.Context) (int, error) {
@@ -250,6 +267,13 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 
 	if err := c.Request().ParseForm(); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
+	}
+
+	if err := validateLangCodes(c.FormValue("audio_langs"), "audio language"); err != nil {
+		return redirectDriveError(c, idx, err.Error())
+	}
+	if err := validateLangCodes(c.FormValue("subtitle_langs"), "subtitle language"); err != nil {
+		return redirectDriveError(c, idx, err.Error())
 	}
 
 	discName := c.FormValue("disc_name")
