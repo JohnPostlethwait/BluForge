@@ -33,6 +33,9 @@ const (
 	upstreamRepo  = "data"
 )
 
+// prBody is appended to every PR opened against TheDiscDB data repository.
+const prBody = "Submitted with the assistance of [BluForge](https://github.com/johnpostlethwait/BluForge)."
+
 // Store is the subset of db.Store used by the service.
 type Store interface {
 	GetContribution(id int64) (*db.Contribution, error)
@@ -200,7 +203,7 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	// 4g. Open pull request. head is "user:branch" format.
 	prTitle := fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
 	prHead := githubUser + ":" + branchName
-	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, "")
+	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, prBody)
 	if err != nil {
 		return "", fmt.Errorf("contribute: create PR: %w", err)
 	}
@@ -366,7 +369,7 @@ func (s *Service) resubmitFresh(ctx context.Context, contributionID int64, githu
 
 	prTitle := fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, format)
 	prHead := githubUser + ":" + branchName
-	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, "")
+	prURL, err := s.github.CreatePR(ctx, upstreamOwner, upstreamRepo, prHead, baseBranch, prTitle, prBody)
 	if err != nil {
 		return fmt.Errorf("contribute: resubmit create PR: %w", err)
 	}
