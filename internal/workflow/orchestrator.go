@@ -142,6 +142,19 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		}
 	}
 
+	// Guard against path traversal: ensure the destination stays within OutputDir.
+	// SanitizeFilename strips / and \ but not bare "..", which filepath.Join cleans
+	// into a traversal (e.g. filepath.Join("/output", "..") == "/").
+	absBase, _ := filepath.Abs(params.OutputDir)
+	absDest, _ := filepath.Abs(fullDest)
+	if !strings.HasPrefix(absDest, absBase+string(filepath.Separator)) {
+		return TitleResult{
+			TitleIndex: sel.TitleIndex,
+			Status:     "failed",
+			Reason:     "destination path escapes output directory",
+		}
+	}
+
 	// 3. Check disk space.
 	if err := ripper.CheckDiskSpace(params.OutputDir, sel.SizeBytes); err != nil {
 		return TitleResult{

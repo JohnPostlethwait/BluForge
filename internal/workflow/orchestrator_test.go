@@ -841,3 +841,43 @@ func TestAutoRip_WithMatch_NoContributionCreated(t *testing.T) {
 		t.Errorf("expected 0 contributions when disc is matched, got %d", len(contribs))
 	}
 }
+
+func TestManualRip_PathConfinementRejected(t *testing.T) {
+	orch, _, outputDir := setupOrchestrator(t)
+
+	// A MediaTitle of ".." survives SanitizeFilename (dots are not stripped),
+	// causing filepath.Join(outputDir, "../title.mkv") to escape the output dir.
+	params := ManualRipParams{
+		DriveIndex:      0,
+		DiscName:        "..",
+		DiscKey:         "abc",
+		OutputDir:       outputDir,
+		DuplicateAction: "overwrite",
+		MediaTitle:      "..",
+		MediaYear:       "2024",
+		MediaType:       "movie",
+		Titles: []TitleSelection{
+			{
+				TitleIndex:   0,
+				TitleName:    "title",
+				SourceFile:   "title00.mkv",
+				SizeBytes:    1024,
+				ContentType:  "movie",
+				ContentTitle: "..",
+				Year:         "2024",
+			},
+		},
+	}
+
+	result := orch.ManualRip(params)
+
+	if len(result.Titles) != 1 {
+		t.Fatalf("expected 1 title result, got %d", len(result.Titles))
+	}
+	if result.Titles[0].Status != "failed" {
+		t.Errorf("expected status 'failed', got %q", result.Titles[0].Status)
+	}
+	if !strings.Contains(result.Titles[0].Reason, "escapes output directory") {
+		t.Errorf("expected path confinement error, got %q", result.Titles[0].Reason)
+	}
+}
