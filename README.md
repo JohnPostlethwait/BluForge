@@ -2,13 +2,22 @@
 
 A self-hosted web application that orchestrates Blu-ray and DVD ripping via [MakeMKV](https://www.makemkv.com/), identifies disc contents through [TheDiscDB](https://thediscdb.com/), and outputs organized, properly named media files.
 
-## Why Did I Make This
+## Why I Made This
 
 I made this because while ripping DVD/BluRays/UHD discs is _easy_ with MakeMKV, organizing the files afterwards is not. For movies it's more or less straightforward to know which track is the main feature (the largest one), but not _always_ (looking at you, Star Wars franchise). Shows with multiple episodes and a lot of extras is even worse - they tracks/playlists are not necesarily sequential to the episode order (ahem, Seinfeld 4k). TheDiscDB is a fantastic resource to understand which playlist tracks on a disc match which specific extras/main feature/etc, but nothing I found glued the ripping together with the naming of files. This does.
 
 This is intended as step one of digitizing and storing your disc collection. It is not meant to be a full metadata scraper and organizer, but is instead intended to make those programs (the arr's, Tiny Media Manager, etc) work better by having all the filenames already in place. Rip with BluForge, configure it to move them to a directory of your choice with a naming scheme if your choice, have the rest of your toolchain pick them up from there - scraping and storing metadata, and moving them to your final media library location (Plex, Jellyfin, Emby, etc...)
 
 Huge callout to [Luke Foust](https://github.com/lfoust) for his work creating and maintaining [TheDiscDB](https://thediscdb.com/) and to [GuinpinSoft inc.](https://www.makemkv.com/) for their work creating the excellent MakeMKV and makemkvcon (the CLI mechanism to use it). Without those two things this program would not be possible and I'd be spending a lot more time organizing my disc rips. Movie and TV metadata on the contribution workflow is powered by [TMDB (The Movie Database)](https://www.themoviedb.org/) — a fantastic open community resource.
+
+### Screenshots
+
+<img width="1236" height="815" alt="Screenshot 2026-04-04 at 4 30 04 PM" src="https://github.com/user-attachments/assets/702316da-9b2a-4bc3-a71d-3a072bbc5276" />
+
+<img width="1223" height="869" alt="Screenshot 2026-04-04 at 4 29 52 PM" src="https://github.com/user-attachments/assets/39f3269a-b668-4700-ab74-f1c5eca29891" />
+
+<img width="1235" height="658" alt="Screenshot 2026-04-06 at 4 00 39 PM" src="https://github.com/user-attachments/assets/6e1c197e-1fa4-42b0-adbf-cb2c5e3e63c9" />
+
 
 ## Features
 
