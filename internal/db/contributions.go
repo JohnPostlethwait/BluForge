@@ -17,9 +17,11 @@ type Contribution struct {
 	PRURL       string
 	TmdbID      string
 	ReleaseInfo string
-	TitleLabels string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	TitleLabels      string
+	ContributionType string // "add" or "update"
+	MatchInfo        string // JSON; only populated for "update" type
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // SaveContribution inserts a new contribution and returns the generated ID.
@@ -27,10 +29,10 @@ type Contribution struct {
 func (s *Store) SaveContribution(c Contribution) (int64, error) {
 	const q = `
 		INSERT INTO contributions
-			(disc_key, disc_name, raw_output, scan_json)
-		VALUES (?, ?, ?, ?)`
+			(disc_key, disc_name, raw_output, scan_json, contribution_type, match_info)
+		VALUES (?, ?, ?, ?, ?, ?)`
 
-	res, err := s.db.Exec(q, c.DiscKey, c.DiscName, c.RawOutput, c.ScanJSON)
+	res, err := s.db.Exec(q, c.DiscKey, c.DiscName, c.RawOutput, c.ScanJSON, c.ContributionType, c.MatchInfo)
 	if err != nil {
 		return 0, fmt.Errorf("save contribution: %w", err)
 	}
@@ -48,7 +50,8 @@ func (s *Store) SaveContribution(c Contribution) (int64, error) {
 func (s *Store) GetContribution(id int64) (*Contribution, error) {
 	const q = `
 		SELECT id, disc_key, disc_name, raw_output, scan_json, status, pr_url,
-		       tmdb_id, release_info, title_labels, created_at, updated_at
+		       tmdb_id, release_info, title_labels, contribution_type, match_info,
+		       created_at, updated_at
 		FROM contributions WHERE id = ?`
 
 	row := s.db.QueryRow(q, id)
@@ -68,7 +71,8 @@ func (s *Store) GetContribution(id int64) (*Contribution, error) {
 func (s *Store) GetContributionByDiscKey(discKey string) (*Contribution, error) {
 	const q = `
 		SELECT id, disc_key, disc_name, raw_output, scan_json, status, pr_url,
-		       tmdb_id, release_info, title_labels, created_at, updated_at
+		       tmdb_id, release_info, title_labels, contribution_type, match_info,
+		       created_at, updated_at
 		FROM contributions WHERE disc_key = ?`
 
 	row := s.db.QueryRow(q, discKey)
@@ -94,13 +98,15 @@ func (s *Store) ListContributions(status string) ([]Contribution, error) {
 	if status == "" {
 		q = `
 			SELECT id, disc_key, disc_name, raw_output, scan_json, status, pr_url,
-			       tmdb_id, release_info, title_labels, created_at, updated_at
+			       tmdb_id, release_info, title_labels, contribution_type, match_info,
+			       created_at, updated_at
 			FROM contributions
 			ORDER BY created_at DESC`
 	} else {
 		q = `
 			SELECT id, disc_key, disc_name, raw_output, scan_json, status, pr_url,
-			       tmdb_id, release_info, title_labels, created_at, updated_at
+			       tmdb_id, release_info, title_labels, contribution_type, match_info,
+			       created_at, updated_at
 			FROM contributions
 			WHERE status = ?
 			ORDER BY created_at DESC`
@@ -174,6 +180,7 @@ func scanContribution(s scanner) (*Contribution, error) {
 	err := s.Scan(
 		&c.ID, &c.DiscKey, &c.DiscName, &c.RawOutput, &c.ScanJSON,
 		&c.Status, &c.PRURL, &c.TmdbID, &c.ReleaseInfo, &c.TitleLabels,
+		&c.ContributionType, &c.MatchInfo,
 		&c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
