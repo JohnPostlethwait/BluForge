@@ -5,9 +5,11 @@
 
 ## Context
 
-BluForge already supports contributing entirely new disc entries to TheDiscDB when a scan finds no match. This design adds a second contribution type: **update contributions**, created when a disc scan finds a confident TheDiscDB match but one or more MPLS playlist titles on the physical disc are absent from the existing entry. Users can also correct metadata on already-catalogued titles (e.g. a Trailer mislabelled as Extra) as part of the same PR.
+BluForge already supports contributing entirely new disc entries to TheDiscDB when a scan finds no match. This design adds a second contribution type: **update contributions**, created whenever a disc scan finds a confident TheDiscDB match. This lets users correct metadata errors on already-catalogued titles (e.g. a Trailer mislabelled as Extra) and add MPLS playlist titles that were not previously catalogued.
 
 The result is a PR against the TheDiscDB data repo that patches the existing disc JSON — appending new titles and updating item metadata on existing ones — without destroying data BluForge cannot capture (ContentHash, chapter names, track corrections made by prior contributors).
+
+Update contributions that the user does not wish to act on can be removed using the existing "Delete" action.
 
 Additionally, both new "add" PRs and "update" PRs will include a BluForge attribution line in the PR body.
 
@@ -48,8 +50,7 @@ The `title_labels` column is reused for update contributions, pre-populated by t
 `autoMatch()` gains a third branch. After `BestRelease` returns a result:
 
 - **No result** → existing "add" contribution path (unchanged)
-- **Result found, all titles matched** → existing auto-name path, no contribution record (unchanged)
-- **Result found, ≥ 1 title unmatched** → auto-name with matched titles as today, PLUS call `EnsureUpdateContributionRecord(scan, best)`
+- **Result found** → auto-name with matched titles as today, PLUS call `EnsureUpdateContributionRecord(scan, best)`
 
 `EnsureUpdateContributionRecord`:
 - Sets `contribution_type = "update"`
@@ -58,7 +59,7 @@ The `title_labels` column is reused for update contributions, pre-populated by t
 - Uses the same `disc_key` SHA256 (dedup check unchanged)
 - Fires the existing `contribution_available` SSE event (same payload)
 
-The rip proceeds normally in all cases; the update contribution is created in parallel.
+The rip proceeds normally in all cases; the update contribution is created in parallel. Users who do not wish to act on it can delete it from the contributions list.
 
 ---
 
@@ -159,7 +160,7 @@ Checks `{mediaDir}/cover.jpg` and `{releaseDir}/front.jpg` independently via the
 4. Edit a matched title type, submit → confirm the PR contains an updated `disc{N}.json` where only `Item.*` changed on that title, and `ContentHash` / `Tracks` / `Chapters` are preserved from the fetched JSON
 5. Confirm new unmatched titles appear as full new entries in the merged JSON
 6. Confirm the PR title starts with "Update" and the body contains the BluForge attribution link
-7. Insert a disc with no unmatched titles → confirm no update contribution is created
+7. Insert a disc where all titles are matched → confirm an update contribution is still created (all titles pre-filled, none default to "Omit")
 8. Confirm "add" PRs also now include the BluForge attribution line
 9. Test resubmit: close the PR branch, hit "Update PR" → confirm a new branch and PR are created (branch-not-found recovery path)
 10. Test image handling: mock a release directory with no images → confirm images are included in PR; mock one with existing images → confirm images are omitted
