@@ -101,7 +101,10 @@ func NewServer(deps ServerDeps) *Server {
 		CookieHTTPOnly: true,
 		CookieSameSite: http.SameSiteStrictMode,
 		Skipper: func(c echo.Context) bool {
-			// JSON API requests (Alpine fetch) handle auth differently.
+			// JSON POSTs with Accept: application/json originate from Alpine fetch()
+			// calls within the same origin. Cross-origin requests are blocked by the
+			// browser's same-origin policy because this server sends no permissive
+			// CORS headers, so no alternative CSRF token is needed for these endpoints.
 			if c.Request().Method != http.MethodGet {
 				accept := c.Request().Header.Get("Accept")
 				return accept == "application/json"
