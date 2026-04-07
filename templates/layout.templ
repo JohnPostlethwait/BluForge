@@ -1,6 +1,11 @@
 package templates
 
-import "github.com/johnpostlethwait/bluforge/templates/components"
+import (
+	"strconv"
+	"time"
+
+	"github.com/johnpostlethwait/bluforge/templates/components"
+)
 
 templ Layout(title string) {
 	<!DOCTYPE html>
@@ -22,6 +27,10 @@ templ Layout(title string) {
 			<main id="main-content" class="container">
 				{ children... }
 			</main>
+			<footer class="site-footer">
+				&copy; { strconv.Itoa(time.Now().Year()) } BluForge &mdash;
+				<a href="https://github.com/JohnPostlethwait/BluForge" target="_blank" rel="noopener noreferrer">GitHub</a>
+			</footer>
 		</body>
 	</html>
 }
