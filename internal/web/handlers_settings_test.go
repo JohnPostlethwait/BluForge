@@ -22,6 +22,7 @@ func testSettingsServer(t *testing.T) *Server {
 	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfg := &config.AppConfig{
+		Port:               9160,
 		OutputDir:          "/old/output",
 		AutoRip:            false,
 		MinTitleLength:     120,
@@ -90,10 +91,11 @@ func TestHandleSettingsSave_UpdatesConfig(t *testing.T) {
 func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 	srv := testSettingsServer(t)
 
-	// Only set output_dir; leave min_title_length and poll_interval empty so
-	// the handler parses them as -1 and skips updating those fields.
+	// Submit required fields but omit min_title_length and poll_interval to
+	// verify the handler skips updating numeric fields with empty values (-1).
 	form := url.Values{}
 	form.Set("output_dir", "/new/path")
+	form.Set("duplicate_action", "skip") // required by Validate(); real form always sends this
 
 	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -120,13 +122,9 @@ func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 		t.Errorf("PollInterval should remain 5 when form value is empty, got %d", cfg.PollInterval)
 	}
 
-	// These fields are always set from form values, so they become zero/empty
-	// when omitted from the form.
+	// AutoRip is always set from the form value (false when omitted).
 	if cfg.AutoRip {
 		t.Error("AutoRip: expected false when omitted from form")
-	}
-	if cfg.DuplicateAction != "" {
-		t.Errorf("DuplicateAction: expected empty string when omitted, got %q", cfg.DuplicateAction)
 	}
 }
 
