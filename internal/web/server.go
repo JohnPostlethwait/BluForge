@@ -181,9 +181,15 @@ func (s *Server) UpdateConfig(fn func(*config.AppConfig)) error {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 
-	fn(s.cfg)
+	candidate := *s.cfg
+	fn(&candidate)
 
-	return config.Save(*s.cfg, s.configPath)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+
+	s.cfg = &candidate
+	return config.Save(candidate, s.configPath)
 }
 
 // Start begins listening on the configured port.

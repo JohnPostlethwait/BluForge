@@ -22,6 +22,7 @@ func testSettingsServer(t *testing.T) *Server {
 	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfg := &config.AppConfig{
+		Port:               9160,
 		OutputDir:          "/old/output",
 		AutoRip:            false,
 		MinTitleLength:     120,
@@ -120,13 +121,11 @@ func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 		t.Errorf("PollInterval should remain 5 when form value is empty, got %d", cfg.PollInterval)
 	}
 
-	// These fields are always set from form values, so they become zero/empty
-	// when omitted from the form.
-	if cfg.AutoRip {
-		t.Error("AutoRip: expected false when omitted from form")
-	}
-	if cfg.DuplicateAction != "" {
-		t.Errorf("DuplicateAction: expected empty string when omitted, got %q", cfg.DuplicateAction)
+	// String fields are now also skipped when omitted from the form, preserving
+	// existing values (necessary for partial updates and validation safety).
+	// AutoRip is a boolean, so when omitted from a form it's false (not checked).
+	if cfg.DuplicateAction != "skip" {
+		t.Errorf("DuplicateAction should remain %q when omitted, got %q", "skip", cfg.DuplicateAction)
 	}
 }
 

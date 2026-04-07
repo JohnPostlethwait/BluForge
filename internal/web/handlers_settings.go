@@ -57,11 +57,19 @@ func (s *Server) handleSettingsSave(c echo.Context) error {
 	}
 
 	if err := s.UpdateConfig(func(cfg *config.AppConfig) {
-		cfg.OutputDir = outputDir
+		if outputDir != "" {
+			cfg.OutputDir = outputDir
+		}
 		cfg.AutoRip = autoRip
-		cfg.DuplicateAction = duplicateAction
-		cfg.PreferredAudioLangs = preferredAudioLangs
-		cfg.PreferredSubtitleLangs = preferredSubtitleLangs
+		if duplicateAction != "" {
+			cfg.DuplicateAction = duplicateAction
+		}
+		if preferredAudioLangs != "" {
+			cfg.PreferredAudioLangs = preferredAudioLangs
+		}
+		if preferredSubtitleLangs != "" {
+			cfg.PreferredSubtitleLangs = preferredSubtitleLangs
+		}
 		cfg.KeepForcedSubtitles = keepForcedSubtitles
 		cfg.KeepLosslessAudio = keepLosslessAudio
 
