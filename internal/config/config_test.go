@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -212,5 +213,37 @@ func TestSave_RoundTrip_MakeMKVKey(t *testing.T) {
 
 	if loaded.MakeMKVKey != cfg.MakeMKVKey {
 		t.Errorf("MakeMKVKey: want %q, got %q", cfg.MakeMKVKey, loaded.MakeMKVKey)
+	}
+}
+
+func TestValidate_EmptyOutputDir(t *testing.T) {
+	cfg := AppConfig{
+		Port:            9160,
+		OutputDir:       "",
+		PollInterval:    5,
+		DuplicateAction: "skip",
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for empty OutputDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "output_dir") {
+		t.Errorf("expected error to mention output_dir, got: %v", err)
+	}
+}
+
+func TestValidate_RelativeOutputDir(t *testing.T) {
+	cfg := AppConfig{
+		Port:            9160,
+		OutputDir:       "relative/path",
+		PollInterval:    5,
+		DuplicateAction: "skip",
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for relative OutputDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "output_dir") {
+		t.Errorf("expected error to mention output_dir, got: %v", err)
 	}
 }

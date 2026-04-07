@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -126,6 +127,12 @@ func (c *AppConfig) Validate() error {
 	valid := map[string]bool{"skip": true, "overwrite": true, "rename": true}
 	if _, ok := valid[c.DuplicateAction]; !ok {
 		return fmt.Errorf("invalid duplicate_action %q: must be one of skip, overwrite, rename", c.DuplicateAction)
+	}
+	if c.OutputDir == "" {
+		return fmt.Errorf("output_dir must not be empty")
+	}
+	if !filepath.IsAbs(c.OutputDir) {
+		return fmt.Errorf("output_dir %q must be an absolute path", c.OutputDir)
 	}
 	return nil
 }
