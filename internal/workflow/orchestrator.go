@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/johnpostlethwait/bluforge/internal/contribute"
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -491,6 +492,8 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan, op
 				mediaTitle = best.MediaItem.Title
 				mediaYear = strconv.Itoa(best.MediaItem.Year)
 				mediaType = best.MediaItem.Type
+				// Create an update contribution so the user can correct or augment the entry.
+				go o.EnsureUpdateContributionRecord(scan, best)
 				return
 			}
 		}
@@ -545,6 +548,101 @@ func (o *Orchestrator) EnsureContributionRecord(scan *makemkv.DiscScan) {
 		"disc_key", discKey, "disc_name", scan.DiscName, "contribution_id", id)
 
 	// Broadcast SSE event so the UI can show a notification.
+	if o.onBroadcast != nil {
+		data, _ := json.Marshal(map[string]any{
+			"contribution_id": id,
+			"disc_name":       scan.DiscName,
+		})
+		o.onBroadcast("contribution_available", string(data))
+	}
+}
+
+// EnsureUpdateContributionRecord stores a matched disc scan for potential
+// correction/augmentation of an existing TheDiscDB entry. Silently skips if
+// a contribution already exists for this disc key.
+func (o *Orchestrator) EnsureUpdateContributionRecord(scan *makemkv.DiscScan, best *discdb.SearchResult) {
+	discKey := discdb.BuildDiscKey(scan)
+
+	existing, err := o.store.GetContributionByDiscKey(discKey)
+	if err != nil {
+		slog.Error("auto-rip: failed to check existing update contribution", "disc_key", discKey, "error", err)
+		return
+	}
+	if existing != nil {
+		slog.Info("auto-rip: update contribution already exists for disc", "disc_key", discKey)
+		return
+	}
+
+	// Build title labels from the match: matched titles carry TheDiscDB metadata;
+	// unmatched titles get empty type (renders as Omit in the form).
+	matches := discdb.MatchTitles(scan, best.Disc)
+	scanByIndex := make(map[int]*makemkv.TitleInfo, len(scan.Titles))
+	for i := range scan.Titles {
+		scanByIndex[scan.Titles[i].Index] = &scan.Titles[i]
+	}
+
+	labels := make([]contribute.TitleLabel, 0, len(matches))
+	for _, cm := range matches {
+		label := contribute.TitleLabel{
+			TitleIndex: cm.TitleIndex,
+			Matched:    cm.Matched,
+		}
+		if t, ok := scanByIndex[cm.TitleIndex]; ok {
+			label.FileName = t.Filename()
+		}
+		if cm.Matched {
+			label.Type = cm.ContentType
+			label.Name = cm.ContentTitle
+			label.Season = cm.Season
+			label.Episode = cm.Episode
+		}
+		labels = append(labels, label)
+	}
+
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		slog.Error("auto-rip: failed to marshal labels for update contribution", "error", err)
+		return
+	}
+
+	mi := contribute.MatchInfo{
+		MediaSlug:   best.MediaItem.Slug,
+		MediaType:   strings.ToLower(best.MediaItem.Type),
+		MediaTitle:  best.MediaItem.Title,
+		MediaYear:   best.MediaItem.Year,
+		ReleaseSlug: best.Release.Slug,
+		DiscIndex:   best.Disc.Index,
+		ImageURL:    best.Release.ImageURL,
+	}
+	miJSON, err := json.Marshal(mi)
+	if err != nil {
+		slog.Error("auto-rip: failed to marshal match_info for update contribution", "error", err)
+		return
+	}
+
+	scanJSON, err := json.Marshal(scan)
+	if err != nil {
+		slog.Error("auto-rip: failed to marshal scan for update contribution", "error", err)
+		return
+	}
+
+	id, err := o.store.SaveContribution(db.Contribution{
+		DiscKey:          discKey,
+		DiscName:         scan.DiscName,
+		RawOutput:        scan.RawOutput,
+		ScanJSON:         string(scanJSON),
+		ContributionType: "update",
+		MatchInfo:        string(miJSON),
+		TitleLabels:      string(labelsJSON),
+	})
+	if err != nil {
+		slog.Error("auto-rip: failed to save update contribution", "disc_key", discKey, "error", err)
+		return
+	}
+
+	slog.Info("auto-rip: created update contribution record for matched disc",
+		"disc_key", discKey, "disc_name", scan.DiscName, "contribution_id", id)
+
 	if o.onBroadcast != nil {
 		data, _ := json.Marshal(map[string]any{
 			"contribution_id": id,

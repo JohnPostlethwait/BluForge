@@ -29,10 +29,10 @@ type Contribution struct {
 func (s *Store) SaveContribution(c Contribution) (int64, error) {
 	const q = `
 		INSERT INTO contributions
-			(disc_key, disc_name, raw_output, scan_json, contribution_type, match_info)
-		VALUES (?, ?, ?, ?, ?, ?)`
+			(disc_key, disc_name, raw_output, scan_json, contribution_type, match_info, title_labels)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	res, err := s.db.Exec(q, c.DiscKey, c.DiscName, c.RawOutput, c.ScanJSON, c.ContributionType, c.MatchInfo)
+	res, err := s.db.Exec(q, c.DiscKey, c.DiscName, c.RawOutput, c.ScanJSON, c.ContributionType, c.MatchInfo, c.TitleLabels)
 	if err != nil {
 		return 0, fmt.Errorf("save contribution: %w", err)
 	}
