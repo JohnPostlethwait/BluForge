@@ -365,6 +365,11 @@ func (s *Server) handleContributionResubmitUpdate(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
 	}
 
+	// Persist any ASIN/ReleaseDate/FrontImageURL the user entered before pushing the update.
+	if err := s.parseAndSaveUpdateDraft(c, id); err != nil {
+		return err
+	}
+
 	ghClient, err := ghpkg.NewClient(cfg.GitHubToken)
 	if err != nil {
 		slog.Error("failed to create GitHub client", "error", err)

@@ -637,6 +637,9 @@ document.addEventListener('alpine:init', () => {
 							x-data="{ submitting: false }"
 							@submit="submitting = true">
 							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
+							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
 							<button type="submit" class="btn btn-primary"
 								if !data.GitHubTokenConfigured {
 									disabled
