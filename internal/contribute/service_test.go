@@ -978,12 +978,12 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 		t.Error("front.jpg should not be committed when FrontImageURL is empty")
 	}
 
-	// release.json should include ImageUrl.
+	// release.json should omit ImageUrl (TheDiscDB fills it during import).
 	rel, ok := byPath["data/movie/The Matrix (1999)/1999-blu-ray/release.json"]
 	if !ok {
 		t.Error("release.json missing from commit")
-	} else if !strings.Contains(rel.Content, `"ImageUrl"`) {
-		t.Errorf("release.json missing ImageUrl field, content: %s", rel.Content)
+	} else if strings.Contains(rel.Content, `"ImageUrl"`) {
+		t.Errorf("release.json should omit ImageUrl (TheDiscDB fills it during import), content: %s", rel.Content)
 	}
 }
 

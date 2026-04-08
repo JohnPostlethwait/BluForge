@@ -223,6 +223,11 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
 	}
 
+	// Persist the current form state (including ASIN/ReleaseDate/FrontImageURL) before resubmitting.
+	if err := s.parseAndSaveDraft(c, id); err != nil {
+		return err
+	}
+
 	mediaTitle := c.FormValue("media_title")
 	mediaType := c.FormValue("media_type")
 	mediaYear := 0

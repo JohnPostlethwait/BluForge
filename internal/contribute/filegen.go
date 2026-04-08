@@ -12,7 +12,8 @@ import (
 )
 
 // GenerateReleaseJSON produces the TheDiscDB release.json content for a contribution.
-func GenerateReleaseJSON(ri ReleaseInfo, githubUser, imageURL string) string {
+// ImageUrl is intentionally omitted — TheDiscDB fills it in during the import process.
+func GenerateReleaseJSON(ri ReleaseInfo, githubUser string) string {
 	releaseDateStr := ""
 	if ri.ReleaseDate != "" {
 		if t, err := time.Parse("2006-01-02", ri.ReleaseDate); err == nil {
@@ -29,7 +30,6 @@ func GenerateReleaseJSON(ri ReleaseInfo, githubUser, imageURL string) string {
 		RegionCode:  ri.RegionCode,
 		Title:       ri.Format,
 		SortTitle:   fmt.Sprintf("%d %s", ri.Year, ri.Format),
-		ImageUrl:    imageURL,
 		ReleaseDate: releaseDateStr,
 		DateAdded:   time.Now().UTC().Format(time.RFC3339),
 		Contributors: []ContributorJSON{
@@ -240,12 +240,6 @@ func titleCaseType(mediaType string) string {
 // Example: TitleImageURL("movie", "the-matrix-1999") → "Movie/the-matrix-1999/cover.jpg"
 func TitleImageURL(mediaType, titleSlug string) string {
 	return titleCaseType(mediaType) + "/" + titleSlug + "/cover.jpg"
-}
-
-// ReleaseImageURL returns the ImageUrl value for release.json.
-// Example: ReleaseImageURL("movie", "the-matrix-1999", "1999-blu-ray") → "Movie/the-matrix-1999/1999-blu-ray.jpg"
-func ReleaseImageURL(mediaType, titleSlug, releaseSlug string) string {
-	return titleCaseType(mediaType) + "/" + titleSlug + "/" + releaseSlug + ".jpg"
 }
 
 // GenerateMetadataJSON produces the TheDiscDB metadata.json content for a title.

@@ -156,11 +156,10 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	// 4c. Generate file contents.
 	titleSlug := slugify(mediaTitle, mediaYear)
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
-	releaseImageURL := ReleaseImageURL(mediaType, titleSlug, releaseSlug)
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
 
-	releaseJSON := GenerateReleaseJSON(ri, githubUser, releaseImageURL)
+	releaseJSON := GenerateReleaseJSON(ri, githubUser)
 	discJSON := GenerateDiscJSON(&scan, ri.Format)
 	summary := GenerateSummary(&scan, labels)
 	rawOutput := c.RawOutput
@@ -285,13 +284,12 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
 	titleSlug := slugify(mediaTitle, mediaYear)
-	releaseImageURL := ReleaseImageURL(mediaType, titleSlug, releaseSlug)
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 
 	files := []ghpkg.FileEntry{
-		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser, releaseImageURL)},
+		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser)},
 		{Path: releaseDir + "/disc01.json", Content: GenerateDiscJSON(&scan, ri.Format)},
 		{Path: releaseDir + "/disc01-summary.txt", Content: GenerateSummary(&scan, labels)},
 		{Path: releaseDir + "/disc01.txt", Content: c.RawOutput},

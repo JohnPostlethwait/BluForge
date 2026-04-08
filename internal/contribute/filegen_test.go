@@ -54,7 +54,7 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Truncate(time.Second)
-	content := GenerateReleaseJSON(ri, "testuser", "Movie/the-matrix-1999/1999-blu-ray.jpg")
+	content := GenerateReleaseJSON(ri, "testuser")
 	after := time.Now().UTC().Add(time.Second).Truncate(time.Second)
 
 	// Must be valid JSON.
@@ -85,8 +85,9 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	if got.SortTitle != wantSortTitle {
 		t.Errorf("SortTitle: want %q, got %q", wantSortTitle, got.SortTitle)
 	}
-	if got.ImageUrl != "Movie/the-matrix-1999/1999-blu-ray.jpg" {
-		t.Errorf("ImageUrl: want %q, got %q", "Movie/the-matrix-1999/1999-blu-ray.jpg", got.ImageUrl)
+	// ImageUrl should be omitted (TheDiscDB fills it in during import).
+	if got.ImageUrl != "" {
+		t.Errorf("ImageUrl: want empty (omitted), got %q", got.ImageUrl)
 	}
 	// DateAdded must parse as RFC3339 and fall within the test window (RFC3339 is
 	// second-precision, so we truncate both ends and add a 1s pad on the upper bound).
@@ -119,7 +120,7 @@ func TestGenerateReleaseJSON_WithASINAndReleaseDate(t *testing.T) {
 		ReleaseDate: "1999-09-21",
 	}
 
-	content := GenerateReleaseJSON(ri, "testuser", "")
+	content := GenerateReleaseJSON(ri, "testuser")
 
 	var got ReleaseJSON
 	if err := json.Unmarshal([]byte(content), &got); err != nil {
@@ -141,7 +142,7 @@ func TestGenerateReleaseJSON_OmitsASINAndReleaseDateWhenEmpty(t *testing.T) {
 		// ASIN and ReleaseDate intentionally empty
 	}
 
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	if strings.Contains(content, `"Asin"`) {
 		t.Error("expected Asin to be omitted when empty")
@@ -158,7 +159,7 @@ func TestGenerateReleaseJSON_MalformedReleaseDateOmitted(t *testing.T) {
 		ReleaseDate: "not-a-date",
 	}
 
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	if strings.Contains(content, `"ReleaseDate"`) {
 		t.Error("expected ReleaseDate to be omitted when unparseable")
@@ -606,7 +607,7 @@ func TestGenerateReleaseJSON_EmptyOptionalFields(t *testing.T) {
 		// UPC intentionally empty
 		// Slug intentionally empty
 	}
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	var got ReleaseJSON
 	if err := json.Unmarshal([]byte(content), &got); err != nil {
@@ -746,10 +747,3 @@ func TestTitleImageURL(t *testing.T) {
 	}
 }
 
-func TestReleaseImageURL(t *testing.T) {
-	got := ReleaseImageURL("movie", "the-matrix-1999", "1999-blu-ray")
-	want := "Movie/the-matrix-1999/1999-blu-ray.jpg"
-	if got != want {
-		t.Errorf("ReleaseImageURL: want %q, got %q", want, got)
-	}
-}
