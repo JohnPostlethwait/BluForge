@@ -249,7 +249,12 @@ document.addEventListener('alpine:init', () => {
 
 		if data.Flash != "" {
 			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
-				<span>{ data.Flash }</span>
+				<span>
+					{ data.Flash }
+					if data.Contribution.PRURL != "" {
+						— <a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" style="color: inherit; text-decoration: underline; font-weight: 600;">View PR on GitHub</a>
+					}
+				</span>
 				<button @click="show = false" aria-label="Dismiss" class="btn-close-alert">&times;</button>
 			</div>
 		}
