@@ -24,6 +24,7 @@ type MatchInfo struct {
 	DiscIndex     int    `json:"disc_index"`
 	ImageURL      string `json:"image_url"`
 	ASIN          string `json:"asin,omitempty"`
+	ReleaseDate   string `json:"release_date,omitempty"`    // YYYY-MM-DD; patched into release.json
 	FrontImageURL string `json:"front_image_url,omitempty"` // user-supplied URL for front.jpg
 }
 

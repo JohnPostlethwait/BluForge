@@ -177,12 +177,14 @@ func (s *Service) Submit(ctx context.Context, contributionID int64, mediaTitle s
 	if len(posterBytes) > 0 {
 		files = append(files, ghpkg.FileEntry{Path: mediaDir + "/cover.jpg", Blob: posterBytes})
 	}
-	frontBytes, frontErr := downloadFrontImage(ctx, ri.FrontImageURL)
-	if frontErr != nil {
-		slog.Warn("contribute: failed to download front cover image; submission will proceed without front.jpg",
-			"front_image_url", ri.FrontImageURL, "error", frontErr)
-	} else if len(frontBytes) > 0 {
-		files = append(files, ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: frontBytes})
+	if ri.FrontImageURL != "" {
+		frontBytes, frontErr := downloadFromURL(ctx, ri.FrontImageURL)
+		if frontErr != nil {
+			slog.Warn("contribute: failed to download front cover image; submission will proceed without front.jpg",
+				"front_image_url", ri.FrontImageURL, "error", frontErr)
+		} else if len(frontBytes) > 0 {
+			files = append(files, ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: frontBytes})
+		}
 	}
 
 	// 4d. Get default branch SHA from the upstream repo (not the fork).
@@ -299,12 +301,14 @@ func (s *Service) Resubmit(ctx context.Context, contributionID int64, mediaTitle
 	if len(posterBytes) > 0 {
 		files = append(files, ghpkg.FileEntry{Path: mediaDir + "/cover.jpg", Blob: posterBytes})
 	}
-	frontBytes, frontErr := downloadFrontImage(ctx, ri.FrontImageURL)
-	if frontErr != nil {
-		slog.Warn("contribute: resubmit: failed to download front cover image; proceeding without front.jpg",
-			"front_image_url", ri.FrontImageURL, "error", frontErr)
-	} else if len(frontBytes) > 0 {
-		files = append(files, ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: frontBytes})
+	if ri.FrontImageURL != "" {
+		frontBytes, frontErr := downloadFromURL(ctx, ri.FrontImageURL)
+		if frontErr != nil {
+			slog.Warn("contribute: resubmit: failed to download front cover image; proceeding without front.jpg",
+				"front_image_url", ri.FrontImageURL, "error", frontErr)
+		} else if len(frontBytes) > 0 {
+			files = append(files, ghpkg.FileEntry{Path: releaseDir + "/front.jpg", Blob: frontBytes})
+		}
 	}
 
 	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: regenerate all contribution files", mediaTitle, mediaYear, ri.Format)
@@ -389,15 +393,6 @@ func (s *Service) resubmitFresh(ctx context.Context, contributionID int64, githu
 	}
 
 	return nil
-}
-
-// downloadFrontImage fetches the front cover image from url.
-// Returns nil, nil when url is empty (no image to fetch).
-func downloadFrontImage(ctx context.Context, url string) ([]byte, error) {
-	if url == "" {
-		return nil, nil
-	}
-	return downloadFromURL(ctx, url)
 }
 
 var (

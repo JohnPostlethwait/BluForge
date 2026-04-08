@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	ghpkg "github.com/johnpostlethwait/bluforge/internal/github"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -149,13 +150,24 @@ func (s *Service) SubmitUpdate(ctx context.Context, contributionID int64) (strin
 		}
 	}
 
-	// 4h. Get default branch SHA from the upstream repo.
+	// 4h. Patch release.json with ASIN and/or ReleaseDate if provided.
+	if mi.ASIN != "" || mi.ReleaseDate != "" {
+		releasePath := releaseDir + "/release.json"
+		if patchedRelease, err := patchReleaseJSON(ctx, s.github, mi, releasePath); err != nil {
+			slog.Warn("contribute: failed to patch release.json; submission will proceed without it",
+				"path", releasePath, "error", err)
+		} else if patchedRelease != "" {
+			files = append(files, ghpkg.FileEntry{Path: releasePath, Content: patchedRelease})
+		}
+	}
+
+	// 4i. Get default branch SHA from the upstream repo.
 	baseBranch, baseSHA, err := s.github.GetDefaultBranchSHA(ctx, upstreamOwner, upstreamRepo)
 	if err != nil {
 		return "", fmt.Errorf("contribute: get default branch SHA: %w", err)
 	}
 
-	// 4i. Create branch.
+	// 4j. Create branch.
 	titleSlug := slugify(mi.MediaTitle, mi.MediaYear)
 	branchName := ghpkg.ContributionBranchName(titleSlug, mi.ReleaseSlug) + "-update"
 	if err := s.github.CreateBranch(ctx, forkOwner, upstreamRepo, branchName, baseSHA); err != nil {
@@ -278,6 +290,17 @@ func (s *Service) ResubmitUpdate(ctx context.Context, contributionID int64) erro
 		}
 	}
 
+	// Patch release.json with ASIN and/or ReleaseDate if provided.
+	if mi.ASIN != "" || mi.ReleaseDate != "" {
+		releasePath := releaseDir + "/release.json"
+		if patchedRelease, err := patchReleaseJSON(ctx, s.github, mi, releasePath); err != nil {
+			slog.Warn("contribute: resubmit update: failed to patch release.json; proceeding without it",
+				"path", releasePath, "error", err)
+		} else if patchedRelease != "" {
+			files = append(files, ghpkg.FileEntry{Path: releasePath, Content: patchedRelease})
+		}
+	}
+
 	titleSlug := slugify(mi.MediaTitle, mi.MediaYear)
 	branchName := ghpkg.ContributionBranchName(titleSlug, mi.ReleaseSlug) + "-update"
 	commitMsg := fmt.Sprintf("Fix %s (%d) - %s: regenerate update contribution files", mi.MediaTitle, mi.MediaYear, mi.ReleaseSlug)
@@ -344,6 +367,54 @@ func (s *Service) resubmitUpdateFresh(ctx context.Context, contributionID int64,
 	}
 
 	return nil
+}
+
+// patchReleaseJSON fetches the existing release.json from the upstream repo,
+// patches in any ASIN and/or ReleaseDate from mi, and returns the updated JSON.
+// Returns an empty string (no error) when the file does not exist upstream.
+func patchReleaseJSON(ctx context.Context, gh GitHubClient, mi MatchInfo, releasePath string) (string, error) {
+	exists, err := gh.FileExists(ctx, upstreamOwner, upstreamRepo, releasePath)
+	if err != nil {
+		return "", fmt.Errorf("check release.json existence: %w", err)
+	}
+	if !exists {
+		return "", nil // Nothing to patch — new contributions handle release.json creation.
+	}
+
+	existingJSON, err := gh.GetFileContent(ctx, upstreamOwner, upstreamRepo, releasePath)
+	if err != nil {
+		return "", fmt.Errorf("fetch release.json: %w", err)
+	}
+
+	var rel ReleaseJSON
+	if err := json.Unmarshal([]byte(existingJSON), &rel); err != nil {
+		return "", fmt.Errorf("parse release.json: %w", err)
+	}
+
+	changed := false
+	if mi.ASIN != "" && rel.Asin != mi.ASIN {
+		rel.Asin = mi.ASIN
+		changed = true
+	}
+	if mi.ReleaseDate != "" {
+		if t, err := time.Parse("2006-01-02", mi.ReleaseDate); err == nil {
+			formatted := t.UTC().Format(time.RFC3339)
+			if rel.ReleaseDate != formatted {
+				rel.ReleaseDate = formatted
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return "", nil
+	}
+
+	data, err := json.MarshalIndent(rel, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal patched release.json: %w", err)
+	}
+	return string(data) + "\n", nil
 }
 
 // downloadFromURL fetches the content at url and returns the raw bytes.
