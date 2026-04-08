@@ -208,9 +208,9 @@ func TestSubmitCreatesGitHubPR(t *testing.T) {
 
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	prURL, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	prURL, err := svc.Execute(context.Background(), id)
 	if err != nil {
-		t.Fatalf("Submit: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
 	if prURL != "https://github.com/TheDiscDb/data/pull/42" {
 		t.Errorf("prURL: want %q, got %q", "https://github.com/TheDiscDb/data/pull/42", prURL)
@@ -274,7 +274,7 @@ func TestSubmitFailsMissingTmdbID(t *testing.T) {
 
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for missing tmdb_id, got nil")
 	}
@@ -293,7 +293,7 @@ func TestSubmitNotFound(t *testing.T) {
 
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	_, err := svc.Submit(context.Background(), 9999, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), 9999)
 	if err == nil {
 		t.Fatal("expected error for missing contribution, got nil")
 	}
@@ -310,7 +310,7 @@ func TestSubmitFailsGetUser(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -329,7 +329,7 @@ func TestSubmitFailsEnsureFork(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -349,7 +349,7 @@ func TestSubmitFailsGetDefaultBranch(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -371,7 +371,7 @@ func TestSubmitFailsCreateBranch(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -393,7 +393,7 @@ func TestSubmitFailsCommitFiles(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -415,7 +415,7 @@ func TestSubmitFailsCreatePR(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -426,7 +426,7 @@ func TestSubmitFailsCreatePR(t *testing.T) {
 
 // --- Idempotency tests ---
 
-func TestSubmitAlreadySubmittedReturnsExistingPR(t *testing.T) {
+func TestExecute_resubmitPushesToExistingBranch(t *testing.T) {
 	store := openTestStore(t)
 	id, _, _ := seedContribution(t, store, nil)
 
@@ -444,16 +444,17 @@ func TestSubmitAlreadySubmittedReturnsExistingPR(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	prURL, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	prURL, err := svc.Execute(context.Background(), id)
 	if err != nil {
-		t.Fatalf("Submit: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
+	// pushToExisting returns the existing PR URL.
 	if prURL != "https://github.com/existing/pr" {
 		t.Errorf("prURL: want %q, got %q", "https://github.com/existing/pr", prURL)
 	}
-	// No GitHub API calls should have been made.
-	if len(gh.commitFiles) != 0 {
-		t.Errorf("expected 0 CommitFiles calls, got %d", len(gh.commitFiles))
+	// Execute() on a submitted contribution calls pushToExisting which commits files.
+	if len(gh.commitFiles) != 1 {
+		t.Errorf("expected 1 CommitFiles call (pushToExisting), got %d", len(gh.commitFiles))
 	}
 }
 
@@ -471,7 +472,7 @@ func TestSubmitBranchAlreadyExistsContinues(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	prURL, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	prURL, err := svc.Execute(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -495,7 +496,7 @@ func TestSubmitFailsWaitForFork(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -517,7 +518,7 @@ func TestSubmitWaitsForForkBeforeCreatingBranch(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
@@ -580,7 +581,7 @@ func TestSubmitFailsMalformedReleaseInfo(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for malformed release_info, got nil")
 	}
@@ -622,7 +623,7 @@ func TestSubmitFailsMalformedTitleLabels(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for malformed title_labels, got nil")
 	}
@@ -666,7 +667,7 @@ func TestSubmitFailsMalformedScanJSON(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for malformed scan_json, got nil")
 	}
@@ -712,7 +713,7 @@ func TestSubmitFailsMissingReleaseInfo(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for missing release_info, got nil")
 	}
@@ -754,12 +755,12 @@ func TestSubmitFailsMissingTitleLabels(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for missing title_labels, got nil")
 	}
-	if !strings.Contains(err.Error(), "has no title_labels") {
-		t.Errorf("error %q should contain %q", err.Error(), "has no title_labels")
+	if !strings.Contains(err.Error(), "has no typed title label") {
+		t.Errorf("error %q should contain %q", err.Error(), "has no typed title label")
 	}
 }
 
@@ -778,14 +779,14 @@ func TestResubmitPushesCorrectiveCommit(t *testing.T) {
 		prURL:         "https://github.com/TheDiscDb/data/pull/42",
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
 	// Reset commitFiles to only capture the Resubmit call.
 	gh.commitFiles = nil
 
-	if err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Resubmit: %v", err)
 	}
 
@@ -822,7 +823,7 @@ func TestResubmitRecreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
 		prURL:         "https://github.com/TheDiscDb/data/pull/42",
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
@@ -835,7 +836,7 @@ func TestResubmitRecreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
 	gh.prCalled = false
 	gh.callOrder = nil
 
-	if err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Resubmit: %v", err)
 	}
 
@@ -880,22 +881,6 @@ func contains(s []string, v string) bool {
 	return false
 }
 
-func TestResubmitFailsIfNotSubmitted(t *testing.T) {
-	store := openTestStore(t)
-	id, _, _ := seedContribution(t, store, nil)
-
-	gh := &mockGitHub{user: "testuser"}
-	svc := NewService(store, gh, defaultMockTMDB())
-
-	err := svc.Resubmit(context.Background(), id, "The Matrix", 1999, "movie")
-	if err == nil {
-		t.Fatal("expected error for non-submitted contribution, got nil")
-	}
-	if !strings.Contains(err.Error(), "not submitted") {
-		t.Errorf("error %q should contain %q", err.Error(), "not submitted")
-	}
-}
-
 // --- Slugify tests ---
 
 func TestSlugify(t *testing.T) {
@@ -938,7 +923,7 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, defaultMockTMDB())
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
@@ -949,16 +934,19 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 		byPath[f.Path] = f
 	}
 
+	// Execute() reads the media title from c.DiscName ("THE_MATRIX").
+	titleDir := "data/movie/THE_MATRIX (1999)"
+
 	// metadata.json at title level.
-	meta, ok := byPath["data/movie/The Matrix (1999)/metadata.json"]
+	meta, ok := byPath[titleDir+"/metadata.json"]
 	if !ok {
 		t.Error("metadata.json missing from commit")
-	} else if !strings.Contains(meta.Content, `"the-matrix-1999"`) {
+	} else if !strings.Contains(meta.Content, `"thematrix-1999"`) {
 		t.Errorf("metadata.json missing expected slug, content: %s", meta.Content)
 	}
 
 	// tmdb.json at title level.
-	tmdbFile, ok := byPath["data/movie/The Matrix (1999)/tmdb.json"]
+	tmdbFile, ok := byPath[titleDir+"/tmdb.json"]
 	if !ok {
 		t.Error("tmdb.json missing from commit")
 	} else if len(tmdbFile.Content) == 0 {
@@ -966,7 +954,7 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 	}
 
 	// cover.jpg at title level (binary).
-	cover, ok := byPath["data/movie/The Matrix (1999)/cover.jpg"]
+	cover, ok := byPath[titleDir+"/cover.jpg"]
 	if !ok {
 		t.Error("cover.jpg missing from commit")
 	} else if len(cover.Blob) == 0 {
@@ -974,12 +962,12 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 	}
 
 	// front.jpg should NOT be present: seedContribution sets no FrontImageURL.
-	if _, hasFront := byPath["data/movie/The Matrix (1999)/1999-blu-ray/front.jpg"]; hasFront {
+	if _, hasFront := byPath[titleDir+"/1999-blu-ray/front.jpg"]; hasFront {
 		t.Error("front.jpg should not be committed when FrontImageURL is empty")
 	}
 
 	// release.json should omit ImageUrl (TheDiscDB fills it during import).
-	rel, ok := byPath["data/movie/The Matrix (1999)/1999-blu-ray/release.json"]
+	rel, ok := byPath[titleDir+"/1999-blu-ray/release.json"]
 	if !ok {
 		t.Error("release.json missing from commit")
 	} else if strings.Contains(rel.Content, `"ImageUrl"`) {
@@ -1011,7 +999,7 @@ func TestSubmitOmitsImagesWhenNoPoster(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, mockTMDB)
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
@@ -1056,7 +1044,7 @@ func TestSubmitOmitsImagesWhenDownloadFails(t *testing.T) {
 
 	svc := NewService(store, gh, mockTMDB)
 	// Submit should succeed despite image download failure.
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit should succeed when image download fails: %v", err)
 	}
 
@@ -1077,7 +1065,7 @@ func TestSubmitFailsTMDBError(t *testing.T) {
 	}
 
 	svc := NewService(store, gh, mockTMDB)
-	_, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error when TMDB fetch fails, got nil")
 	}
@@ -1108,7 +1096,7 @@ func TestSubmitFailsNonNumericTmdbID(t *testing.T) {
 
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for non-numeric tmdb_id, got nil")
 	}
@@ -1189,7 +1177,7 @@ func TestSubmitUpdate_validatesMatchInfo(t *testing.T) {
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	_, err = svc.SubmitUpdate(context.Background(), id)
+	_, err = svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error for empty match_info, got nil")
 	}
@@ -1218,7 +1206,7 @@ func TestSubmitUpdate_requiresAtLeastOneTypedTitle(t *testing.T) {
 	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	_, err := svc.SubmitUpdate(context.Background(), id)
+	_, err := svc.Execute(context.Background(), id)
 	if err == nil {
 		t.Fatal("expected error when all title labels have empty type, got nil")
 	}
@@ -1257,7 +1245,7 @@ func TestSubmitUpdate_happyPath(t *testing.T) {
 
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	prURL, err := svc.SubmitUpdate(context.Background(), id)
+	prURL, err := svc.Execute(context.Background(), id)
 	if err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
@@ -1338,7 +1326,7 @@ func TestSubmitIncludesFrontImageWhenURLReachable(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	_, err = svc.Execute(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1437,7 +1425,7 @@ func TestSubmitUpdate_commitsSingleDiscFileByDefault(t *testing.T) {
 	gh := defaultUpdateGH(minimalDiscJSON)
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1466,15 +1454,22 @@ func TestSubmitUpdate_uploadsFrontImageWhenProvided(t *testing.T) {
 
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
-	mi.FrontImageURL = srv.URL + "/front.jpg"
 	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
 	id := seedUpdateContribution(t, store, mi, labels)
+
+	// Set FrontImageURL on ReleaseInfo via UpdateContributionDraft.
+	ri := ReleaseInfo{FrontImageURL: srv.URL + "/front.jpg"}
+	riJSON, _ := json.Marshal(ri)
+	labelsJSON, _ := json.Marshal(labels)
+	if err := store.UpdateContributionDraft(id, "", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
 
 	gh := defaultUpdateGH(minimalDiscJSON)
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
-		t.Fatalf("SubmitUpdate: %v", err)
+	if _, err := svc.Execute(context.Background(), id); err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
 
 	files := gh.commitFiles[0]
@@ -1497,7 +1492,7 @@ func TestSubmitUpdate_skipsFrontImageWhenURLEmpty(t *testing.T) {
 	gh := defaultUpdateGH(minimalDiscJSON)
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1524,7 +1519,7 @@ func TestSubmitUpdate_uploadsCoverWhenMissingFromUpstream(t *testing.T) {
 	gh := defaultUpdateGH(minimalDiscJSON)
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1557,7 +1552,7 @@ func TestSubmitUpdate_skipsCoverWhenExistsUpstream(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1570,10 +1565,16 @@ func TestSubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
 	// When ASIN and ReleaseDate are set and release.json exists upstream, it is patched.
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
-	mi.ASIN = "B0CCZQNJ3R"
-	mi.ReleaseDate = "2024-03-15"
 	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
 	id := seedUpdateContribution(t, store, mi, labels)
+
+	// Set ASIN and ReleaseDate on ReleaseInfo via UpdateContributionDraft.
+	ri := ReleaseInfo{ASIN: "B0CCZQNJ3R", ReleaseDate: "2024-03-15"}
+	riJSON, _ := json.Marshal(ri)
+	labelsJSON, _ := json.Marshal(labels)
+	if err := store.UpdateContributionDraft(id, "", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
 
 	releasePath := "data/movie/Test Film (2024)/2024-blu-ray/release.json"
 	discPath := "data/movie/Test Film (2024)/2024-blu-ray/disc01.json"
@@ -1588,7 +1589,7 @@ func TestSubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1618,15 +1619,22 @@ func TestSubmitUpdate_skipsPatchWhenReleaseJSONMissing(t *testing.T) {
 	// When ASIN is set but release.json doesn't exist upstream, no release.json is committed.
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
-	mi.ASIN = "B0CCZQNJ3R"
 	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
 	id := seedUpdateContribution(t, store, mi, labels)
+
+	// Set ASIN on ReleaseInfo via UpdateContributionDraft.
+	ri := ReleaseInfo{ASIN: "B0CCZQNJ3R"}
+	riJSON, _ := json.Marshal(ri)
+	labelsJSON, _ := json.Marshal(labels)
+	if err := store.UpdateContributionDraft(id, "", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
 
 	gh := defaultUpdateGH(minimalDiscJSON)
 	// release.json does not exist (default FileExists → false).
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1639,9 +1647,16 @@ func TestSubmitUpdate_skipsReleaseJSONPatchWhenAlreadyUpToDate(t *testing.T) {
 	// When the existing release.json already has the same ASIN, don't include it in the commit.
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
-	mi.ASIN = "B0CCZQNJ3R"
 	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
 	id := seedUpdateContribution(t, store, mi, labels)
+
+	// Set ASIN on ReleaseInfo via UpdateContributionDraft.
+	ri := ReleaseInfo{ASIN: "B0CCZQNJ3R"}
+	riJSON, _ := json.Marshal(ri)
+	labelsJSON, _ := json.Marshal(labels)
+	if err := store.UpdateContributionDraft(id, "", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
 
 	releaseWithASIN := `{
   "Slug": "2024-blu-ray",
@@ -1668,7 +1683,7 @@ func TestSubmitUpdate_skipsReleaseJSONPatchWhenAlreadyUpToDate(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("SubmitUpdate: %v", err)
 	}
 
@@ -1698,7 +1713,7 @@ func TestResubmitUpdate_happyPath(t *testing.T) {
 	gh := defaultUpdateGH(minimalDiscJSON)
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("ResubmitUpdate: %v", err)
 	}
 
@@ -1715,24 +1730,6 @@ func TestResubmitUpdate_happyPath(t *testing.T) {
 	}
 }
 
-func TestResubmitUpdate_failsIfNotSubmitted(t *testing.T) {
-	store := openTestStore(t)
-	mi := defaultUpdateMI()
-	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
-	id := seedUpdateContribution(t, store, mi, labels) // NOT in submitted state
-
-	gh := defaultUpdateGH(minimalDiscJSON)
-	svc := NewService(store, gh, defaultMockTMDB())
-
-	err := svc.ResubmitUpdate(context.Background(), id)
-	if err == nil {
-		t.Fatal("expected error for non-submitted contribution, got nil")
-	}
-	if !strings.Contains(err.Error(), "not submitted") {
-		t.Errorf("error %q should contain %q", err.Error(), "not submitted")
-	}
-}
-
 func TestResubmitUpdate_recreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
@@ -1746,7 +1743,7 @@ func TestResubmitUpdate_recreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
 
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("ResubmitUpdate: %v", err)
 	}
 
@@ -1770,10 +1767,16 @@ func TestResubmitUpdate_recreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
 func TestResubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
 	store := openTestStore(t)
 	mi := defaultUpdateMI()
-	mi.ASIN = "B0CCZQNJ3R"
-	mi.ReleaseDate = "2024-03-15"
 	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
 	id := seedSubmittedUpdateContribution(t, store, mi, labels)
+
+	// Set ASIN and ReleaseDate on ReleaseInfo via UpdateContributionDraft.
+	ri := ReleaseInfo{ASIN: "B0CCZQNJ3R", ReleaseDate: "2024-03-15"}
+	riJSON, _ := json.Marshal(ri)
+	labelsJSON, _ := json.Marshal(labels)
+	if err := store.UpdateContributionDraft(id, "", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
 
 	releasePath := "data/movie/Test Film (2024)/2024-blu-ray/release.json"
 	discPath := "data/movie/Test Film (2024)/2024-blu-ray/disc01.json"
@@ -1786,7 +1789,7 @@ func TestResubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
 	gh.fileExistsByPath = map[string]bool{releasePath: true}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("ResubmitUpdate: %v", err)
 	}
 
@@ -1845,7 +1848,7 @@ func TestSubmit_includesASINAndReleaseDateInReleaseJSON(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 
@@ -1877,7 +1880,7 @@ func TestSubmit_omitsASINAndReleaseDateWhenEmpty(t *testing.T) {
 	}
 	svc := NewService(store, gh, defaultMockTMDB())
 
-	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+	if _, err := svc.Execute(context.Background(), id); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 

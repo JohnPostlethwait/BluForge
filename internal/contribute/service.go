@@ -250,6 +250,10 @@ func (s *Service) buildAddFiles(ctx context.Context, c *db.Contribution, ri Rele
 // buildUpdateFiles generates files for an "update" contribution.
 // Returns (files, branchName, commitMsg, prTitle, error).
 func (s *Service) buildUpdateFiles(ctx context.Context, c *db.Contribution, ri ReleaseInfo, mi MatchInfo, labels []TitleLabel, scan *makemkv.DiscScan, githubUser string) ([]ghpkg.FileEntry, string, string, string, error) {
+	if c.MatchInfo == "" {
+		return nil, "", "", "", fmt.Errorf("contribute: contribution %d has no match_info — complete the draft first", c.ID)
+	}
+
 	// Build file paths from MatchInfo.
 	mediaDir := MediaDirPath(mi.MediaType, mi.MediaTitle, mi.MediaYear)
 	releaseDir := mediaDir + "/" + mi.ReleaseSlug
