@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -205,10 +207,11 @@ func TestSubmitCreatesGitHubPR(t *testing.T) {
 	if len(gh.commitFiles) != 1 {
 		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
 	}
-	// Expect 8 files: 4 disc files + metadata.json + tmdb.json + cover.jpg + front.jpg.
+	// Expect 7 files: 4 disc files + metadata.json + tmdb.json + cover.jpg.
+	// front.jpg is only included when FrontImageURL is set (tested separately).
 	files := gh.commitFiles[0]
-	if len(files) != 8 {
-		t.Errorf("expected 8 files in commit, got %d", len(files))
+	if len(files) != 7 {
+		t.Errorf("expected 7 files in commit, got %d", len(files))
 		for _, f := range files {
 			t.Logf("  file: %s", f.Path)
 		}
@@ -773,12 +776,14 @@ func TestResubmitPushesCorrectiveCommit(t *testing.T) {
 		t.Fatalf("Resubmit: %v", err)
 	}
 
-	// Must commit exactly one batch of 4 files.
+	// Must commit exactly one batch of files.
 	if len(gh.commitFiles) != 1 {
 		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
 	}
-	if len(gh.commitFiles[0]) != 8 {
-		t.Errorf("expected 8 files in resubmit commit, got %d", len(gh.commitFiles[0]))
+	// Expect 7 files: 4 disc files + metadata.json + tmdb.json + cover.jpg.
+	// front.jpg is only included when FrontImageURL is set.
+	if len(gh.commitFiles[0]) != 7 {
+		t.Errorf("expected 7 files in resubmit commit, got %d", len(gh.commitFiles[0]))
 	}
 
 	// Status must remain "submitted" — Resubmit does not change it.
@@ -955,12 +960,9 @@ func TestSubmitIncludesMetadataAndImages(t *testing.T) {
 		t.Error("cover.jpg Blob is empty")
 	}
 
-	// front.jpg at release level (binary).
-	front, ok := byPath["data/movie/The Matrix (1999)/1999-blu-ray/front.jpg"]
-	if !ok {
-		t.Error("front.jpg missing from commit")
-	} else if len(front.Blob) == 0 {
-		t.Error("front.jpg Blob is empty")
+	// front.jpg should NOT be present: seedContribution sets no FrontImageURL.
+	if _, hasFront := byPath["data/movie/The Matrix (1999)/1999-blu-ray/front.jpg"]; hasFront {
+		t.Error("front.jpg should not be committed when FrontImageURL is empty")
 	}
 
 	// release.json should include ImageUrl.
@@ -1263,5 +1265,103 @@ func TestSubmitUpdate_happyPath(t *testing.T) {
 	}
 	if got.PRURL != prURL {
 		t.Errorf("PRURL: want %q, got %q", prURL, got.PRURL)
+	}
+}
+
+func TestSubmitIncludesFrontImageWhenURLReachable(t *testing.T) {
+	// Serve a fake JPEG at a test URL.
+	fakeImg := []byte("fakefrontcover")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(fakeImg)
+	}))
+	defer srv.Close()
+
+	store := openTestStore(t)
+
+	// Seed a contribution that includes ASIN and FrontImageURL pointing to the test server.
+	scan := testScan()
+	scanData, err := json.Marshal(scan)
+	if err != nil {
+		t.Fatalf("marshal scan: %v", err)
+	}
+	ri := ReleaseInfo{
+		UPC:           "883929543236",
+		RegionCode:    "A",
+		Year:          1999,
+		Format:        "Blu-ray",
+		Slug:          "1999-blu-ray",
+		ASIN:          "B0CCZQNJ3R",
+		ReleaseDate:   "1999-09-21",
+		FrontImageURL: srv.URL + "/front.jpg",
+	}
+	riJSON, err := json.Marshal(ri)
+	if err != nil {
+		t.Fatalf("marshal ri: %v", err)
+	}
+	labels := []TitleLabel{
+		{TitleIndex: 0, Type: "MainMovie", Name: "The Matrix", FileName: "The Matrix (1999).mkv"},
+	}
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		t.Fatalf("marshal labels: %v", err)
+	}
+	c := db.Contribution{
+		DiscKey: "matrix-key", DiscName: "THE_MATRIX",
+		RawOutput: scan.RawOutput, ScanJSON: string(scanData),
+	}
+	id, err := store.SaveContribution(c)
+	if err != nil {
+		t.Fatalf("SaveContribution: %v", err)
+	}
+	if err := store.UpdateContributionDraft(id, "603", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
+
+	gh := &mockGitHub{
+		user: "testuser", forkName: "testuser/data",
+		defaultBranch: "master", defaultSHA: "abc123",
+		prURL: "https://github.com/TheDiscDb/data/pull/99",
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	_, err = svc.Submit(context.Background(), id, "The Matrix", 1999, "movie")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	files := gh.commitFiles[0]
+
+	// Find front.jpg in committed files.
+	var frontFile *ghpkg.FileEntry
+	for i := range files {
+		if strings.HasSuffix(files[i].Path, "/front.jpg") {
+			frontFile = &files[i]
+			break
+		}
+	}
+	if frontFile == nil {
+		t.Fatal("front.jpg not found in committed files")
+	}
+	if string(frontFile.Blob) != string(fakeImg) {
+		t.Errorf("front.jpg content: want %q, got %q", fakeImg, frontFile.Blob)
+	}
+
+	// cover.jpg should still use TMDB poster (defaultMockTMDB returns "fakejpegdata").
+	var coverFile *ghpkg.FileEntry
+	for i := range files {
+		if strings.HasSuffix(files[i].Path, "/cover.jpg") {
+			coverFile = &files[i]
+			break
+		}
+	}
+	if coverFile == nil {
+		t.Fatal("cover.jpg not found in committed files")
+	}
+	if string(coverFile.Blob) != "fakejpegdata" {
+		t.Errorf("cover.jpg should use TMDB poster bytes, got %q", coverFile.Blob)
 	}
 }
