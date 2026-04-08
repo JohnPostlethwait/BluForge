@@ -223,8 +223,10 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
 	}
 
-	// Persist the current form state (including ASIN/ReleaseDate/FrontImageURL) before resubmitting.
-	if err := s.parseAndSaveDraft(c, id); err != nil {
+	// Merge ASIN/ReleaseDate/FrontImageURL into the existing release_info without
+	// overwriting other draft fields (title_labels, tmdb_id, etc.) which the
+	// resubmit form does not carry.
+	if err := s.mergeReleaseInfoFields(c, id); err != nil {
 		return err
 	}
 
@@ -255,6 +257,55 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d?flash=PR+updated+%%E2%%80%%94+corrected+files+pushed+to+branch", id))
+}
+
+// mergeReleaseInfoFields reads ASIN, ReleaseDate, and FrontImageURL from the form
+// and merges them into the contribution's existing release_info JSON without touching
+// other draft fields (title_labels, tmdb_id). Used by the add-type resubmit handler.
+func (s *Server) mergeReleaseInfoFields(c echo.Context, id int64) error {
+	asin := c.FormValue("asin")
+	releaseDate := c.FormValue("release_date")
+	frontImageURL := c.FormValue("front_image_url")
+	if asin == "" && releaseDate == "" && frontImageURL == "" {
+		return nil // Nothing to merge.
+	}
+
+	contrib, err := s.store.GetContribution(id)
+	if err != nil || contrib == nil {
+		slog.Error("failed to load contribution for release_info merge", "id", id)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+	}
+
+	var ri contribute.ReleaseInfo
+	if contrib.ReleaseInfo != "" {
+		if err := json.Unmarshal([]byte(contrib.ReleaseInfo), &ri); err != nil {
+			slog.Error("failed to parse release_info for merge", "id", id, "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+		}
+	}
+
+	if asin != "" {
+		ri.ASIN = asin
+	}
+	if releaseDate != "" {
+		ri.ReleaseDate = releaseDate
+	}
+	if frontImageURL != "" {
+		ri.FrontImageURL = frontImageURL
+	}
+
+	riBytes, err := json.Marshal(ri)
+	if err != nil {
+		slog.Error("failed to marshal release_info after merge", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
+	}
+
+	if err := s.store.UpdateContributionDraft(id, contrib.TmdbID, string(riBytes), contrib.TitleLabels); err != nil {
+		slog.Error("failed to update release_info", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
+	}
+
+	return nil
 }
 
 // parseAndSaveUpdateDraft saves title_labels and any user-supplied ASIN/FrontImageURL
