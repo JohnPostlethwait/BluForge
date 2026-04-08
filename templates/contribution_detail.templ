@@ -52,23 +52,6 @@ func contributionFormInit(c db.Contribution) string {
 		}
 	}
 
-	// For update contributions, ASIN and FrontImageURL are stored in match_info.
-	var mi contribute.MatchInfo
-	if c.ContributionType == "update" && c.MatchInfo != "" {
-		if err := json.Unmarshal([]byte(c.MatchInfo), &mi); err != nil {
-			slog.Warn("contribution_detail: failed to parse match_info", "id", c.ID, "error", err)
-		}
-		if mi.ASIN != "" {
-			ri.ASIN = mi.ASIN
-		}
-		if mi.ReleaseDate != "" {
-			ri.ReleaseDate = mi.ReleaseDate
-		}
-		if mi.FrontImageURL != "" {
-			ri.FrontImageURL = mi.FrontImageURL
-		}
-	}
-
 	// Build titles array for Alpine.
 	type titleEntry struct {
 		TitleIndex int    `json:"title_index"`
@@ -249,7 +232,12 @@ document.addEventListener('alpine:init', () => {
 
 		if data.Flash != "" {
 			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
-				<span>{ data.Flash }</span>
+				<span>
+					{ data.Flash }
+					if data.Contribution.PRURL != "" {
+						— <a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" style="color: inherit; text-decoration: underline; font-weight: 600;">View PR on GitHub</a>
+					}
+				</span>
 				<button @click="show = false" aria-label="Dismiss" class="btn-close-alert">&times;</button>
 			</div>
 		}
@@ -556,131 +544,80 @@ document.addEventListener('alpine:init', () => {
 				if data.Contribution.Status != "submitted" {
 					<!-- Save Draft form -->
 					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d", data.Contribution.ID)) }
-						@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels()">
+						x-data="{ saving: false }"
+						@submit="document.getElementById('title_labels_save').value = $store.contrib.serializedLabels(); saving = true">
 						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+						if data.Contribution.ContributionType != "update" {
+							<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+							<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+							<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+							<input type="hidden" name="format" :value="$store.contrib.format"/>
+							<input type="hidden" name="year" :value="$store.contrib.year"/>
+							<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+						}
+						<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+						<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
+						<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
+						<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
+						<button type="submit" class="btn" :disabled="saving">
+							<span x-show="!saving">Save Draft</span>
+							<span x-show="saving" x-cloak class="flex items-center gap-2">
+								<span class="spinner" aria-hidden="true"></span> Saving&hellip;
+							</span>
+						</button>
+					</form>
+				}
+
+				<!-- Submit / Update PR form -->
+				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
+					x-data="{ submitting: false }"
+					@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+					if data.Contribution.ContributionType != "update" && data.Contribution.Status != "submitted" {
 						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
 						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
 						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
 						<input type="hidden" name="format" :value="$store.contrib.format"/>
 						<input type="hidden" name="year" :value="$store.contrib.year"/>
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-						<input type="hidden" name="asin" :value="$store.contrib.asin"/>
-						<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
-						<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
-						<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
-						<button type="submit" class="btn">Save Draft</button>
-					</form>
+					}
+					<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+					<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
+					<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
+					<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
+					<button type="submit" class="btn btn-primary"
+						if !data.GitHubTokenConfigured {
+							disabled
+						}
+						:disabled="submitting || !$store.contrib.isValid"
+						aria-describedby="contrib-validation-msg github-token-warning">
+						if data.Contribution.Status == "submitted" {
+							<span x-show="!submitting">Update PR</span>
+						} else {
+							<span x-show="!submitting">Submit to TheDiscDB</span>
+						}
+						<span x-show="submitting" x-cloak class="flex items-center gap-2">
+							<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
+						</span>
+					</button>
+				</form>
 
-					if data.Contribution.ContributionType == "update" {
-						<!-- Submit Update to TheDiscDB form -->
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit-update", data.Contribution.ID)) }
-							x-data="{ submitting: false }"
-							@submit="document.getElementById('title_labels_submit_update').value = $store.contrib.serializedLabels(); submitting = true">
-							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
-							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
-							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
-							<input type="hidden" id="title_labels_submit_update" name="title_labels" value=""/>
-							<button type="submit" class="btn btn-primary"
-								if !data.GitHubTokenConfigured {
-									disabled
-								}
-								:disabled="submitting || !$store.contrib.isValid"
-								aria-describedby="contrib-validation-msg github-token-warning">
-								<span x-show="!submitting">Submit Update to TheDiscDB</span>
-								<span x-show="submitting" x-cloak class="flex items-center gap-2">
-									<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
-								</span>
-							</button>
-						</form>
-						<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid" x-cloak>
+				if data.Contribution.Status != "submitted" {
+					<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid" x-cloak>
+						if data.Contribution.ContributionType == "update" {
 							At least one title must have a type assigned before submitting.
-						</span>
-					} else {
-						<!-- Submit to TheDiscDB form -->
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
-							x-data="{ submitting: false }"
-							@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
-							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-							<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
-							<input type="hidden" name="upc" :value="$store.contrib.upc"/>
-							<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
-							<input type="hidden" name="format" :value="$store.contrib.format"/>
-							<input type="hidden" name="year" :value="$store.contrib.year"/>
-							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
-							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
-							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
-							<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
-							<!-- Media metadata for submit handler -->
-							<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
-							<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-							<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-							<button type="submit" class="btn btn-primary"
-								disabled?={ !data.GitHubTokenConfigured }
-								:disabled="submitting || !$store.contrib.isValid"
-								aria-describedby="contrib-validation-msg github-token-warning">
-								<span x-show="!submitting">Submit to TheDiscDB</span>
-								<span x-show="submitting" x-cloak class="flex items-center gap-2">
-									<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
-								</span>
-							</button>
-						</form>
-
-						<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid">
+						} else {
 							TMDB ID, format, year, ASIN, and release date are required before submitting.
-						</span>
-					}
+						}
+					</span>
 				} else {
-					if data.Contribution.ContributionType == "update" {
-						<!-- Update PR: push corrected files to existing update branch -->
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit-update", data.Contribution.ID)) }
-							x-data="{ submitting: false }"
-							@submit="submitting = true">
-							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
-							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
-							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
-							<button type="submit" class="btn btn-primary"
-								if !data.GitHubTokenConfigured {
-									disabled
-								}
-								:disabled="submitting"
-								aria-describedby="github-token-warning">
-								<span x-show="!submitting">Update PR</span>
-								<span x-show="submitting" x-cloak class="flex items-center gap-2">
-									<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
-								</span>
-							</button>
-						</form>
-						if data.Contribution.PRURL != "" {
-							<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
-						}
-					} else {
-						<!-- Update PR: push corrected files to existing branch -->
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }
-							x-data="{ submitting: false }"
-							@submit="submitting = true">
-							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-							<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
-							<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-							<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-							<button type="submit" class="btn btn-primary"
-								disabled?={ !data.GitHubTokenConfigured }
-								:disabled="submitting"
-								aria-describedby="github-token-warning">
-								<span x-show="!submitting">Update PR</span>
-								<span x-show="submitting" x-cloak class="flex items-center gap-2">
-									<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
-								</span>
-							</button>
-						</form>
-						<span class="text-muted text-sm">
-							Regenerates and pushes corrected files to the PR branch, reopening it if closed.
-						</span>
-						if data.Contribution.PRURL != "" {
-							<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
-						}
-					}
+					<span class="text-muted text-sm">
+						Regenerates and pushes corrected files to the PR branch, reopening it if closed.
+					</span>
+				}
+
+				if data.Contribution.PRURL != "" {
+					<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR on GitHub</a>
 				}
 			</div>
 		</div>

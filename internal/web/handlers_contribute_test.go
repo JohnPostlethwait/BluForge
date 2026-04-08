@@ -635,6 +635,31 @@ func TestHandleContributionDetail_FlashParam(t *testing.T) {
 	}
 }
 
+func TestHandleContributionDetail_FlashWithPRURL(t *testing.T) {
+	srv, store := setupContribServer(t)
+	id := seedTestContribution(t, store)
+	if err := store.UpdateContributionStatus(id, "submitted", "https://github.com/example/repo/pull/42"); err != nil {
+		t.Fatalf("UpdateContributionStatus: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/contributions/%d?flash=PR+updated", id), nil)
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(fmt.Sprintf("%d", id))
+
+	if err := srv.handleContributionDetail(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "View PR on GitHub") {
+		t.Errorf("expected 'View PR on GitHub' link in flash, got:\n%s", body)
+	}
+	if !strings.Contains(body, "https://github.com/example/repo/pull/42") {
+		t.Errorf("expected PR URL in flash link, got:\n%s", body)
+	}
+}
+
 func TestHandleContributionDetail_FlashParamTruncated(t *testing.T) {
 	srv, store := setupContribServer(t)
 	id := seedTestContribution(t, store)

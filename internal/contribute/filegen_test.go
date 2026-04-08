@@ -54,7 +54,7 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	}
 
 	before := time.Now().UTC().Truncate(time.Second)
-	content := GenerateReleaseJSON(ri, "testuser", "Movie/the-matrix-1999/1999-blu-ray.jpg")
+	content := GenerateReleaseJSON(ri, "testuser")
 	after := time.Now().UTC().Add(time.Second).Truncate(time.Second)
 
 	// Must be valid JSON.
@@ -85,8 +85,9 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	if got.SortTitle != wantSortTitle {
 		t.Errorf("SortTitle: want %q, got %q", wantSortTitle, got.SortTitle)
 	}
-	if got.ImageUrl != "Movie/the-matrix-1999/1999-blu-ray.jpg" {
-		t.Errorf("ImageUrl: want %q, got %q", "Movie/the-matrix-1999/1999-blu-ray.jpg", got.ImageUrl)
+	// ImageUrl should be omitted (TheDiscDB fills it in during import).
+	if got.ImageUrl != "" {
+		t.Errorf("ImageUrl: want empty (omitted), got %q", got.ImageUrl)
 	}
 	// DateAdded must parse as RFC3339 and fall within the test window (RFC3339 is
 	// second-precision, so we truncate both ends and add a 1s pad on the upper bound).
@@ -119,7 +120,7 @@ func TestGenerateReleaseJSON_WithASINAndReleaseDate(t *testing.T) {
 		ReleaseDate: "1999-09-21",
 	}
 
-	content := GenerateReleaseJSON(ri, "testuser", "")
+	content := GenerateReleaseJSON(ri, "testuser")
 
 	var got ReleaseJSON
 	if err := json.Unmarshal([]byte(content), &got); err != nil {
@@ -141,7 +142,7 @@ func TestGenerateReleaseJSON_OmitsASINAndReleaseDateWhenEmpty(t *testing.T) {
 		// ASIN and ReleaseDate intentionally empty
 	}
 
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	if strings.Contains(content, `"Asin"`) {
 		t.Error("expected Asin to be omitted when empty")
@@ -158,7 +159,7 @@ func TestGenerateReleaseJSON_MalformedReleaseDateOmitted(t *testing.T) {
 		ReleaseDate: "not-a-date",
 	}
 
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	if strings.Contains(content, `"ReleaseDate"`) {
 		t.Error("expected ReleaseDate to be omitted when unparseable")
@@ -220,8 +221,8 @@ func TestGenerateDiscJSON(t *testing.T) {
 		t.Fatalf("Titles[0].Tracks: expected 2, got %d", len(t0.Tracks))
 	}
 	videoTrack := t0.Tracks[0]
-	if videoTrack.Type != "video" {
-		t.Errorf("Tracks[0].Type: want %q, got %q", "video", videoTrack.Type)
+	if videoTrack.Type != "Video" {
+		t.Errorf("Tracks[0].Type: want %q, got %q", "Video", videoTrack.Type)
 	}
 	if videoTrack.Name != "Mpeg4 AVC High@L4.1" {
 		t.Errorf("Tracks[0].Name: want %q, got %q", "Mpeg4 AVC High@L4.1", videoTrack.Name)
@@ -234,8 +235,8 @@ func TestGenerateDiscJSON(t *testing.T) {
 	}
 
 	audioTrack := t0.Tracks[1]
-	if audioTrack.Type != "audio" {
-		t.Errorf("Tracks[1].Type: want %q, got %q", "audio", audioTrack.Type)
+	if audioTrack.Type != "Audio" {
+		t.Errorf("Tracks[1].Type: want %q, got %q", "Audio", audioTrack.Type)
 	}
 	if audioTrack.LanguageCode != "eng" {
 		t.Errorf("Tracks[1].LanguageCode: want %q, got %q", "eng", audioTrack.LanguageCode)
@@ -394,16 +395,16 @@ func TestStreamToTrackUHDFallback(t *testing.T) {
 		wantType string
 	}{
 		// Standard Matroska prefixes
-		{"V_MPEG4/ISO/AVC", "video"},
-		{"A_TRUEHD", "audio"},
-		{"S_HDMV/PGS", "subtitle"},
+		{"V_MPEG4/ISO/AVC", "Video"},
+		{"A_TRUEHD", "Audio"},
+		{"S_HDMV/PGS", "Subtitles"},
 		// UHD human-readable names
-		{"Mpeg4 AVC High@L5.1", "video"},
-		{"HEVC", "video"},
-		{"DTS-HD MA", "audio"},
-		{"TrueHD Atmos", "audio"},
-		{"AC3", "audio"},
-		{"PGS", "subtitle"},
+		{"Mpeg4 AVC High@L5.1", "Video"},
+		{"HEVC", "Video"},
+		{"DTS-HD MA", "Audio"},
+		{"TrueHD Atmos", "Audio"},
+		{"AC3", "Audio"},
+		{"PGS", "Subtitles"},
 		// Unknown
 		{"", ""},
 		{"SomeUnknownCodec", ""},
@@ -606,7 +607,7 @@ func TestGenerateReleaseJSON_EmptyOptionalFields(t *testing.T) {
 		// UPC intentionally empty
 		// Slug intentionally empty
 	}
-	content := GenerateReleaseJSON(ri, "user", "")
+	content := GenerateReleaseJSON(ri, "user")
 
 	var got ReleaseJSON
 	if err := json.Unmarshal([]byte(content), &got); err != nil {
@@ -746,10 +747,406 @@ func TestTitleImageURL(t *testing.T) {
 	}
 }
 
-func TestReleaseImageURL(t *testing.T) {
-	got := ReleaseImageURL("movie", "the-matrix-1999", "1999-blu-ray")
-	want := "Movie/the-matrix-1999/1999-blu-ray.jpg"
-	if got != want {
-		t.Errorf("ReleaseImageURL: want %q, got %q", want, got)
+// ---------------------------------------------------------------------------
+// TheDiscDB Conformance Tests
+//
+// These tests validate that our generated JSON output matches the real standards
+// established in the TheDiscDB data repository (https://github.com/TheDiscDb/data).
+// Mock data is modeled after actual entries in that repository.
+// ---------------------------------------------------------------------------
+
+// TestConformance_ReleaseJSON validates release.json output against TheDiscDB standards.
+func TestConformance_ReleaseJSON(t *testing.T) {
+	ri := ReleaseInfo{
+		UPC:         "883929543236",
+		RegionCode:  "A",
+		Year:        1999,
+		Format:      "Blu-ray",
+		Slug:        "1999-blu-ray",
+		ASIN:        "B0CCZQNJ3R",
+		ReleaseDate: "1999-09-21",
+	}
+
+	content := GenerateReleaseJSON(ri, "testuser")
+
+	// Parse as generic map to validate raw JSON field names.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// All top-level keys must be PascalCase per TheDiscDB convention.
+	wantKeys := []string{"Slug", "Asin", "Upc", "Year", "Locale", "RegionCode", "Title", "SortTitle", "ReleaseDate", "DateAdded", "Contributors"}
+	for _, k := range wantKeys {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("missing PascalCase key %q in release.json", k)
+		}
+	}
+
+	// ImageUrl must NOT be present — TheDiscDB fills it in during import.
+	if _, ok := raw["ImageUrl"]; ok {
+		t.Error("ImageUrl must be omitted from release.json (TheDiscDB fills it in during import)")
+	}
+
+	// Locale must be "en-us".
+	if raw["Locale"] != "en-us" {
+		t.Errorf("Locale: want %q, got %v", "en-us", raw["Locale"])
+	}
+
+	// ReleaseDate must be RFC3339.
+	if rd, ok := raw["ReleaseDate"].(string); ok {
+		if _, err := time.Parse(time.RFC3339, rd); err != nil {
+			t.Errorf("ReleaseDate %q is not valid RFC3339: %v", rd, err)
+		}
+	}
+
+	// DateAdded must be RFC3339.
+	if da, ok := raw["DateAdded"].(string); ok {
+		if _, err := time.Parse(time.RFC3339, da); err != nil {
+			t.Errorf("DateAdded %q is not valid RFC3339: %v", da, err)
+		}
+	}
+
+	// Contributors must be an array with {Name, Source} entries.
+	contribs, ok := raw["Contributors"].([]any)
+	if !ok || len(contribs) == 0 {
+		t.Fatal("Contributors must be a non-empty array")
+	}
+	c0, ok := contribs[0].(map[string]any)
+	if !ok {
+		t.Fatal("Contributors[0] must be an object")
+	}
+	if c0["Source"] != "github" {
+		t.Errorf("Contributors[0].Source: want %q, got %v", "github", c0["Source"])
+	}
+
+	// Empty optional fields must be omitted via omitempty.
+	riNoOptional := ReleaseInfo{
+		Year:       2024,
+		Format:     "Blu-ray",
+		RegionCode: "A",
+	}
+	contentNoOpt := GenerateReleaseJSON(riNoOptional, "user")
+	if strings.Contains(contentNoOpt, `"Asin"`) {
+		t.Error("empty Asin must be omitted via omitempty")
+	}
+	if strings.Contains(contentNoOpt, `"Upc"`) {
+		t.Error("empty Upc must be omitted via omitempty")
+	}
+	if strings.Contains(contentNoOpt, `"ReleaseDate"`) {
+		t.Error("empty ReleaseDate must be omitted via omitempty")
+	}
+	if strings.Contains(contentNoOpt, `"ImageUrl"`) {
+		t.Error("empty ImageUrl must be omitted via omitempty")
 	}
 }
+
+// TestConformance_DiscJSON validates disc01.json output against TheDiscDB standards.
+func TestConformance_DiscJSON(t *testing.T) {
+	// Build a realistic scan modeled after real TheDiscDB disc entries.
+	scan := &makemkv.DiscScan{
+		DiscName:   "THE_MATRIX",
+		TitleCount: 2,
+		Titles: []makemkv.TitleInfo{
+			{
+				Index: 0,
+				Attributes: map[int]string{
+					2: "The Matrix", 8: "28", 9: "2:16:18",
+					10: "32.2 GB", 11: "34567890123", 16: "00800.mpls",
+				},
+				Streams: []makemkv.StreamInfo{
+					{TitleIndex: 0, StreamIndex: 0, Attributes: map[int]string{
+						1: "V_MPEG4/ISO/AVC", 6: "Mpeg4 AVC High@L4.1",
+						19: "1920x1080", 20: "16:9",
+					}},
+					{TitleIndex: 0, StreamIndex: 1, Attributes: map[int]string{
+						1: "A_DTS", 6: "DTS-HD MA",
+						3: "eng", 4: "English",
+					}},
+					{TitleIndex: 0, StreamIndex: 2, Attributes: map[int]string{
+						1: "S_HDMV/PGS", 6: "PGS",
+						3: "eng", 4: "English",
+					}},
+				},
+			},
+			{
+				Index: 1,
+				Attributes: map[int]string{
+					2: "Behind the Scenes", 9: "0:23:15",
+					10: "4.1 GB", 11: "4400000000", 16: "00801.mpls",
+				},
+			},
+		},
+	}
+
+	content := GenerateDiscJSON(scan, "Blu-ray")
+
+	// Parse as generic map to validate raw JSON structure.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Disc-level PascalCase fields must be present.
+	for _, k := range []string{"Index", "Slug", "Name", "Format", "ContentHash", "Titles"} {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("missing disc-level key %q", k)
+		}
+	}
+
+	// ContentHash must be present (empty string acceptable for new contributions).
+	if _, ok := raw["ContentHash"]; !ok {
+		t.Error("ContentHash must be present in disc JSON")
+	}
+
+	// Titles must be an array (never null).
+	titles, ok := raw["Titles"].([]any)
+	if !ok {
+		t.Fatal("Titles must be a JSON array, not null")
+	}
+	if len(titles) != 2 {
+		t.Fatalf("expected 2 titles, got %d", len(titles))
+	}
+
+	// Validate track types use PascalCase per TheDiscDB convention.
+	var got DiscJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	validTrackTypes := map[string]bool{"Video": true, "Audio": true, "Subtitles": true, "": true}
+	for i, title := range got.Titles {
+		for j, track := range title.Tracks {
+			if !validTrackTypes[track.Type] {
+				t.Errorf("Titles[%d].Tracks[%d].Type: %q is not a valid TheDiscDB track type (want Video/Audio/Subtitles)", i, j, track.Type)
+			}
+		}
+	}
+
+	// Verify specific track types from our test data.
+	if len(got.Titles[0].Tracks) != 3 {
+		t.Fatalf("expected 3 tracks in title 0, got %d", len(got.Titles[0].Tracks))
+	}
+	if got.Titles[0].Tracks[0].Type != "Video" {
+		t.Errorf("video track: want %q, got %q", "Video", got.Titles[0].Tracks[0].Type)
+	}
+	if got.Titles[0].Tracks[1].Type != "Audio" {
+		t.Errorf("audio track: want %q, got %q", "Audio", got.Titles[0].Tracks[1].Type)
+	}
+	if got.Titles[0].Tracks[2].Type != "Subtitles" {
+		t.Errorf("subtitle track: want %q, got %q", "Subtitles", got.Titles[0].Tracks[2].Type)
+	}
+
+	// Video tracks must have Resolution and AspectRatio.
+	vt := got.Titles[0].Tracks[0]
+	if vt.Resolution == "" {
+		t.Error("video track must have Resolution")
+	}
+	if vt.AspectRatio == "" {
+		t.Error("video track must have AspectRatio")
+	}
+
+	// Audio tracks must have LanguageCode and Language.
+	at := got.Titles[0].Tracks[1]
+	if at.LanguageCode == "" {
+		t.Error("audio track must have LanguageCode")
+	}
+	if at.Language == "" {
+		t.Error("audio track must have Language")
+	}
+
+	// Subtitle tracks must have LanguageCode and Language.
+	st := got.Titles[0].Tracks[2]
+	if st.LanguageCode == "" {
+		t.Error("subtitle track must have LanguageCode")
+	}
+	if st.Language == "" {
+		t.Error("subtitle track must have Language")
+	}
+
+	// Titles array for empty disc must be [] not null.
+	emptyScan := &makemkv.DiscScan{DiscName: "EMPTY", TitleCount: 0, Titles: nil}
+	emptyContent := GenerateDiscJSON(emptyScan, "Blu-ray")
+	if strings.Contains(emptyContent, `"Titles": null`) {
+		t.Error("Titles must serialize as [] not null for empty discs")
+	}
+	if !strings.Contains(emptyContent, `"Titles": []`) {
+		t.Error("Titles must be an empty JSON array for empty discs")
+	}
+}
+
+// TestConformance_MetadataJSON validates metadata.json output against TheDiscDB standards.
+func TestConformance_MetadataJSON(t *testing.T) {
+	details := &tmdb.MediaDetails{
+		ID:             603,
+		Title:          "The Matrix",
+		Overview:       "A computer hacker learns the truth about reality.",
+		Tagline:        "Welcome to the Real World.",
+		RuntimeMinutes: 136,
+		ReleaseDate:    "1999-03-31",
+		PosterPath:     "/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+		ImdbID:         "tt0133093",
+	}
+
+	content := GenerateMetadataJSON(details, "movie", "The Matrix", 1999)
+
+	// Parse as generic map for raw key validation.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// All top-level keys must be PascalCase.
+	wantKeys := []string{"Title", "FullTitle", "SortTitle", "Slug", "Type", "Year", "ImageUrl", "ExternalIds", "Groups", "Plot", "RuntimeMinutes", "ReleaseDate", "DateAdded"}
+	for _, k := range wantKeys {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("missing PascalCase key %q in metadata.json", k)
+		}
+	}
+
+	var got MetadataJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Type must be PascalCase: "Movie" or "Series".
+	if got.Type != "Movie" {
+		t.Errorf("Type: want %q, got %q", "Movie", got.Type)
+	}
+
+	// ImageUrl must follow pattern: "{Type}/{slug}/cover.jpg".
+	wantImageUrl := "Movie/the-matrix-1999/cover.jpg"
+	if got.ImageUrl != wantImageUrl {
+		t.Errorf("ImageUrl: want %q, got %q", wantImageUrl, got.ImageUrl)
+	}
+
+	// Slug must be kebab-case with year suffix.
+	if got.Slug != "the-matrix-1999" {
+		t.Errorf("Slug: want %q, got %q", "the-matrix-1999", got.Slug)
+	}
+
+	// ExternalIds must have string Tmdb and Imdb fields.
+	if got.ExternalIds.Tmdb != "603" {
+		t.Errorf("ExternalIds.Tmdb: want %q, got %q", "603", got.ExternalIds.Tmdb)
+	}
+	if got.ExternalIds.Imdb != "tt0133093" {
+		t.Errorf("ExternalIds.Imdb: want %q, got %q", "tt0133093", got.ExternalIds.Imdb)
+	}
+
+	// Groups must be an empty array [], never null.
+	groups, ok := raw["Groups"].([]any)
+	if !ok {
+		t.Error("Groups must be a JSON array, not null")
+	} else if len(groups) != 0 {
+		t.Errorf("Groups: want empty array, got %d elements", len(groups))
+	}
+
+	// ReleaseDate must be RFC3339.
+	if _, err := time.Parse(time.RFC3339, got.ReleaseDate); err != nil {
+		t.Errorf("ReleaseDate %q is not valid RFC3339: %v", got.ReleaseDate, err)
+	}
+
+	// DateAdded must be RFC3339.
+	if _, err := time.Parse(time.RFC3339, got.DateAdded); err != nil {
+		t.Errorf("DateAdded %q is not valid RFC3339: %v", got.DateAdded, err)
+	}
+
+	// Verify Series type produces PascalCase "Series".
+	seriesContent := GenerateMetadataJSON(details, "series", "Breaking Bad", 2008)
+	var seriesGot MetadataJSON
+	if err := json.Unmarshal([]byte(seriesContent), &seriesGot); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if seriesGot.Type != "Series" {
+		t.Errorf("Series Type: want %q, got %q", "Series", seriesGot.Type)
+	}
+	if seriesGot.ImageUrl != "Series/breaking-bad-2008/cover.jpg" {
+		t.Errorf("Series ImageUrl: want %q, got %q", "Series/breaking-bad-2008/cover.jpg", seriesGot.ImageUrl)
+	}
+}
+
+// TestConformance_JSONFieldNames validates that all generated JSON uses PascalCase keys,
+// matching TheDiscDB convention. This catches future additions that accidentally use
+// camelCase or snake_case.
+func TestConformance_JSONFieldNames(t *testing.T) {
+	isPascalCase := func(s string) bool {
+		if len(s) == 0 {
+			return false
+		}
+		// First character must be uppercase.
+		return s[0] >= 'A' && s[0] <= 'Z'
+	}
+
+	t.Run("release.json", func(t *testing.T) {
+		ri := ReleaseInfo{
+			UPC: "123", RegionCode: "A", Year: 2024, Format: "Blu-ray",
+			Slug: "2024-blu-ray", ASIN: "B123", ReleaseDate: "2024-01-01",
+		}
+		content := GenerateReleaseJSON(ri, "user")
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(content), &raw); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		for key := range raw {
+			if !isPascalCase(key) {
+				t.Errorf("release.json key %q is not PascalCase", key)
+			}
+		}
+	})
+
+	t.Run("disc.json", func(t *testing.T) {
+		scan := testScan()
+		content := GenerateDiscJSON(scan, "Blu-ray")
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(content), &raw); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		for key := range raw {
+			if !isPascalCase(key) {
+				t.Errorf("disc.json top-level key %q is not PascalCase", key)
+			}
+		}
+		// Also check nested title and track keys.
+		if titles, ok := raw["Titles"].([]any); ok && len(titles) > 0 {
+			title := titles[0].(map[string]any)
+			for key := range title {
+				if !isPascalCase(key) {
+					t.Errorf("disc.json title key %q is not PascalCase", key)
+				}
+			}
+			if tracks, ok := title["Tracks"].([]any); ok && len(tracks) > 0 {
+				track := tracks[0].(map[string]any)
+				for key := range track {
+					if !isPascalCase(key) {
+						t.Errorf("disc.json track key %q is not PascalCase", key)
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("metadata.json", func(t *testing.T) {
+		details := &tmdb.MediaDetails{
+			ID: 603, Title: "The Matrix", ReleaseDate: "1999-03-31", ImdbID: "tt0133093",
+		}
+		content := GenerateMetadataJSON(details, "movie", "The Matrix", 1999)
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(content), &raw); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		for key := range raw {
+			if !isPascalCase(key) {
+				t.Errorf("metadata.json key %q is not PascalCase", key)
+			}
+		}
+		// Check nested ExternalIds keys.
+		if eids, ok := raw["ExternalIds"].(map[string]any); ok {
+			for key := range eids {
+				if !isPascalCase(key) {
+					t.Errorf("metadata.json ExternalIds key %q is not PascalCase", key)
+				}
+			}
+		}
+	})
+}
+
