@@ -31,6 +31,7 @@ type mockGitHub struct {
 	prCalled      bool
 	waitErr       error
 	callOrder     []string
+	fileContent   string
 }
 
 func (m *mockGitHub) GetUser(ctx context.Context) (string, error) {
@@ -75,7 +76,7 @@ func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error 
 }
 
 func (m *mockGitHub) GetFileContent(ctx context.Context, owner, repo, path string) (string, error) {
-	return "", nil
+	return m.fileContent, nil
 }
 
 func (m *mockGitHub) FileExists(ctx context.Context, owner, repo, path string) (bool, error) {
@@ -1208,5 +1209,59 @@ func TestSubmitUpdate_requiresAtLeastOneTypedTitle(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "typed title") {
 		t.Errorf("error %q should mention typed title", err.Error())
+	}
+}
+
+func TestSubmitUpdate_happyPath(t *testing.T) {
+	const minimalDiscJSON = `{"Index":1,"Slug":"blu-ray","Name":"Blu-ray","Format":"Blu-ray","ContentHash":"ABC123","Titles":[]}`
+
+	store := openTestStore(t)
+
+	mi := MatchInfo{
+		MediaSlug:   "test-film",
+		MediaType:   "movie",
+		MediaTitle:  "Test Film",
+		MediaYear:   2024,
+		ReleaseSlug: "2024-blu-ray",
+		DiscIndex:   1,
+		ImageURL:    "",
+	}
+	labels := []TitleLabel{
+		{TitleIndex: 0, Type: "Extra", Name: "Bonus"},
+	}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/55",
+		fileContent:   minimalDiscJSON,
+	}
+
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	prURL, err := svc.SubmitUpdate(context.Background(), id)
+	if err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+	if prURL == "" {
+		t.Error("expected non-empty prURL, got empty string")
+	}
+	if prURL != "https://github.com/TheDiscDb/data/pull/55" {
+		t.Errorf("prURL: want %q, got %q", "https://github.com/TheDiscDb/data/pull/55", prURL)
+	}
+
+	// Verify status updated to "submitted" with the PR URL.
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if got.Status != "submitted" {
+		t.Errorf("Status: want %q, got %q", "submitted", got.Status)
+	}
+	if got.PRURL != prURL {
+		t.Errorf("PRURL: want %q, got %q", prURL, got.PRURL)
 	}
 }
