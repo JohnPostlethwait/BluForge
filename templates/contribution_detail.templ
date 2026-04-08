@@ -573,7 +573,7 @@ document.addEventListener('alpine:init', () => {
 					x-data="{ submitting: false }"
 					@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
 					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-					if data.Contribution.ContributionType != "update" && data.Contribution.Status != "submitted" {
+					if data.Contribution.ContributionType != "update" {
 						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
 						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
 						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>

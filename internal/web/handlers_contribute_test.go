@@ -683,3 +683,74 @@ func TestHandleContributionDetail_FlashParamTruncated(t *testing.T) {
 		t.Errorf("expected truncated flash (200 chars) to appear in body")
 	}
 }
+
+func TestHandleContributionSave_SubmittedAddPreservesAllFields(t *testing.T) {
+	srv, store := setupContribServer(t)
+	id := seedTestContribution(t, store)
+
+	// Simulate an old contribution that was submitted but has empty fields in DB.
+	if err := store.UpdateContributionStatus(id, "submitted", "https://github.com/TheDiscDb/data/pull/999"); err != nil {
+		t.Fatalf("UpdateContributionStatus: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("tmdb_id", "847")
+	form.Set("format", "UHD")
+	form.Set("year", "1988")
+	form.Set("region_code", "A")
+	form.Set("upc", "043396640658")
+	form.Set("media_type", "movie")
+	form.Set("asin", "B0DLX3BZ7Q")
+	form.Set("release_date", "2024-12-10")
+	form.Set("front_image_url", "https://example.com/front.jpg")
+	form.Set("title_labels", `[{"title_index":0,"type":"Movie","name":"","season":"","episode":""}]`)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/contributions/%d", id), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := srv.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(fmt.Sprintf("%d", id))
+
+	err := srv.handleContributionSave(c)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	contrib, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if contrib.TmdbID != "847" {
+		t.Errorf("TmdbID: expected %q, got %q", "847", contrib.TmdbID)
+	}
+
+	var ri map[string]any
+	if err := json.Unmarshal([]byte(contrib.ReleaseInfo), &ri); err != nil {
+		t.Fatalf("unmarshal release_info: %v", err)
+	}
+	if ri["format"] != "UHD" {
+		t.Errorf("format: expected %q, got %v", "UHD", ri["format"])
+	}
+	if year, ok := ri["year"].(float64); !ok || int(year) != 1988 {
+		t.Errorf("year: expected 1988, got %v", ri["year"])
+	}
+	if ri["upc"] != "043396640658" {
+		t.Errorf("upc: expected %q, got %v", "043396640658", ri["upc"])
+	}
+	if ri["region_code"] != "A" {
+		t.Errorf("region_code: expected %q, got %v", "A", ri["region_code"])
+	}
+	if ri["media_type"] != "movie" {
+		t.Errorf("media_type: expected %q, got %v", "movie", ri["media_type"])
+	}
+	if ri["asin"] != "B0DLX3BZ7Q" {
+		t.Errorf("asin: expected %q, got %v", "B0DLX3BZ7Q", ri["asin"])
+	}
+	if ri["release_date"] != "2024-12-10" {
+		t.Errorf("release_date: expected %q, got %v", "2024-12-10", ri["release_date"])
+	}
+	if ri["front_image_url"] != "https://example.com/front.jpg" {
+		t.Errorf("front_image_url: expected %q, got %v", "https://example.com/front.jpg", ri["front_image_url"])
+	}
+}
