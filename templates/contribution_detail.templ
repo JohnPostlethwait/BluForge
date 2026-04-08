@@ -107,6 +107,9 @@ func contributionFormInit(c db.Contribution) string {
 		"year":             yearStr,
 		"titles":           titles,
 		"contributionType": c.ContributionType,
+		"asin":          ri.ASIN,
+		"releaseDate":   ri.ReleaseDate,
+		"frontImageURL": ri.FrontImageURL,
 	}
 
 	data, err := json.Marshal(state)
@@ -136,6 +139,18 @@ document.addEventListener('alpine:init', () => {
 		year: init.year || '',
 		titles: init.titles || [],
 		contributionType: init.contributionType || 'add',
+		asin: init.asin || '',
+		releaseDate: init.releaseDate || '',
+		frontImageURL: init.frontImageURL || '',
+		frontImageLoadError: false,
+
+		onAsinChange() {
+			const asin = this.asin.trim()
+			this.frontImageURL = asin.length > 0
+				? 'https://m.media-amazon.com/images/P/' + asin + '.01.LZZZZZZZ.jpg'
+				: ''
+			this.frontImageLoadError = false
+		},
 		tmdbSelected: init.tmdbID ? { id: parseInt(init.tmdbID) || 0, title: init.mediaTitle || '', year: parseInt(init.year) || 0, posterPath: '' } : null,
 
 		get isValid() {
@@ -144,7 +159,9 @@ document.addEventListener('alpine:init', () => {
 			}
 			return this.tmdbID.trim() !== '' &&
 				this.format.trim() !== '' &&
-				this.year.trim() !== ''
+				this.year.trim() !== '' &&
+				this.asin.trim() !== '' &&
+				this.releaseDate.trim() !== ''
 		},
 
 		serializedLabels() {
@@ -360,9 +377,50 @@ document.addEventListener('alpine:init', () => {
 							</select>
 						</div>
 						<div class="form-group">
+							<label for="asin">ASIN</label>
+							<input type="text" id="asin" x-model="$store.contrib.asin"
+								   @input="$store.contrib.onAsinChange()"
+								   placeholder="e.g. B0CCZQNJ3R"/>
+							<p class="text-muted text-sm mt-1">
+								Find the ASIN in the Amazon product URL (e.g. <code>amazon.com/dp/B0CCZQNJ3R</code>)
+								or on the product page under "Product information".
+							</p>
+						</div>
+						<div class="form-group">
+							<label for="release_date">Release Date</label>
+							<input type="date" id="release_date" x-model="$store.contrib.releaseDate"/>
+							<p class="text-muted text-sm mt-1">The date this disc edition was released.</p>
+						</div>
+						<div class="form-group">
 							<label for="upc">UPC (optional)</label>
 							<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
 						</div>
+					</div>
+					<div class="form-group mt-3">
+						<label for="front_image_url">Front Cover Image URL</label>
+						<input type="url" id="front_image_url"
+							   x-model="$store.contrib.frontImageURL"
+							   @input="$store.contrib.frontImageLoadError = false"
+							   placeholder="Auto-populated from ASIN — or paste any image URL"/>
+						<p class="text-muted text-sm mt-1">
+							Populated automatically when you enter an ASIN above. You can paste a different URL if needed.
+							At submission, this image will be downloaded as <code>front.jpg</code>.
+						</p>
+						<template x-if="$store.contrib.frontImageURL.trim().length > 0">
+							<div class="mt-2">
+								<img
+									x-bind:src="$store.contrib.frontImageURL.trim()"
+									@load="$store.contrib.frontImageLoadError = false"
+									@error="$store.contrib.frontImageLoadError = true"
+									x-show="!$store.contrib.frontImageLoadError"
+									style="max-height:120px; border-radius:4px; border:1px solid var(--border);"
+									alt="Front cover preview"/>
+								<p x-show="$store.contrib.frontImageLoadError"
+								   class="text-warning text-sm mt-1">
+									Could not load image from this URL. The front cover will be omitted from the submission if unreachable.
+								</p>
+							</div>
+						</template>
 					</div>
 				</div>
 			} else {
@@ -455,6 +513,9 @@ document.addEventListener('alpine:init', () => {
 						<input type="hidden" name="format" :value="$store.contrib.format"/>
 						<input type="hidden" name="year" :value="$store.contrib.year"/>
 						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+						<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+						<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
+						<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
 						<input type="hidden" id="title_labels_save" name="title_labels" value=""/>
 						<button type="submit" class="btn">Save Draft</button>
 					</form>
@@ -492,6 +553,9 @@ document.addEventListener('alpine:init', () => {
 							<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
 							<input type="hidden" name="format" :value="$store.contrib.format"/>
 							<input type="hidden" name="year" :value="$store.contrib.year"/>
+							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
+							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
 							<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
 							<!-- Media metadata for submit handler -->
 							<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
@@ -509,7 +573,7 @@ document.addEventListener('alpine:init', () => {
 						</form>
 
 						<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid">
-							TMDB ID, format, and year are required before submitting.
+							TMDB ID, format, year, ASIN, and release date are required before submitting.
 						</span>
 					}
 				} else {
