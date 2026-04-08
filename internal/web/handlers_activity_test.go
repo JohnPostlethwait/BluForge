@@ -200,8 +200,10 @@ func TestHandleActivityCancel_CancelsActive(t *testing.T) {
 	engine := ripper.NewEngine(blocker)
 
 	tmpDir := t.TempDir()
+	jobDone := make(chan struct{})
 	job := ripper.NewJob(0, 0, "Disc1", filepath.Join(tmpDir, "out"))
 	job.ID = 1
+	job.OnComplete = func(_ *ripper.Job, _ error) { close(jobDone) }
 	os.MkdirAll(job.OutputDir, 0o755)
 	engine.Submit(job)
 
@@ -244,8 +246,11 @@ func TestHandleActivityCancel_CancelsActive(t *testing.T) {
 		t.Errorf("expected status=cancelled, got %q", body["status"])
 	}
 
-	// Release the blocker so the goroutine can clean up.
+	// Release the blocker and wait for the engine goroutine to finish before
+	// the test exits, so t.TempDir() cleanup doesn't race with the goroutine
+	// writing title.mkv into the output directory.
 	close(blocker.block)
+	<-jobDone
 }
 
 func TestHandleActivityCancel_NotFound(t *testing.T) {
