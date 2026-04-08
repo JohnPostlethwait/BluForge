@@ -13,24 +13,31 @@ import (
 
 // GenerateReleaseJSON produces the TheDiscDB release.json content for a contribution.
 func GenerateReleaseJSON(ri ReleaseInfo, githubUser, imageURL string) string {
+	releaseDateStr := ""
+	if ri.ReleaseDate != "" {
+		if t, err := time.Parse("2006-01-02", ri.ReleaseDate); err == nil {
+			releaseDateStr = t.UTC().Format(time.RFC3339)
+		}
+	}
+
 	r := ReleaseJSON{
-		Slug:       ri.Slug,
-		UPC:        ri.UPC,
-		Year:       ri.Year,
-		Locale:     "en-us",
-		RegionCode: ri.RegionCode,
-		Title:      ri.Format,
-		SortTitle:  fmt.Sprintf("%d %s", ri.Year, ri.Format),
-		ImageUrl:   imageURL,
-		DateAdded:  time.Now().UTC().Format(time.RFC3339),
+		Slug:        ri.Slug,
+		Asin:        ri.ASIN,
+		UPC:         ri.UPC,
+		Year:        ri.Year,
+		Locale:      "en-us",
+		RegionCode:  ri.RegionCode,
+		Title:       ri.Format,
+		SortTitle:   fmt.Sprintf("%d %s", ri.Year, ri.Format),
+		ImageUrl:    imageURL,
+		ReleaseDate: releaseDateStr,
+		DateAdded:   time.Now().UTC().Format(time.RFC3339),
 		Contributors: []ContributorJSON{
 			{Name: githubUser, Source: "github"},
 		},
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
-		// json.MarshalIndent only fails for unmarshalable types (e.g. channels,
-		// funcs). Our struct is plain strings — this should never happen.
 		panic(fmt.Sprintf("contribute: marshal release.json: %v", err))
 	}
 	return string(data) + "\n"
