@@ -248,111 +248,106 @@ document.addEventListener('alpine:init', () => {
 			if data.Contribution.ContributionType != "update" {
 				<div class="card mb-4">
 					<h2 class="section-title">Release Info</h2>
-					<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
-						<!-- TMDB Search — full width -->
-						<div style="grid-column: 1 / -1;">
-							if !data.TMDBConfigured {
-								<div class="banner banner-warning mb-3">
-									TMDB API key is not configured. Add one in <a href="/settings">Settings</a> to enable search.
-								</div>
-							}
 
-							<!-- Confirmation row: shown after a result is selected -->
-							<template x-if="$store.contrib.tmdbSelected">
-								<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap;">
-									<img
-										x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
-										x-show="$store.contrib.tmdbSelected.posterPath"
-										style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-										:alt="$store.contrib.tmdbSelected.title ? 'Poster for ' + $store.contrib.tmdbSelected.title : 'Movie poster'"/>
-									<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
-									<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
-									<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
-								</div>
-							</template>
-
-							<!-- Search bar: shown when no selection -->
-							<template x-if="!$store.contrib.tmdbSelected">
-								<div>
-									<div class="form-group mb-3">
-										<label for="tmdb-search">Search TMDB</label>
-										<div class="flex gap-2">
-											<input
-												type="text"
-												id="tmdb-search"
-												x-model="$store.contrib.tmdbQuery"
-												x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
-												placeholder="Search by title…"
-												disabled?={ !data.TMDBConfigured }
-												style="flex:1;"/>
-											<button
-												type="button"
-												class="btn"
-												x-on:click="$store.contrib.searchTmdb()"
-												x-bind:disabled="$store.contrib.tmdbSearching || $store.contrib.tmdbQuery.trim().length < 2"
-												disabled?={ !data.TMDBConfigured }>
-												<span x-show="!$store.contrib.tmdbSearching">Search</span>
-												<span x-show="$store.contrib.tmdbSearching" x-cloak>…</span>
-											</button>
-										</div>
-									</div>
-
-									<!-- Results table -->
-									<div aria-live="polite" aria-atomic="false">
-										<template x-if="$store.contrib.tmdbResults.length > 0">
-											<div class="overflow-x-auto mb-3">
-												<table>
-													<thead>
-														<tr>
-															<th scope="col"></th>
-															<th scope="col">Title</th>
-															<th scope="col">Year</th>
-															<th scope="col">Type</th>
-															<th scope="col"><span class="sr-only">Actions</span></th>
-														</tr>
-													</thead>
-													<tbody>
-														<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
-															<tr>
-																<td style="width:40px; padding:4px 8px;">
-																	<img
-																		x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
-																		x-show="r.posterPath"
-																		style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-																		:alt="r.title ? 'Poster for ' + r.title : ''"/>
-																</td>
-																<td x-text="r.title"></td>
-																<td class="text-secondary" x-text="r.year || '—'"></td>
-																<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
-																<td>
-																	<button
-																		type="button"
-																		class="btn btn-primary btn-sm"
-																		x-on:click="$store.contrib.selectTmdb(r)">
-																		Select
-																	</button>
-																</td>
-															</tr>
-														</template>
-													</tbody>
-												</table>
-											</div>
-										</template>
-
-										<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
-											<p class="text-muted text-sm mt-2">No results found.</p>
-										</template>
-									</div>
-								</div>
-							</template>
+					<!-- Section 1: Media identity (what film/show is this?) -->
+					if !data.TMDBConfigured {
+						<div class="banner banner-warning mb-3">
+							TMDB API key is not configured. Add one in <a href="/settings">Settings</a> to enable search.
 						</div>
-						<div class="form-group">
-							<label for="media_type">Content Type</label>
-							<select id="media_type" x-model="$store.contrib.mediaType">
-								<option value="movie">Movie</option>
-								<option value="series">Series</option>
-							</select>
+					}
+
+					<!-- Confirmation row: shown after a result is selected -->
+					<template x-if="$store.contrib.tmdbSelected">
+						<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap;">
+							<img
+								x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
+								x-show="$store.contrib.tmdbSelected.posterPath"
+								style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+								:alt="$store.contrib.tmdbSelected.title ? 'Poster for ' + $store.contrib.tmdbSelected.title : 'Movie poster'"/>
+							<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
+							<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
+							<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
 						</div>
+					</template>
+
+					<!-- Search bar: shown when no selection -->
+					<template x-if="!$store.contrib.tmdbSelected">
+						<div>
+							<div class="form-group mb-3">
+								<label for="tmdb-search">Search TMDB</label>
+								<div class="flex gap-2">
+									<input
+										type="text"
+										id="tmdb-search"
+										x-model="$store.contrib.tmdbQuery"
+										x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
+										placeholder="Search by title…"
+										disabled?={ !data.TMDBConfigured }
+										style="flex:1;"/>
+									<button
+										type="button"
+										class="btn"
+										x-on:click="$store.contrib.searchTmdb()"
+										x-bind:disabled="$store.contrib.tmdbSearching || $store.contrib.tmdbQuery.trim().length < 2"
+										disabled?={ !data.TMDBConfigured }>
+										<span x-show="!$store.contrib.tmdbSearching">Search</span>
+										<span x-show="$store.contrib.tmdbSearching" x-cloak>…</span>
+									</button>
+								</div>
+							</div>
+
+							<!-- Results table -->
+							<div aria-live="polite" aria-atomic="false">
+								<template x-if="$store.contrib.tmdbResults.length > 0">
+									<div class="overflow-x-auto mb-3">
+										<table>
+											<thead>
+												<tr>
+													<th scope="col"></th>
+													<th scope="col">Title</th>
+													<th scope="col">Year</th>
+													<th scope="col">Type</th>
+													<th scope="col"><span class="sr-only">Actions</span></th>
+												</tr>
+											</thead>
+											<tbody>
+												<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
+													<tr>
+														<td style="width:40px; padding:4px 8px;">
+															<img
+																x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
+																x-show="r.posterPath"
+																style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+																:alt="r.title ? 'Poster for ' + r.title : ''"/>
+														</td>
+														<td x-text="r.title"></td>
+														<td class="text-secondary" x-text="r.year || '—'"></td>
+														<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
+														<td>
+															<button
+																type="button"
+																class="btn btn-primary btn-sm"
+																x-on:click="$store.contrib.selectTmdb(r)">
+																Select
+															</button>
+														</td>
+													</tr>
+												</template>
+											</tbody>
+										</table>
+									</div>
+								</template>
+
+								<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
+									<p class="text-muted text-sm mt-2">No results found.</p>
+								</template>
+							</div>
+						</div>
+					</template>
+
+					<!-- Section 2: Release details (what edition is this?) -->
+					<div class="form-section-divider"></div>
+					<div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
 						<div class="form-group">
 							<label for="format">Format</label>
 							<select id="format" x-model="$store.contrib.format">
@@ -361,10 +356,6 @@ document.addEventListener('alpine:init', () => {
 								<option value="UHD">UHD (4K)</option>
 								<option value="DVD">DVD</option>
 							</select>
-						</div>
-						<div class="form-group">
-							<label for="year">Year</label>
-							<input type="number" id="year" x-model="$store.contrib.year" placeholder="e.g. 2024" min="1900" max="2099"/>
 						</div>
 						<div class="form-group">
 							<label for="region_code">Region Code</label>
@@ -377,31 +368,41 @@ document.addEventListener('alpine:init', () => {
 							</select>
 						</div>
 						<div class="form-group">
+							<label for="media_type">Content Type</label>
+							<select id="media_type" x-model="$store.contrib.mediaType">
+								<option value="movie">Movie</option>
+								<option value="series">Series</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="year">Year</label>
+							<input type="number" id="year" x-model="$store.contrib.year" placeholder="e.g. 2024" min="1900" max="2099"/>
+						</div>
+						<div class="form-group">
+							<label for="asin">ASIN</label>
+							<input type="text" id="asin" x-model="$store.contrib.asin"
+								   @input="$store.contrib.onAsinChange()"
+								   placeholder="e.g. B0CCZQNJ3R"/>
+							<p class="text-muted text-sm mt-1">Find in the Amazon product URL: <code>amazon.com/dp/<strong>B0CCZQNJ3R</strong></code></p>
+						</div>
+						<div class="form-group">
+							<label for="upc">UPC <span class="text-muted">(optional)</span></label>
+							<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
+						</div>
+						<div class="form-group">
 							<label for="release_date">Release Date</label>
 							<input type="date" id="release_date" x-model="$store.contrib.releaseDate"/>
 						</div>
-						<div class="form-group">
-							<label for="upc">UPC (optional)</label>
-							<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
-						</div>
 					</div>
-					<div class="form-group mt-3">
-						<label for="asin">ASIN</label>
-						<input type="text" id="asin" x-model="$store.contrib.asin"
-							   @input="$store.contrib.onAsinChange()"
-							   placeholder="e.g. B0CCZQNJ3R"/>
-						<p class="text-muted text-sm mt-1">Find the ASIN in the Amazon product URL — e.g. <code>amazon.com/dp/<strong>B0CCZQNJ3R</strong></code> — or under "Product information" on the product page.</p>
-					</div>
+
+					<!-- Front cover: full-width, endpoint of the ASIN → image flow -->
 					<div class="form-group mt-3">
 						<label for="front_image_url">Front Cover Image URL</label>
 						<input type="url" id="front_image_url"
 							   x-model="$store.contrib.frontImageURL"
 							   @input="$store.contrib.frontImageLoadError = false"
 							   placeholder="Auto-populated from ASIN — or paste any image URL"/>
-						<p class="text-muted text-sm mt-1">
-							Populated automatically when you enter an ASIN above. You can paste a different URL if needed.
-							At submission, this image will be downloaded as <code>front.jpg</code>.
-						</p>
+						<p class="text-muted text-sm mt-1">Auto-populated from ASIN. You can paste a different URL. Downloaded as <code>front.jpg</code> at submission.</p>
 						<template x-if="$store.contrib.frontImageURL.trim().length > 0">
 							<div class="mt-2">
 								<img

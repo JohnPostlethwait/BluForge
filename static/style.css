@@ -354,6 +354,12 @@ tbody td {
   border-bottom: 1px solid var(--border);
 }
 
+.form-section-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
 /* Utility */
 .text-primary   { color: var(--text-primary); }
 .text-muted     { color: var(--text-muted); }
