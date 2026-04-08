@@ -1100,3 +1100,113 @@ func TestSubmitFailsNonNumericTmdbID(t *testing.T) {
 		t.Errorf("error %q should contain %q", err.Error(), "not a valid integer")
 	}
 }
+
+// --- SubmitUpdate validation tests ---
+
+func seedUpdateContribution(t *testing.T, store *db.Store, matchInfo MatchInfo, labels []TitleLabel) int64 {
+	t.Helper()
+
+	scan := testScan()
+	scanData, err := json.Marshal(scan)
+	if err != nil {
+		t.Fatalf("marshal scan: %v", err)
+	}
+
+	miJSON, err := json.Marshal(matchInfo)
+	if err != nil {
+		t.Fatalf("marshal match_info: %v", err)
+	}
+
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		t.Fatalf("marshal labels: %v", err)
+	}
+
+	c := db.Contribution{
+		DiscKey:          "update-disc-key",
+		DiscName:         "THE_MATRIX",
+		RawOutput:        scan.RawOutput,
+		ScanJSON:         string(scanData),
+		ContributionType: "update",
+		MatchInfo:        string(miJSON),
+		TitleLabels:      string(labelsJSON),
+	}
+	id, err := store.SaveContribution(c)
+	if err != nil {
+		t.Fatalf("SaveContribution: %v", err)
+	}
+	return id
+}
+
+func TestSubmitUpdate_validatesMatchInfo(t *testing.T) {
+	// A contribution with empty match_info should return an error.
+	store := openTestStore(t)
+
+	scan := testScan()
+	scanData, err := json.Marshal(scan)
+	if err != nil {
+		t.Fatalf("marshal scan: %v", err)
+	}
+
+	labels := []TitleLabel{
+		{TitleIndex: 0, Type: "MainMovie", Name: "The Matrix", FileName: "The Matrix (1999).mkv"},
+	}
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		t.Fatalf("marshal labels: %v", err)
+	}
+
+	c := db.Contribution{
+		DiscKey:          "update-empty-match-info",
+		DiscName:         "THE_MATRIX",
+		RawOutput:        scan.RawOutput,
+		ScanJSON:         string(scanData),
+		ContributionType: "update",
+		MatchInfo:        "", // empty — should fail
+		TitleLabels:      string(labelsJSON),
+	}
+	id, err := store.SaveContribution(c)
+	if err != nil {
+		t.Fatalf("SaveContribution: %v", err)
+	}
+
+	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	_, err = svc.SubmitUpdate(context.Background(), id)
+	if err == nil {
+		t.Fatal("expected error for empty match_info, got nil")
+	}
+	if !strings.Contains(err.Error(), "match_info") {
+		t.Errorf("error %q should mention match_info", err.Error())
+	}
+}
+
+func TestSubmitUpdate_requiresAtLeastOneTypedTitle(t *testing.T) {
+	// All titles with empty type → error.
+	store := openTestStore(t)
+
+	mi := MatchInfo{
+		MediaSlug:   "the-matrix-1999",
+		MediaType:   "movie",
+		MediaTitle:  "The Matrix",
+		MediaYear:   1999,
+		ReleaseSlug: "1999-blu-ray",
+		DiscIndex:   1,
+	}
+	labels := []TitleLabel{
+		{TitleIndex: 0, Type: "", Name: "", FileName: ""}, // no type
+	}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := &mockGitHub{user: "testuser", forkName: "testuser/data"}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	_, err := svc.SubmitUpdate(context.Background(), id)
+	if err == nil {
+		t.Fatal("expected error when all title labels have empty type, got nil")
+	}
+	if !strings.Contains(err.Error(), "typed title") {
+		t.Errorf("error %q should mention typed title", err.Error())
+	}
+}
