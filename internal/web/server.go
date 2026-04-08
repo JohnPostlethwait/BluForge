@@ -161,6 +161,8 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/contributions/:id", s.handleContributionSave)
 	e.POST("/contributions/:id/submit", s.handleContributionSubmit)
 	e.POST("/contributions/:id/resubmit", s.handleContributionResubmit)
+	e.POST("/contributions/:id/submit-update", s.handleContributionSubmitUpdate)
+	e.POST("/contributions/:id/resubmit-update", s.handleContributionResubmitUpdate)
 	e.POST("/contributions/:id/delete", s.handleContributionDelete)
 	e.GET("/api/tmdb/search", s.handleTMDBSearch)
 	e.GET("/events", s.handleSSE)

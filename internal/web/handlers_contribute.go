@@ -245,6 +245,113 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d?flash=PR+updated+%%E2%%80%%94+corrected+files+pushed+to+branch", id))
 }
 
+// parseAndSaveUpdateDraft saves title_labels for an update contribution.
+// Unlike parseAndSaveDraft, it preserves the existing tmdb_id and release_info.
+func (s *Server) parseAndSaveUpdateDraft(c echo.Context, id int64) error {
+	contrib, err := s.store.GetContribution(id)
+	if err != nil || contrib == nil {
+		slog.Error("failed to load contribution for update draft", "id", id)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+	}
+	titleLabelsRaw := c.FormValue("title_labels")
+	if err := s.store.UpdateContributionDraft(id, contrib.TmdbID, contrib.ReleaseInfo, titleLabelsRaw); err != nil {
+		slog.Error("failed to update contribution draft", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
+	}
+	return nil
+}
+
+// handleContributionSubmitUpdate submits an update contribution to GitHub as a PR.
+func (s *Server) handleContributionSubmitUpdate(c echo.Context) error {
+	id, err := parseContribID(c)
+	if err != nil {
+		return err
+	}
+
+	cfg := s.GetConfig()
+	if cfg.GitHubToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
+	}
+
+	if err := s.parseAndSaveUpdateDraft(c, id); err != nil {
+		return err
+	}
+
+	// Reject if all titles are omitted.
+	titleLabelsRaw := c.FormValue("title_labels")
+	var titleLabels []contribute.TitleLabel
+	if titleLabelsRaw != "" {
+		if err := json.Unmarshal([]byte(titleLabelsRaw), &titleLabels); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid title labels.")
+		}
+	}
+	hasTyped := false
+	for _, l := range titleLabels {
+		if l.Type != "" {
+			hasTyped = true
+			break
+		}
+	}
+	if !hasTyped {
+		return echo.NewHTTPError(http.StatusBadRequest, "At least one title must have a type assigned before submitting.")
+	}
+
+	ghClient, err := ghpkg.NewClient(cfg.GitHubToken)
+	if err != nil {
+		slog.Error("failed to create GitHub client", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create GitHub client.")
+	}
+
+	tmdbOpts := []tmdb.Option{}
+	if s.tmdbBaseURL != "" {
+		tmdbOpts = append(tmdbOpts, tmdb.WithBaseURL(s.tmdbBaseURL))
+	}
+	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
+	svc := contribute.NewService(s.store, ghClient, tmdbClient)
+	prURL, err := svc.SubmitUpdate(c.Request().Context(), id)
+	if err != nil {
+		slog.Error("failed to submit update contribution", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to submit update: "+err.Error())
+	}
+
+	sseData, _ := json.Marshal(map[string]any{"id": id, "prURL": prURL})
+	s.sseHub.Broadcast(SSEEvent{Event: "contribution_submitted", Data: string(sseData)})
+
+	return c.Redirect(http.StatusSeeOther, "/contributions?flash=Update+submitted+%E2%80%94+PR+opened+successfully")
+}
+
+// handleContributionResubmitUpdate pushes corrective files to the existing update PR branch.
+func (s *Server) handleContributionResubmitUpdate(c echo.Context) error {
+	id, err := parseContribID(c)
+	if err != nil {
+		return err
+	}
+
+	cfg := s.GetConfig()
+	if cfg.GitHubToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "GitHub token is not configured. Please set it in Settings.")
+	}
+
+	ghClient, err := ghpkg.NewClient(cfg.GitHubToken)
+	if err != nil {
+		slog.Error("failed to create GitHub client", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create GitHub client.")
+	}
+
+	tmdbOpts := []tmdb.Option{}
+	if s.tmdbBaseURL != "" {
+		tmdbOpts = append(tmdbOpts, tmdb.WithBaseURL(s.tmdbBaseURL))
+	}
+	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
+	svc := contribute.NewService(s.store, ghClient, tmdbClient)
+	if err := svc.ResubmitUpdate(c.Request().Context(), id); err != nil {
+		slog.Error("failed to resubmit update contribution", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to resubmit update: "+err.Error())
+	}
+
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d?flash=PR+updated+%%E2%%80%%94+corrected+files+pushed+to+branch", id))
+}
+
 // handleContributionDelete removes a pending/drafting contribution.
 func (s *Server) handleContributionDelete(c echo.Context) error {
 	id, err := parseContribID(c)
