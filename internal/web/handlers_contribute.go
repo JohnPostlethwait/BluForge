@@ -43,13 +43,20 @@ func (s *Server) parseAndSaveDraft(c echo.Context, id int64) error {
 		}
 	}
 
+	asin := c.FormValue("asin")
+	releaseDate := c.FormValue("release_date")
+	frontImageURL := c.FormValue("front_image_url")
+
 	ri := contribute.ReleaseInfo{
-		UPC:        upc,
-		RegionCode: regionCode,
-		Year:       year,
-		Format:     format,
-		Slug:       contribute.ReleaseSlug(year, format),
-		MediaType:  mediaType,
+		UPC:           upc,
+		RegionCode:    regionCode,
+		Year:          year,
+		Format:        format,
+		Slug:          contribute.ReleaseSlug(year, format),
+		MediaType:     mediaType,
+		ASIN:          asin,
+		ReleaseDate:   releaseDate,
+		FrontImageURL: frontImageURL,
 	}
 
 	riBytes, err := json.Marshal(ri)

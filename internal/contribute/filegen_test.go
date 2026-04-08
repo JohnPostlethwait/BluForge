@@ -108,6 +108,63 @@ func TestGenerateReleaseJSON(t *testing.T) {
 	}
 }
 
+func TestGenerateReleaseJSON_WithASINAndReleaseDate(t *testing.T) {
+	ri := ReleaseInfo{
+		UPC:         "883929543236",
+		RegionCode:  "A",
+		Year:        1999,
+		Format:      "Blu-ray",
+		Slug:        "1999-blu-ray",
+		ASIN:        "B0CCZQNJ3R",
+		ReleaseDate: "1999-09-21",
+	}
+
+	content := GenerateReleaseJSON(ri, "testuser", "")
+
+	var got ReleaseJSON
+	if err := json.Unmarshal([]byte(content), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\ncontent:\n%s", err, content)
+	}
+
+	if got.Asin != "B0CCZQNJ3R" {
+		t.Errorf("Asin: want %q, got %q", "B0CCZQNJ3R", got.Asin)
+	}
+	if got.ReleaseDate != "1999-09-21T00:00:00Z" {
+		t.Errorf("ReleaseDate: want %q, got %q", "1999-09-21T00:00:00Z", got.ReleaseDate)
+	}
+}
+
+func TestGenerateReleaseJSON_OmitsASINAndReleaseDateWhenEmpty(t *testing.T) {
+	ri := ReleaseInfo{
+		Year:   2024,
+		Format: "Blu-ray",
+		// ASIN and ReleaseDate intentionally empty
+	}
+
+	content := GenerateReleaseJSON(ri, "user", "")
+
+	if strings.Contains(content, `"Asin"`) {
+		t.Error("expected Asin to be omitted when empty")
+	}
+	if strings.Contains(content, `"ReleaseDate"`) {
+		t.Error("expected ReleaseDate to be omitted when empty")
+	}
+}
+
+func TestGenerateReleaseJSON_MalformedReleaseDateOmitted(t *testing.T) {
+	ri := ReleaseInfo{
+		Year:        2024,
+		Format:      "Blu-ray",
+		ReleaseDate: "not-a-date",
+	}
+
+	content := GenerateReleaseJSON(ri, "user", "")
+
+	if strings.Contains(content, `"ReleaseDate"`) {
+		t.Error("expected ReleaseDate to be omitted when unparseable")
+	}
+}
+
 func TestGenerateDiscJSON(t *testing.T) {
 	scan := testScan()
 

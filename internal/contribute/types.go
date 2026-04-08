@@ -2,12 +2,15 @@ package contribute
 
 // ReleaseInfo holds user-provided release metadata.
 type ReleaseInfo struct {
-	UPC        string `json:"upc"`
-	RegionCode string `json:"region_code"`
-	Year       int    `json:"year"`
-	Format     string `json:"format"`     // "Blu-ray", "UHD", "DVD"
-	Slug       string `json:"slug"`       // e.g. "2024-blu-ray"
-	MediaType  string `json:"media_type"` // "movie" or "series"; defaults to "movie" if empty
+	UPC           string `json:"upc"`
+	RegionCode    string `json:"region_code"`
+	Year          int    `json:"year"`
+	Format        string `json:"format"`          // "Blu-ray", "UHD", "DVD"
+	Slug          string `json:"slug"`            // e.g. "2024-blu-ray"
+	MediaType     string `json:"media_type"`      // "movie" or "series"; defaults to "movie" if empty
+	ASIN          string `json:"asin"`
+	ReleaseDate   string `json:"release_date"`    // YYYY-MM-DD from form
+	FrontImageURL string `json:"front_image_url"` // user-editable URL for front.jpg
 }
 
 // MatchInfo holds the TheDiscDB identifiers for a matched disc release.
@@ -36,6 +39,7 @@ type TitleLabel struct {
 // ReleaseJSON is the schema for TheDiscDB release.json.
 type ReleaseJSON struct {
 	Slug         string            `json:"Slug"`
+	Asin         string            `json:"Asin,omitempty"`
 	UPC          string            `json:"Upc,omitempty"`
 	Year         int               `json:"Year"`
 	Locale       string            `json:"Locale"`
@@ -43,6 +47,7 @@ type ReleaseJSON struct {
 	Title        string            `json:"Title"`
 	SortTitle    string            `json:"SortTitle"`
 	ImageUrl     string            `json:"ImageUrl,omitempty"`
+	ReleaseDate  string            `json:"ReleaseDate,omitempty"`
 	DateAdded    string            `json:"DateAdded"`
 	Contributors []ContributorJSON `json:"Contributors"`
 }
