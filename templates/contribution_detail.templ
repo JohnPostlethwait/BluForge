@@ -64,6 +64,7 @@ func contributionFormInit(c db.Contribution) string {
 		Label      string `json:"label"`
 		Season     string `json:"season"`
 		Episode    string `json:"episode"`
+		Matched    bool   `json:"matched"`
 	}
 
 	titles := make([]titleEntry, 0, len(scan.Titles))
@@ -81,6 +82,7 @@ func contributionFormInit(c db.Contribution) string {
 			entry.Label = l.Name
 			entry.Season = l.Season
 			entry.Episode = l.Episode
+			entry.Matched = l.Matched
 		}
 		titles = append(titles, entry)
 	}
@@ -100,10 +102,11 @@ func contributionFormInit(c db.Contribution) string {
 			return "movie"
 		}(),
 		"upc": ri.UPC,
-		"regionCode": ri.RegionCode,
-		"format":     ri.Format,
-		"year":       yearStr,
-		"titles":     titles,
+		"regionCode":       ri.RegionCode,
+		"format":           ri.Format,
+		"year":             yearStr,
+		"titles":           titles,
+		"contributionType": c.ContributionType,
 	}
 
 	data, err := json.Marshal(state)
@@ -132,9 +135,13 @@ document.addEventListener('alpine:init', () => {
 		format: init.format || '',
 		year: init.year || '',
 		titles: init.titles || [],
+		contributionType: init.contributionType || 'add',
 		tmdbSelected: init.tmdbID ? { id: parseInt(init.tmdbID) || 0, title: init.mediaTitle || '', year: parseInt(init.year) || 0, posterPath: '' } : null,
 
 		get isValid() {
+			if (this.contributionType === 'update') {
+				return this.titles.some(t => t.type !== '')
+			}
 			return this.tmdbID.trim() !== '' &&
 				this.format.trim() !== '' &&
 				this.year.trim() !== ''
@@ -148,6 +155,7 @@ document.addEventListener('alpine:init', () => {
 				season: t.season || '',
 				episode: t.episode || '',
 				file_name: t.file_name || '',
+				matched: t.matched || false,
 			})))
 		},
 
@@ -220,142 +228,163 @@ document.addEventListener('alpine:init', () => {
 
 		<div x-data>
 			<!-- Release metadata card -->
-			<div class="card mb-4">
-				<h2 class="section-title">Release Info</h2>
-				<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
-					<!-- TMDB Search — full width -->
-					<div style="grid-column: 1 / -1;">
-						if !data.TMDBConfigured {
-							<div class="banner banner-warning mb-3">
-								TMDB API key is not configured. Add one in <a href="/settings">Settings</a> to enable search.
-							</div>
-						}
+			if data.Contribution.ContributionType != "update" {
+				<div class="card mb-4">
+					<h2 class="section-title">Release Info</h2>
+					<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
+						<!-- TMDB Search — full width -->
+						<div style="grid-column: 1 / -1;">
+							if !data.TMDBConfigured {
+								<div class="banner banner-warning mb-3">
+									TMDB API key is not configured. Add one in <a href="/settings">Settings</a> to enable search.
+								</div>
+							}
 
-						<!-- Confirmation row: shown after a result is selected -->
-						<template x-if="$store.contrib.tmdbSelected">
-							<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap;">
-								<img
-									x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
-									x-show="$store.contrib.tmdbSelected.posterPath"
-									style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-									:alt="$store.contrib.tmdbSelected.title ? 'Poster for ' + $store.contrib.tmdbSelected.title : 'Movie poster'"/>
-								<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
-								<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
-								<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
-							</div>
-						</template>
+							<!-- Confirmation row: shown after a result is selected -->
+							<template x-if="$store.contrib.tmdbSelected">
+								<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap;">
+									<img
+										x-bind:src="$store.contrib.tmdbSelected.posterPath ? 'https://image.tmdb.org/t/p/w92' + $store.contrib.tmdbSelected.posterPath : ''"
+										x-show="$store.contrib.tmdbSelected.posterPath"
+										style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+										:alt="$store.contrib.tmdbSelected.title ? 'Poster for ' + $store.contrib.tmdbSelected.title : 'Movie poster'"/>
+									<span class="font-semibold" x-text="$store.contrib.tmdbSelected.title + ' (' + $store.contrib.tmdbSelected.year + ')'"></span>
+									<span class="text-muted text-sm" x-text="'TMDB #' + $store.contrib.tmdbSelected.id"></span>
+									<button type="button" class="btn btn-secondary btn-sm" x-on:click="$store.contrib.clearTmdb()">Clear</button>
+								</div>
+							</template>
 
-						<!-- Search bar: shown when no selection -->
-						<template x-if="!$store.contrib.tmdbSelected">
-							<div>
-								<div class="form-group mb-3">
-									<label for="tmdb-search">Search TMDB</label>
-									<div class="flex gap-2">
-										<input
-											type="text"
-											id="tmdb-search"
-											x-model="$store.contrib.tmdbQuery"
-											x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
-											placeholder="Search by title…"
-											disabled?={ !data.TMDBConfigured }
-											style="flex:1;"/>
-										<button
-											type="button"
-											class="btn"
-											x-on:click="$store.contrib.searchTmdb()"
-											x-bind:disabled="$store.contrib.tmdbSearching || $store.contrib.tmdbQuery.trim().length < 2"
-											disabled?={ !data.TMDBConfigured }>
-											<span x-show="!$store.contrib.tmdbSearching">Search</span>
-											<span x-show="$store.contrib.tmdbSearching" x-cloak>…</span>
-										</button>
+							<!-- Search bar: shown when no selection -->
+							<template x-if="!$store.contrib.tmdbSelected">
+								<div>
+									<div class="form-group mb-3">
+										<label for="tmdb-search">Search TMDB</label>
+										<div class="flex gap-2">
+											<input
+												type="text"
+												id="tmdb-search"
+												x-model="$store.contrib.tmdbQuery"
+												x-on:keydown.enter.prevent="$store.contrib.searchTmdb()"
+												placeholder="Search by title…"
+												disabled?={ !data.TMDBConfigured }
+												style="flex:1;"/>
+											<button
+												type="button"
+												class="btn"
+												x-on:click="$store.contrib.searchTmdb()"
+												x-bind:disabled="$store.contrib.tmdbSearching || $store.contrib.tmdbQuery.trim().length < 2"
+												disabled?={ !data.TMDBConfigured }>
+												<span x-show="!$store.contrib.tmdbSearching">Search</span>
+												<span x-show="$store.contrib.tmdbSearching" x-cloak>…</span>
+											</button>
+										</div>
+									</div>
+
+									<!-- Results table -->
+									<div aria-live="polite" aria-atomic="false">
+										<template x-if="$store.contrib.tmdbResults.length > 0">
+											<div class="overflow-x-auto mb-3">
+												<table>
+													<thead>
+														<tr>
+															<th scope="col"></th>
+															<th scope="col">Title</th>
+															<th scope="col">Year</th>
+															<th scope="col">Type</th>
+															<th scope="col"><span class="sr-only">Actions</span></th>
+														</tr>
+													</thead>
+													<tbody>
+														<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
+															<tr>
+																<td style="width:40px; padding:4px 8px;">
+																	<img
+																		x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
+																		x-show="r.posterPath"
+																		style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
+																		:alt="r.title ? 'Poster for ' + r.title : ''"/>
+																</td>
+																<td x-text="r.title"></td>
+																<td class="text-secondary" x-text="r.year || '—'"></td>
+																<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
+																<td>
+																	<button
+																		type="button"
+																		class="btn btn-primary btn-sm"
+																		x-on:click="$store.contrib.selectTmdb(r)">
+																		Select
+																	</button>
+																</td>
+															</tr>
+														</template>
+													</tbody>
+												</table>
+											</div>
+										</template>
+
+										<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
+											<p class="text-muted text-sm mt-2">No results found.</p>
+										</template>
 									</div>
 								</div>
-
-								<!-- Results table -->
-								<div aria-live="polite" aria-atomic="false">
-									<template x-if="$store.contrib.tmdbResults.length > 0">
-										<div class="overflow-x-auto mb-3">
-											<table>
-												<thead>
-													<tr>
-														<th scope="col"></th>
-														<th scope="col">Title</th>
-														<th scope="col">Year</th>
-														<th scope="col">Type</th>
-														<th scope="col"><span class="sr-only">Actions</span></th>
-													</tr>
-												</thead>
-												<tbody>
-													<template x-for="r in $store.contrib.tmdbResults" :key="r.id">
-														<tr>
-															<td style="width:40px; padding:4px 8px;">
-																<img
-																	x-bind:src="r.posterPath ? 'https://image.tmdb.org/t/p/w92' + r.posterPath : ''"
-																	x-show="r.posterPath"
-																	style="height:48px; width:32px; object-fit:cover; border-radius:4px;"
-																	:alt="r.title ? 'Poster for ' + r.title : ''"/>
-															</td>
-															<td x-text="r.title"></td>
-															<td class="text-secondary" x-text="r.year || '—'"></td>
-															<td><span class="badge badge-identified" x-text="r.mediaType"></span></td>
-															<td>
-																<button
-																	type="button"
-																	class="btn btn-primary btn-sm"
-																	x-on:click="$store.contrib.selectTmdb(r)">
-																	Select
-																</button>
-															</td>
-														</tr>
-													</template>
-												</tbody>
-											</table>
-										</div>
-									</template>
-
-									<template x-if="$store.contrib.tmdbSearched && $store.contrib.tmdbResults.length === 0 && !$store.contrib.tmdbSearching">
-										<p class="text-muted text-sm mt-2">No results found.</p>
-									</template>
-								</div>
-							</div>
-						</template>
-					</div>
-					<div class="form-group">
-						<label for="media_type">Content Type</label>
-						<select id="media_type" x-model="$store.contrib.mediaType">
-							<option value="movie">Movie</option>
-							<option value="series">Series</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="format">Format</label>
-						<select id="format" x-model="$store.contrib.format">
-							<option value="">— select —</option>
-							<option value="Blu-ray">Blu-ray</option>
-							<option value="UHD">UHD (4K)</option>
-							<option value="DVD">DVD</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="year">Year</label>
-						<input type="number" id="year" x-model="$store.contrib.year" placeholder="e.g. 2024" min="1900" max="2099"/>
-					</div>
-					<div class="form-group">
-						<label for="region_code">Region Code</label>
-						<select id="region_code" x-model="$store.contrib.regionCode">
-							<option value="">— select —</option>
-							<option value="A">A (Americas / East Asia)</option>
-							<option value="B">B (Europe / Middle East / Africa)</option>
-							<option value="C">C (Russia / Asia / China)</option>
-							<option value="FREE">Region Free</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="upc">UPC (optional)</label>
-						<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
+							</template>
+						</div>
+						<div class="form-group">
+							<label for="media_type">Content Type</label>
+							<select id="media_type" x-model="$store.contrib.mediaType">
+								<option value="movie">Movie</option>
+								<option value="series">Series</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="format">Format</label>
+							<select id="format" x-model="$store.contrib.format">
+								<option value="">— select —</option>
+								<option value="Blu-ray">Blu-ray</option>
+								<option value="UHD">UHD (4K)</option>
+								<option value="DVD">DVD</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="year">Year</label>
+							<input type="number" id="year" x-model="$store.contrib.year" placeholder="e.g. 2024" min="1900" max="2099"/>
+						</div>
+						<div class="form-group">
+							<label for="region_code">Region Code</label>
+							<select id="region_code" x-model="$store.contrib.regionCode">
+								<option value="">— select —</option>
+								<option value="A">A (Americas / East Asia)</option>
+								<option value="B">B (Europe / Middle East / Africa)</option>
+								<option value="C">C (Russia / Asia / China)</option>
+								<option value="FREE">Region Free</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="upc">UPC (optional)</label>
+							<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
+						</div>
 					</div>
 				</div>
-			</div>
+			} else {
+				<div class="card mb-4">
+					<h2 class="section-title">Matched Release</h2>
+					if mi := parseMatchInfo(data.Contribution.MatchInfo); mi.MediaTitle != "" {
+						<dl class="dl-horizontal">
+							<dt>Title</dt>
+							<dd>{ mi.MediaTitle } ({ fmt.Sprintf("%d", mi.MediaYear) })</dd>
+							<dt>Release</dt>
+							<dd>{ mi.ReleaseSlug }</dd>
+							<dt>Disc</dt>
+							<dd>Disc { fmt.Sprintf("%d", mi.DiscIndex) }</dd>
+							<dt>TheDiscDB</dt>
+							<dd>
+								<a href={ templ.SafeURL("https://thediscdb.com/" + mi.MediaType + "/" + mi.MediaSlug) }
+								   target="_blank" rel="noopener">View on TheDiscDB &rarr;</a>
+							</dd>
+						</dl>
+					}
+				</div>
+			}
 
 			<!-- Titles table card -->
 			<div class="card" style="margin-bottom:5rem;">
@@ -379,7 +408,12 @@ document.addEventListener('alpine:init', () => {
 							<template x-for="(t, idx) in $store.contrib.titles" :key="t.title_index">
 								<tr :class="t.type === '' ? 'title-omitted' : ''">
 									<td x-text="t.title_index + 1"></td>
-									<td x-text="t.mpls" class="text-muted text-sm font-mono whitespace-nowrap"></td>
+									<td class="text-muted text-sm font-mono whitespace-nowrap">
+										<span x-text="t.mpls"></span>
+										<template x-if="t.matched">
+											<span class="badge badge-matched ml-1" title="Pre-filled from TheDiscDB">DB</span>
+										</template>
+									</td>
 									<td x-text="t.duration" class="text-muted text-sm whitespace-nowrap"></td>
 									<td x-text="t.size" class="text-muted text-sm whitespace-nowrap"></td>
 									<td>
@@ -425,62 +459,118 @@ document.addEventListener('alpine:init', () => {
 						<button type="submit" class="btn">Save Draft</button>
 					</form>
 
-					<!-- Submit to TheDiscDB form -->
-					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
-						x-data="{ submitting: false }"
-						@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
-						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
-						<input type="hidden" name="upc" :value="$store.contrib.upc"/>
-						<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
-						<input type="hidden" name="format" :value="$store.contrib.format"/>
-						<input type="hidden" name="year" :value="$store.contrib.year"/>
-						<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
-						<!-- Media metadata for submit handler -->
-						<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
-						<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-						<button type="submit" class="btn btn-primary"
-							disabled?={ !data.GitHubTokenConfigured }
-							:disabled="submitting || !$store.contrib.isValid"
-							aria-describedby="contrib-validation-msg github-token-warning">
-							<span x-show="!submitting">Submit to TheDiscDB</span>
-							<span x-show="submitting" x-cloak class="flex items-center gap-2">
-								<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
-							</span>
-						</button>
-					</form>
+					if data.Contribution.ContributionType == "update" {
+						<!-- Submit Update to TheDiscDB form -->
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit-update", data.Contribution.ID)) }
+							x-data="{ submitting: false }"
+							@submit="document.getElementById('title_labels_submit_update').value = $store.contrib.serializedLabels(); submitting = true">
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" id="title_labels_submit_update" name="title_labels" value=""/>
+							<button type="submit" class="btn btn-primary"
+								if !data.GitHubTokenConfigured {
+									disabled
+								}
+								:disabled="submitting || !$store.contrib.isValid"
+								aria-describedby="contrib-validation-msg github-token-warning">
+								<span x-show="!submitting">Submit Update to TheDiscDB</span>
+								<span x-show="submitting" x-cloak class="flex items-center gap-2">
+									<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
+								</span>
+							</button>
+						</form>
+						<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid" x-cloak>
+							At least one title must have a type assigned before submitting.
+						</span>
+					} else {
+						<!-- Submit to TheDiscDB form -->
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
+							x-data="{ submitting: false }"
+							@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>
+							<input type="hidden" name="upc" :value="$store.contrib.upc"/>
+							<input type="hidden" name="region_code" :value="$store.contrib.regionCode"/>
+							<input type="hidden" name="format" :value="$store.contrib.format"/>
+							<input type="hidden" name="year" :value="$store.contrib.year"/>
+							<input type="hidden" id="title_labels_submit" name="title_labels" value=""/>
+							<!-- Media metadata for submit handler -->
+							<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
+							<input type="hidden" name="media_year" :value="$store.contrib.year"/>
+							<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+							<button type="submit" class="btn btn-primary"
+								disabled?={ !data.GitHubTokenConfigured }
+								:disabled="submitting || !$store.contrib.isValid"
+								aria-describedby="contrib-validation-msg github-token-warning">
+								<span x-show="!submitting">Submit to TheDiscDB</span>
+								<span x-show="submitting" x-cloak class="flex items-center gap-2">
+									<span class="spinner" aria-hidden="true"></span> Submitting&hellip;
+								</span>
+							</button>
+						</form>
 
-					<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid">
-						TMDB ID, format, and year are required before submitting.
-					</span>
+						<span id="contrib-validation-msg" class="text-muted text-sm" x-show="!$store.contrib.isValid">
+							TMDB ID, format, and year are required before submitting.
+						</span>
+					}
 				} else {
-					<!-- Update PR: push corrected files to existing branch -->
-					<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }
-						x-data="{ submitting: false }"
-						@submit="submitting = true">
-						<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
-						<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
-						<input type="hidden" name="media_year" :value="$store.contrib.year"/>
-						<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
-						<button type="submit" class="btn btn-primary"
-							disabled?={ !data.GitHubTokenConfigured }
-							:disabled="submitting"
-							aria-describedby="github-token-warning">
-							<span x-show="!submitting">Update PR</span>
-							<span x-show="submitting" x-cloak class="flex items-center gap-2">
-								<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
-							</span>
-						</button>
-					</form>
-					<span class="text-muted text-sm">
-						Regenerates and pushes corrected files to the PR branch, reopening it if closed.
-					</span>
-					if data.Contribution.PRURL != "" {
-						<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
+					if data.Contribution.ContributionType == "update" {
+						<!-- Update PR: push corrected files to existing update branch -->
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit-update", data.Contribution.ID)) }
+							x-data="{ submitting: false }"
+							@submit="submitting = true">
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<button type="submit" class="btn btn-primary"
+								if !data.GitHubTokenConfigured {
+									disabled
+								}
+								:disabled="submitting"
+								aria-describedby="github-token-warning">
+								<span x-show="!submitting">Update PR</span>
+								<span x-show="submitting" x-cloak class="flex items-center gap-2">
+									<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
+								</span>
+							</button>
+						</form>
+						if data.Contribution.PRURL != "" {
+							<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
+						}
+					} else {
+						<!-- Update PR: push corrected files to existing branch -->
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/resubmit", data.Contribution.ID)) }
+							x-data="{ submitting: false }"
+							@submit="submitting = true">
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" name="media_title" :value="$store.contrib.mediaTitle"/>
+							<input type="hidden" name="media_year" :value="$store.contrib.year"/>
+							<input type="hidden" name="media_type" :value="$store.contrib.mediaType"/>
+							<button type="submit" class="btn btn-primary"
+								disabled?={ !data.GitHubTokenConfigured }
+								:disabled="submitting"
+								aria-describedby="github-token-warning">
+								<span x-show="!submitting">Update PR</span>
+								<span x-show="submitting" x-cloak class="flex items-center gap-2">
+									<span class="spinner" aria-hidden="true"></span> Updating PR&hellip;
+								</span>
+							</button>
+						</form>
+						<span class="text-muted text-sm">
+							Regenerates and pushes corrected files to the PR branch, reopening it if closed.
+						</span>
+						if data.Contribution.PRURL != "" {
+							<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR</a>
+						}
 					}
 				}
 			</div>
 		</div>
 	}
+}
+
+// parseMatchInfo decodes a JSON-encoded MatchInfo string. Returns zero value on empty or error.
+func parseMatchInfo(raw string) contribute.MatchInfo {
+	var mi contribute.MatchInfo
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &mi)
+	}
+	return mi
 }

@@ -1057,6 +1057,16 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   font-weight: 600;
 }
 
+.badge-matched {
+  background: var(--color-success, #22c55e);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.7em;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
 /* ── Reusable Component Classes ── */
 
 /* Contribution alert — left-accented card */
