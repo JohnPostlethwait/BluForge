@@ -38,6 +38,8 @@ func GenerateReleaseJSON(ri ReleaseInfo, githubUser, imageURL string) string {
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
+		// json.MarshalIndent only fails for unmarshalable types (e.g. channels,
+		// funcs). Our struct is plain strings and ints — this should never happen.
 		panic(fmt.Sprintf("contribute: marshal release.json: %v", err))
 	}
 	return string(data) + "\n"
