@@ -150,6 +150,19 @@ func (s *Store) UpdateContributionDraft(id int64, tmdbID, releaseInfo, titleLabe
 	return nil
 }
 
+// UpdateContributionMatchInfo updates the match_info JSON for a contribution.
+func (s *Store) UpdateContributionMatchInfo(id int64, matchInfo string) error {
+	const q = `
+		UPDATE contributions
+		SET match_info = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`
+	_, err := s.db.Exec(q, matchInfo, id)
+	if err != nil {
+		return fmt.Errorf("update contribution match_info %d: %w", id, err)
+	}
+	return nil
+}
+
 // UpdateContributionStatus updates the status and pr_url fields.
 func (s *Store) UpdateContributionStatus(id int64, status, prURL string) error {
 	const q = `

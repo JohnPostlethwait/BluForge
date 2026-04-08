@@ -252,8 +252,8 @@ func (s *Server) handleContributionResubmit(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/contributions/%d?flash=PR+updated+%%E2%%80%%94+corrected+files+pushed+to+branch", id))
 }
 
-// parseAndSaveUpdateDraft saves title_labels for an update contribution.
-// Unlike parseAndSaveDraft, it preserves the existing tmdb_id and release_info.
+// parseAndSaveUpdateDraft saves title_labels and any user-supplied ASIN/FrontImageURL
+// for an update contribution. It preserves existing tmdb_id and release_info.
 func (s *Server) parseAndSaveUpdateDraft(c echo.Context, id int64) error {
 	contrib, err := s.store.GetContribution(id)
 	if err != nil || contrib == nil {
@@ -265,6 +265,28 @@ func (s *Server) parseAndSaveUpdateDraft(c echo.Context, id int64) error {
 		slog.Error("failed to update contribution draft", "id", id, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
 	}
+
+	// Merge ASIN and FrontImageURL into match_info if provided.
+	asin := c.FormValue("asin")
+	frontImageURL := c.FormValue("front_image_url")
+	if (asin != "" || frontImageURL != "") && contrib.MatchInfo != "" {
+		var mi contribute.MatchInfo
+		if err := json.Unmarshal([]byte(contrib.MatchInfo), &mi); err == nil {
+			if asin != "" {
+				mi.ASIN = asin
+			}
+			if frontImageURL != "" {
+				mi.FrontImageURL = frontImageURL
+			}
+			if updated, err := json.Marshal(mi); err == nil {
+				if err := s.store.UpdateContributionMatchInfo(id, string(updated)); err != nil {
+					slog.Error("failed to update match_info for update draft", "id", id, "error", err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save draft.")
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

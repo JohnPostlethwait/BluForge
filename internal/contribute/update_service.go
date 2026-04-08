@@ -119,31 +119,33 @@ func (s *Service) SubmitUpdate(ctx context.Context, contributionID int64) (strin
 		{Path: discPath, Content: mergedContent},
 	}
 
-	// 4g. Check/download cover and front images if absent from the repo.
+	// 4g. Handle cover and front images.
 	coverPath := mediaDir + "/cover.jpg"
 	frontPath := releaseDir + "/front.jpg"
 
+	// cover.jpg: only upload if missing from upstream.
 	coverExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, coverPath)
 	if err != nil {
 		return "", fmt.Errorf("contribute: check cover image existence: %w", err)
 	}
-	frontExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, frontPath)
-	if err != nil {
-		return "", fmt.Errorf("contribute: check front image existence: %w", err)
-	}
-
-	if (!coverExists || !frontExists) && mi.ImageURL != "" {
+	if !coverExists && mi.ImageURL != "" {
 		imgBytes, imgErr := downloadFromURL(ctx, mi.ImageURL)
 		if imgErr != nil {
-			slog.Warn("contribute: failed to download disc image; submission will proceed without images",
+			slog.Warn("contribute: failed to download cover image; submission will proceed without cover.jpg",
 				"image_url", mi.ImageURL, "error", imgErr)
 		} else if len(imgBytes) > 0 {
-			if !coverExists {
-				files = append(files, ghpkg.FileEntry{Path: coverPath, Blob: imgBytes})
-			}
-			if !frontExists {
-				files = append(files, ghpkg.FileEntry{Path: frontPath, Blob: imgBytes})
-			}
+			files = append(files, ghpkg.FileEntry{Path: coverPath, Blob: imgBytes})
+		}
+	}
+
+	// front.jpg: always upload if the user supplied a URL (replaces existing).
+	if mi.FrontImageURL != "" {
+		frontBytes, frontErr := downloadFromURL(ctx, mi.FrontImageURL)
+		if frontErr != nil {
+			slog.Warn("contribute: failed to download front cover image; submission will proceed without front.jpg",
+				"front_image_url", mi.FrontImageURL, "error", frontErr)
+		} else if len(frontBytes) > 0 {
+			files = append(files, ghpkg.FileEntry{Path: frontPath, Blob: frontBytes})
 		}
 	}
 
@@ -246,29 +248,33 @@ func (s *Service) ResubmitUpdate(ctx context.Context, contributionID int64) erro
 		{Path: discPath, Content: mergedContent},
 	}
 
-	// Check/download images if absent.
+	// Handle cover and front images.
 	coverPath := mediaDir + "/cover.jpg"
 	frontPath := releaseDir + "/front.jpg"
+
+	// cover.jpg: only upload if missing from upstream.
 	coverExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, coverPath)
 	if err != nil {
 		return fmt.Errorf("contribute: check cover image existence: %w", err)
 	}
-	frontExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, frontPath)
-	if err != nil {
-		return fmt.Errorf("contribute: check front image existence: %w", err)
-	}
-	if (!coverExists || !frontExists) && mi.ImageURL != "" {
+	if !coverExists && mi.ImageURL != "" {
 		imgBytes, imgErr := downloadFromURL(ctx, mi.ImageURL)
 		if imgErr != nil {
-			slog.Warn("contribute: resubmit update: failed to download disc image; proceeding without images",
+			slog.Warn("contribute: resubmit update: failed to download cover image; proceeding without cover.jpg",
 				"image_url", mi.ImageURL, "error", imgErr)
 		} else if len(imgBytes) > 0 {
-			if !coverExists {
-				files = append(files, ghpkg.FileEntry{Path: coverPath, Blob: imgBytes})
-			}
-			if !frontExists {
-				files = append(files, ghpkg.FileEntry{Path: frontPath, Blob: imgBytes})
-			}
+			files = append(files, ghpkg.FileEntry{Path: coverPath, Blob: imgBytes})
+		}
+	}
+
+	// front.jpg: always upload if the user supplied a URL (replaces existing).
+	if mi.FrontImageURL != "" {
+		frontBytes, frontErr := downloadFromURL(ctx, mi.FrontImageURL)
+		if frontErr != nil {
+			slog.Warn("contribute: resubmit update: failed to download front cover image; proceeding without front.jpg",
+				"front_image_url", mi.FrontImageURL, "error", frontErr)
+		} else if len(frontBytes) > 0 {
+			files = append(files, ghpkg.FileEntry{Path: frontPath, Blob: frontBytes})
 		}
 	}
 

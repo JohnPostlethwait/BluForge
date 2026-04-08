@@ -16,13 +16,15 @@ type ReleaseInfo struct {
 // MatchInfo holds the TheDiscDB identifiers for a matched disc release.
 // Stored as JSON in contributions.match_info; only set for contribution_type == "update".
 type MatchInfo struct {
-	MediaSlug   string `json:"media_slug"`
-	MediaType   string `json:"media_type"`
-	MediaTitle  string `json:"media_title"`
-	MediaYear   int    `json:"media_year"`
-	ReleaseSlug string `json:"release_slug"`
-	DiscIndex   int    `json:"disc_index"`
-	ImageURL    string `json:"image_url"`
+	MediaSlug     string `json:"media_slug"`
+	MediaType     string `json:"media_type"`
+	MediaTitle    string `json:"media_title"`
+	MediaYear     int    `json:"media_year"`
+	ReleaseSlug   string `json:"release_slug"`
+	DiscIndex     int    `json:"disc_index"`
+	ImageURL      string `json:"image_url"`
+	ASIN          string `json:"asin,omitempty"`
+	FrontImageURL string `json:"front_image_url,omitempty"` // user-supplied URL for front.jpg
 }
 
 // TitleLabel holds the user's label for a single title.

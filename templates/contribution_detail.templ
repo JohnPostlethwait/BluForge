@@ -52,6 +52,20 @@ func contributionFormInit(c db.Contribution) string {
 		}
 	}
 
+	// For update contributions, ASIN and FrontImageURL are stored in match_info.
+	var mi contribute.MatchInfo
+	if c.ContributionType == "update" && c.MatchInfo != "" {
+		if err := json.Unmarshal([]byte(c.MatchInfo), &mi); err != nil {
+			slog.Warn("contribution_detail: failed to parse match_info", "id", c.ID, "error", err)
+		}
+		if mi.ASIN != "" {
+			ri.ASIN = mi.ASIN
+		}
+		if mi.FrontImageURL != "" {
+			ri.FrontImageURL = mi.FrontImageURL
+		}
+	}
+
 	// Build titles array for Alpine.
 	type titleEntry struct {
 		TitleIndex int    `json:"title_index"`
@@ -438,6 +452,39 @@ document.addEventListener('alpine:init', () => {
 							</dd>
 						</dl>
 					}
+					<div class="form-section-divider"></div>
+					<div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+						<div class="form-group">
+							<label for="asin">ASIN</label>
+							<input type="text" id="asin" x-model="$store.contrib.asin"
+								   @input="$store.contrib.onAsinChange()"
+								   placeholder="e.g. B0CCZQNJ3R"/>
+							<p class="text-muted text-sm mt-1">Find in the Amazon product URL: <code>amazon.com/dp/<strong>B0CCZQNJ3R</strong></code></p>
+						</div>
+					</div>
+					<div class="form-group mt-3">
+						<label for="front_image_url">Front Cover Image URL</label>
+						<input type="url" id="front_image_url"
+							   x-model="$store.contrib.frontImageURL"
+							   @input="$store.contrib.frontImageLoadError = false"
+							   placeholder="Auto-populated from ASIN — or paste any image URL"/>
+						<p class="text-muted text-sm mt-1">Auto-populated from ASIN. You can paste a different URL. Downloaded as <code>front.jpg</code> at submission, replacing any existing image.</p>
+						<template x-if="$store.contrib.frontImageURL.trim().length > 0">
+							<div class="mt-2">
+								<img
+									x-bind:src="$store.contrib.frontImageURL.trim()"
+									@load="$store.contrib.frontImageLoadError = false"
+									@error="$store.contrib.frontImageLoadError = true"
+									x-show="!$store.contrib.frontImageLoadError"
+									style="max-height:120px; border-radius:4px; border:1px solid var(--border);"
+									alt="Front cover preview"/>
+								<p x-show="$store.contrib.frontImageLoadError"
+								   class="text-warning text-sm mt-1">
+									Could not load image from this URL. The front cover will be omitted from the submission if unreachable.
+								</p>
+							</div>
+						</template>
+					</div>
 				</div>
 			}
 
@@ -523,6 +570,8 @@ document.addEventListener('alpine:init', () => {
 							x-data="{ submitting: false }"
 							@submit="document.getElementById('title_labels_submit_update').value = $store.contrib.serializedLabels(); submitting = true">
 							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
 							<input type="hidden" id="title_labels_submit_update" name="title_labels" value=""/>
 							<button type="submit" class="btn btn-primary"
 								if !data.GitHubTokenConfigured {
