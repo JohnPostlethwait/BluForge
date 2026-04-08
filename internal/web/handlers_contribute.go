@@ -268,12 +268,16 @@ func (s *Server) parseAndSaveUpdateDraft(c echo.Context, id int64) error {
 
 	// Merge ASIN and FrontImageURL into match_info if provided.
 	asin := c.FormValue("asin")
+	releaseDate := c.FormValue("release_date")
 	frontImageURL := c.FormValue("front_image_url")
-	if (asin != "" || frontImageURL != "") && contrib.MatchInfo != "" {
+	if (asin != "" || releaseDate != "" || frontImageURL != "") && contrib.MatchInfo != "" {
 		var mi contribute.MatchInfo
 		if err := json.Unmarshal([]byte(contrib.MatchInfo), &mi); err == nil {
 			if asin != "" {
 				mi.ASIN = asin
+			}
+			if releaseDate != "" {
+				mi.ReleaseDate = releaseDate
 			}
 			if frontImageURL != "" {
 				mi.FrontImageURL = frontImageURL

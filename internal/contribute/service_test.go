@@ -34,6 +34,9 @@ type mockGitHub struct {
 	waitErr       error
 	callOrder     []string
 	fileContent   string
+	// Per-path overrides; fall back to fileContent / false when path not found.
+	fileContentsByPath map[string]string
+	fileExistsByPath   map[string]bool
 }
 
 func (m *mockGitHub) GetUser(ctx context.Context) (string, error) {
@@ -78,10 +81,20 @@ func (m *mockGitHub) WaitForRepo(ctx context.Context, owner, repo string) error 
 }
 
 func (m *mockGitHub) GetFileContent(ctx context.Context, owner, repo, path string) (string, error) {
+	if m.fileContentsByPath != nil {
+		if content, ok := m.fileContentsByPath[path]; ok {
+			return content, nil
+		}
+	}
 	return m.fileContent, nil
 }
 
 func (m *mockGitHub) FileExists(ctx context.Context, owner, repo, path string) (bool, error) {
+	if m.fileExistsByPath != nil {
+		if exists, ok := m.fileExistsByPath[path]; ok {
+			return exists, nil
+		}
+	}
 	return false, nil
 }
 
@@ -1363,5 +1376,521 @@ func TestSubmitIncludesFrontImageWhenURLReachable(t *testing.T) {
 	}
 	if string(coverFile.Blob) != "fakejpegdata" {
 		t.Errorf("cover.jpg should use TMDB poster bytes, got %q", coverFile.Blob)
+	}
+}
+
+// helpers shared across SubmitUpdate / ResubmitUpdate tests.
+
+const minimalDiscJSON = `{"Index":1,"Slug":"blu-ray","Name":"Blu-ray","Format":"Blu-ray","ContentHash":"ABC123","Titles":[]}`
+
+const minimalReleaseJSON = `{
+  "Slug": "2024-blu-ray",
+  "Year": 2024,
+  "Locale": "en-us",
+  "RegionCode": "A",
+  "Title": "Blu-ray",
+  "SortTitle": "2024 Blu-ray",
+  "DateAdded": "2024-01-01T00:00:00Z",
+  "Contributors": []
+}`
+
+func defaultUpdateMI() MatchInfo {
+	return MatchInfo{
+		MediaSlug:   "test-film",
+		MediaType:   "movie",
+		MediaTitle:  "Test Film",
+		MediaYear:   2024,
+		ReleaseSlug: "2024-blu-ray",
+		DiscIndex:   1,
+	}
+}
+
+func defaultUpdateGH(discJSON string) *mockGitHub {
+	return &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/55",
+		fileContent:   discJSON, // returned for all paths unless overridden
+	}
+}
+
+func findFile(files []ghpkg.FileEntry, suffix string) *ghpkg.FileEntry {
+	for i := range files {
+		if strings.HasSuffix(files[i].Path, suffix) {
+			return &files[i]
+		}
+	}
+	return nil
+}
+
+// --- SubmitUpdate file-content tests ---
+
+func TestSubmitUpdate_commitsSingleDiscFileByDefault(t *testing.T) {
+	// When no images or release.json are available, only the merged disc JSON is committed.
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	labels := []TitleLabel{{TitleIndex: 0, Type: "Extra", Name: "Bonus"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	files := gh.commitFiles[0]
+	if len(files) != 1 {
+		t.Errorf("expected 1 file (disc JSON only), got %d", len(files))
+		for _, f := range files {
+			t.Logf("  committed: %s", f.Path)
+		}
+	}
+	if findFile(files, "disc01.json") == nil {
+		t.Error("disc01.json missing from committed files")
+	}
+}
+
+func TestSubmitUpdate_uploadsFrontImageWhenProvided(t *testing.T) {
+	// front.jpg is committed when FrontImageURL is set, replacing any existing file.
+	fakeImg := []byte("fakefrontcover")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(fakeImg)
+	}))
+	defer srv.Close()
+
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.FrontImageURL = srv.URL + "/front.jpg"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	files := gh.commitFiles[0]
+	frontFile := findFile(files, "/front.jpg")
+	if frontFile == nil {
+		t.Fatal("front.jpg not found in committed files")
+	}
+	if string(frontFile.Blob) != string(fakeImg) {
+		t.Errorf("front.jpg content: want %q, got %q", fakeImg, frontFile.Blob)
+	}
+}
+
+func TestSubmitUpdate_skipsFrontImageWhenURLEmpty(t *testing.T) {
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	// FrontImageURL intentionally empty.
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	if findFile(gh.commitFiles[0], "/front.jpg") != nil {
+		t.Error("front.jpg should not be committed when FrontImageURL is empty")
+	}
+}
+
+func TestSubmitUpdate_uploadsCoverWhenMissingFromUpstream(t *testing.T) {
+	// cover.jpg is uploaded when it doesn't exist upstream AND ImageURL is set.
+	fakeImg := []byte("fakecoverimage")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(fakeImg)
+	}))
+	defer srv.Close()
+
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ImageURL = srv.URL + "/cover.jpg"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	// cover.jpg does NOT exist upstream (default FileExists → false).
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	coverFile := findFile(gh.commitFiles[0], "/cover.jpg")
+	if coverFile == nil {
+		t.Fatal("cover.jpg not found in committed files")
+	}
+	if string(coverFile.Blob) != string(fakeImg) {
+		t.Errorf("cover.jpg content: want %q, got %q", fakeImg, coverFile.Blob)
+	}
+}
+
+func TestSubmitUpdate_skipsCoverWhenExistsUpstream(t *testing.T) {
+	// cover.jpg is NOT uploaded when it already exists upstream.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("image"))
+	}))
+	defer srv.Close()
+
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ImageURL = srv.URL + "/cover.jpg"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	// Mark cover.jpg as existing upstream.
+	gh.fileExistsByPath = map[string]bool{
+		"data/movie/Test Film (2024)/cover.jpg": true,
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	if findFile(gh.commitFiles[0], "/cover.jpg") != nil {
+		t.Error("cover.jpg should NOT be committed when it already exists upstream")
+	}
+}
+
+func TestSubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
+	// When ASIN and ReleaseDate are set and release.json exists upstream, it is patched.
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ASIN = "B0CCZQNJ3R"
+	mi.ReleaseDate = "2024-03-15"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	releasePath := "data/movie/Test Film (2024)/2024-blu-ray/release.json"
+	discPath := "data/movie/Test Film (2024)/2024-blu-ray/disc01.json"
+
+	gh := defaultUpdateGH("")
+	gh.fileContentsByPath = map[string]string{
+		discPath:    minimalDiscJSON,
+		releasePath: minimalReleaseJSON,
+	}
+	gh.fileExistsByPath = map[string]bool{
+		releasePath: true,
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	files := gh.commitFiles[0]
+	releaseFile := findFile(files, "/release.json")
+	if releaseFile == nil {
+		t.Fatal("release.json not found in committed files")
+	}
+
+	var rel ReleaseJSON
+	if err := json.Unmarshal([]byte(releaseFile.Content), &rel); err != nil {
+		t.Fatalf("unmarshal patched release.json: %v", err)
+	}
+	if rel.Asin != "B0CCZQNJ3R" {
+		t.Errorf("Asin: want %q, got %q", "B0CCZQNJ3R", rel.Asin)
+	}
+	if rel.ReleaseDate == "" {
+		t.Error("ReleaseDate should be set in patched release.json")
+	}
+	// Verify the date is RFC3339.
+	if !strings.HasPrefix(rel.ReleaseDate, "2024-03-15T") {
+		t.Errorf("ReleaseDate should be RFC3339 starting with 2024-03-15T, got %q", rel.ReleaseDate)
+	}
+}
+
+func TestSubmitUpdate_skipsPatchWhenReleaseJSONMissing(t *testing.T) {
+	// When ASIN is set but release.json doesn't exist upstream, no release.json is committed.
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ASIN = "B0CCZQNJ3R"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	// release.json does not exist (default FileExists → false).
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	if findFile(gh.commitFiles[0], "/release.json") != nil {
+		t.Error("release.json should not be committed when it doesn't exist upstream")
+	}
+}
+
+func TestSubmitUpdate_skipsReleaseJSONPatchWhenAlreadyUpToDate(t *testing.T) {
+	// When the existing release.json already has the same ASIN, don't include it in the commit.
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ASIN = "B0CCZQNJ3R"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels)
+
+	releaseWithASIN := `{
+  "Slug": "2024-blu-ray",
+  "Asin": "B0CCZQNJ3R",
+  "Year": 2024,
+  "Locale": "en-us",
+  "RegionCode": "A",
+  "Title": "Blu-ray",
+  "SortTitle": "2024 Blu-ray",
+  "DateAdded": "2024-01-01T00:00:00Z",
+  "Contributors": []
+}`
+
+	releasePath := "data/movie/Test Film (2024)/2024-blu-ray/release.json"
+	discPath := "data/movie/Test Film (2024)/2024-blu-ray/disc01.json"
+
+	gh := defaultUpdateGH("")
+	gh.fileContentsByPath = map[string]string{
+		discPath:    minimalDiscJSON,
+		releasePath: releaseWithASIN,
+	}
+	gh.fileExistsByPath = map[string]bool{
+		releasePath: true,
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.SubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("SubmitUpdate: %v", err)
+	}
+
+	// release.json should NOT be in the commit since nothing changed.
+	if findFile(gh.commitFiles[0], "/release.json") != nil {
+		t.Error("release.json should not be committed when ASIN already matches")
+	}
+}
+
+// --- ResubmitUpdate tests ---
+
+func seedSubmittedUpdateContribution(t *testing.T, store *db.Store, mi MatchInfo, labels []TitleLabel) int64 {
+	t.Helper()
+	id := seedUpdateContribution(t, store, mi, labels)
+	if err := store.UpdateContributionStatus(id, "submitted", "https://github.com/TheDiscDb/data/pull/55"); err != nil {
+		t.Fatalf("UpdateContributionStatus: %v", err)
+	}
+	return id
+}
+
+func TestResubmitUpdate_happyPath(t *testing.T) {
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedSubmittedUpdateContribution(t, store, mi, labels)
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("ResubmitUpdate: %v", err)
+	}
+
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	// Status must remain "submitted".
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if got.Status != "submitted" {
+		t.Errorf("Status: want %q, got %q", "submitted", got.Status)
+	}
+}
+
+func TestResubmitUpdate_failsIfNotSubmitted(t *testing.T) {
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedUpdateContribution(t, store, mi, labels) // NOT in submitted state
+
+	gh := defaultUpdateGH(minimalDiscJSON)
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	err := svc.ResubmitUpdate(context.Background(), id)
+	if err == nil {
+		t.Fatal("expected error for non-submitted contribution, got nil")
+	}
+	if !strings.Contains(err.Error(), "not submitted") {
+		t.Errorf("error %q should contain %q", err.Error(), "not submitted")
+	}
+}
+
+func TestResubmitUpdate_recreatesBranchAndPRWhenBranchDeleted(t *testing.T) {
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedSubmittedUpdateContribution(t, store, mi, labels)
+
+	newPRURL := "https://github.com/TheDiscDb/data/pull/99"
+	gh := defaultUpdateGH(minimalDiscJSON)
+	gh.commitErrList = []error{ghpkg.ErrBranchNotFound}
+	gh.prURL = newPRURL
+
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("ResubmitUpdate: %v", err)
+	}
+
+	// CommitFiles called twice: first returns ErrBranchNotFound, second succeeds.
+	if len(gh.commitFiles) != 2 {
+		t.Fatalf("expected 2 CommitFiles calls (branch recreation), got %d", len(gh.commitFiles))
+	}
+	if !gh.prCalled {
+		t.Error("expected CreatePR to be called for branch recreation, but it was not")
+	}
+
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("GetContribution: %v", err)
+	}
+	if got.PRURL != newPRURL {
+		t.Errorf("PR URL: want %q, got %q", newPRURL, got.PRURL)
+	}
+}
+
+func TestResubmitUpdate_patchesReleaseJSONWithASINAndDate(t *testing.T) {
+	store := openTestStore(t)
+	mi := defaultUpdateMI()
+	mi.ASIN = "B0CCZQNJ3R"
+	mi.ReleaseDate = "2024-03-15"
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "Test Film"}}
+	id := seedSubmittedUpdateContribution(t, store, mi, labels)
+
+	releasePath := "data/movie/Test Film (2024)/2024-blu-ray/release.json"
+	discPath := "data/movie/Test Film (2024)/2024-blu-ray/disc01.json"
+
+	gh := defaultUpdateGH("")
+	gh.fileContentsByPath = map[string]string{
+		discPath:    minimalDiscJSON,
+		releasePath: minimalReleaseJSON,
+	}
+	gh.fileExistsByPath = map[string]bool{releasePath: true}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if err := svc.ResubmitUpdate(context.Background(), id); err != nil {
+		t.Fatalf("ResubmitUpdate: %v", err)
+	}
+
+	releaseFile := findFile(gh.commitFiles[0], "/release.json")
+	if releaseFile == nil {
+		t.Fatal("release.json not found in committed files")
+	}
+	var rel ReleaseJSON
+	if err := json.Unmarshal([]byte(releaseFile.Content), &rel); err != nil {
+		t.Fatalf("unmarshal patched release.json: %v", err)
+	}
+	if rel.Asin != "B0CCZQNJ3R" {
+		t.Errorf("Asin: want %q, got %q", "B0CCZQNJ3R", rel.Asin)
+	}
+	if !strings.HasPrefix(rel.ReleaseDate, "2024-03-15T") {
+		t.Errorf("ReleaseDate: want prefix %q, got %q", "2024-03-15T", rel.ReleaseDate)
+	}
+}
+
+// --- New submission: ASIN/ReleaseDate in release.json ---
+
+func TestSubmit_includesASINAndReleaseDateInReleaseJSON(t *testing.T) {
+	store := openTestStore(t)
+
+	scan := testScan()
+	scanData, _ := json.Marshal(scan)
+	ri := ReleaseInfo{
+		UPC:         "883929543236",
+		RegionCode:  "A",
+		Year:        1999,
+		Format:      "Blu-ray",
+		Slug:        "1999-blu-ray",
+		ASIN:        "B0CCZQNJ3R",
+		ReleaseDate: "1999-09-21",
+	}
+	riJSON, _ := json.Marshal(ri)
+	labels := []TitleLabel{{TitleIndex: 0, Type: "MainMovie", Name: "The Matrix", FileName: "The Matrix.mkv"}}
+	labelsJSON, _ := json.Marshal(labels)
+
+	c := db.Contribution{
+		DiscKey: "matrix-asin-test", DiscName: "THE_MATRIX",
+		RawOutput: scan.RawOutput, ScanJSON: string(scanData),
+	}
+	id, err := store.SaveContribution(c)
+	if err != nil {
+		t.Fatalf("SaveContribution: %v", err)
+	}
+	if err := store.UpdateContributionDraft(id, "603", string(riJSON), string(labelsJSON)); err != nil {
+		t.Fatalf("UpdateContributionDraft: %v", err)
+	}
+
+	gh := &mockGitHub{
+		user: "testuser", forkName: "testuser/data",
+		defaultBranch: "master", defaultSHA: "abc123",
+		prURL: "https://github.com/TheDiscDb/data/pull/42",
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	releaseFile := findFile(gh.commitFiles[0], "/release.json")
+	if releaseFile == nil {
+		t.Fatal("release.json missing from committed files")
+	}
+
+	var rel ReleaseJSON
+	if err := json.Unmarshal([]byte(releaseFile.Content), &rel); err != nil {
+		t.Fatalf("unmarshal release.json: %v", err)
+	}
+	if rel.Asin != "B0CCZQNJ3R" {
+		t.Errorf("Asin: want %q, got %q", "B0CCZQNJ3R", rel.Asin)
+	}
+	if !strings.HasPrefix(rel.ReleaseDate, "1999-09-21T") {
+		t.Errorf("ReleaseDate: want prefix %q, got %q", "1999-09-21T", rel.ReleaseDate)
+	}
+}
+
+func TestSubmit_omitsASINAndReleaseDateWhenEmpty(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil) // seedContribution sets no ASIN/ReleaseDate
+
+	gh := &mockGitHub{
+		user: "testuser", forkName: "testuser/data",
+		defaultBranch: "master", defaultSHA: "abc123",
+		prURL: "https://github.com/TheDiscDb/data/pull/42",
+	}
+	svc := NewService(store, gh, defaultMockTMDB())
+
+	if _, err := svc.Submit(context.Background(), id, "The Matrix", 1999, "movie"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	releaseFile := findFile(gh.commitFiles[0], "/release.json")
+	if releaseFile == nil {
+		t.Fatal("release.json missing from committed files")
+	}
+
+	// ASIN and ReleaseDate should be omitted (omitempty) when empty.
+	if strings.Contains(releaseFile.Content, `"Asin"`) {
+		t.Error("release.json should not contain Asin field when ASIN is empty")
+	}
+	if strings.Contains(releaseFile.Content, `"ReleaseDate"`) {
+		t.Error("release.json should not contain ReleaseDate field when ReleaseDate is empty")
 	}
 }

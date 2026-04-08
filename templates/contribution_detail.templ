@@ -61,6 +61,9 @@ func contributionFormInit(c db.Contribution) string {
 		if mi.ASIN != "" {
 			ri.ASIN = mi.ASIN
 		}
+		if mi.ReleaseDate != "" {
+			ri.ReleaseDate = mi.ReleaseDate
+		}
 		if mi.FrontImageURL != "" {
 			ri.FrontImageURL = mi.FrontImageURL
 		}
@@ -461,6 +464,10 @@ document.addEventListener('alpine:init', () => {
 								   placeholder="e.g. B0CCZQNJ3R"/>
 							<p class="text-muted text-sm mt-1">Find in the Amazon product URL: <code>amazon.com/dp/<strong>B0CCZQNJ3R</strong></code></p>
 						</div>
+						<div class="form-group">
+							<label for="release_date">Release Date</label>
+							<input type="date" id="release_date" x-model="$store.contrib.releaseDate"/>
+						</div>
 					</div>
 					<div class="form-group mt-3">
 						<label for="front_image_url">Front Cover Image URL</label>
@@ -571,6 +578,7 @@ document.addEventListener('alpine:init', () => {
 							@submit="document.getElementById('title_labels_submit_update').value = $store.contrib.serializedLabels(); submitting = true">
 							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 							<input type="hidden" name="asin" :value="$store.contrib.asin"/>
+							<input type="hidden" name="release_date" :value="$store.contrib.releaseDate"/>
 							<input type="hidden" name="front_image_url" :value="$store.contrib.frontImageURL"/>
 							<input type="hidden" id="title_labels_submit_update" name="title_labels" value=""/>
 							<button type="submit" class="btn btn-primary"
