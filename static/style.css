@@ -1048,6 +1048,15 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
     color: var(--success);
 }
 
+.badge-update {
+  background: var(--color-info, #0ea5e9);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+}
+
 /* ── Reusable Component Classes ── */
 
 /* Contribution alert — left-accented card */

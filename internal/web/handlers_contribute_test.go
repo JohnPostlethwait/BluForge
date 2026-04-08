@@ -77,8 +77,8 @@ func TestHandleContributions_Empty(t *testing.T) {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "No unmatched discs") {
-		t.Errorf("body missing 'No unmatched discs', got:\n%s", body)
+	if !strings.Contains(body, "No contributions yet") {
+		t.Errorf("body missing 'No contributions yet', got:\n%s", body)
 	}
 }
 
