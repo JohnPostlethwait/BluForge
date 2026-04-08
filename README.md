@@ -1,6 +1,6 @@
 # BluForge
 
-A self-hosted web application that orchestrates Blu-ray and DVD ripping via [MakeMKV](https://www.makemkv.com/), identifies disc contents through [TheDiscDB](https://thediscdb.com/), and outputs organized, properly named media files.
+A Docker web application that orchestrates Blu-ray and DVD ripping via [MakeMKV](https://www.makemkv.com/), identifies disc contents through [TheDiscDB](https://thediscdb.com/), and outputs organized, properly named media files.
 
 ## Why I Made This
 
