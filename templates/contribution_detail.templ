@@ -377,24 +377,20 @@ document.addEventListener('alpine:init', () => {
 							</select>
 						</div>
 						<div class="form-group">
-							<label for="asin">ASIN</label>
-							<input type="text" id="asin" x-model="$store.contrib.asin"
-								   @input="$store.contrib.onAsinChange()"
-								   placeholder="e.g. B0CCZQNJ3R"/>
-							<p class="text-muted text-sm mt-1">
-								Find the ASIN in the Amazon product URL (e.g. <code>amazon.com/dp/B0CCZQNJ3R</code>)
-								or on the product page under "Product information".
-							</p>
-						</div>
-						<div class="form-group">
 							<label for="release_date">Release Date</label>
 							<input type="date" id="release_date" x-model="$store.contrib.releaseDate"/>
-							<p class="text-muted text-sm mt-1">The date this disc edition was released.</p>
 						</div>
 						<div class="form-group">
 							<label for="upc">UPC (optional)</label>
 							<input type="text" id="upc" x-model="$store.contrib.upc" placeholder="e.g. 025192153174"/>
 						</div>
+					</div>
+					<div class="form-group mt-3">
+						<label for="asin">ASIN</label>
+						<input type="text" id="asin" x-model="$store.contrib.asin"
+							   @input="$store.contrib.onAsinChange()"
+							   placeholder="e.g. B0CCZQNJ3R"/>
+						<p class="text-muted text-sm mt-1">Find the ASIN in the Amazon product URL — e.g. <code>amazon.com/dp/<strong>B0CCZQNJ3R</strong></code> — or under "Product information" on the product page.</p>
 					</div>
 					<div class="form-group mt-3">
 						<label for="front_image_url">Front Cover Image URL</label>

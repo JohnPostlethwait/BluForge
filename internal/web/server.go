@@ -89,7 +89,7 @@ func NewServer(deps ServerDeps) *Server {
 			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; " +
 			"style-src 'self' 'unsafe-inline'; " +
 			"connect-src 'self'; " +
-			"img-src 'self' data: https://image.tmdb.org;",
+			"img-src 'self' data: https://image.tmdb.org https://m.media-amazon.com;",
 	}))
 
 	// CSRF protection for state-changing endpoints. The middleware must run on
