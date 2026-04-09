@@ -182,45 +182,73 @@ func (s *Service) buildAddFiles(ctx context.Context, c *db.Contribution, ri Rele
 		mediaType = "movie"
 	}
 
-	// Parse TMDB ID and fetch details.
-	tmdbIDInt, err := strconv.Atoi(c.TmdbID)
-	if err != nil {
-		return nil, "", "", "", fmt.Errorf("contribute: tmdb_id %q is not a valid integer: %w", c.TmdbID, err)
-	}
-
-	tmdbRaw, tmdbDetails, err := s.tmdb.GetDetails(ctx, tmdbIDInt, mediaType)
-	if err != nil {
-		return nil, "", "", "", fmt.Errorf("contribute: fetch TMDB details for id %d: %w", tmdbIDInt, err)
-	}
-
-	// Download poster image — soft failure.
-	var posterBytes []byte
-	if tmdbDetails.PosterPath != "" {
-		imgBytes, imgErr := s.tmdb.DownloadImage(ctx, tmdbDetails.PosterPath, "original")
-		if imgErr != nil {
-			slog.Warn("contribute: failed to download TMDB poster; submission will proceed without images",
-				"poster_path", tmdbDetails.PosterPath, "error", imgErr)
-		} else {
-			posterBytes = imgBytes
-		}
-	}
-
-	// Compute paths.
+	// Compute paths early — needed for upstream existence checks.
 	titleSlug := slugify(mediaTitle, mediaYear)
 	releaseSlug := ReleaseSlug(ri.Year, ri.Format)
 	mediaDir := MediaDirPath(mediaType, mediaTitle, mediaYear)
 	releaseDir := mediaDir + "/" + releaseSlug
 
-	// Generate file contents.
+	// Check whether title-level files already exist upstream. When the title
+	// exists in TheDiscDB but this specific release format does not, we should
+	// only add the release-level files and skip the title-level ones.
+	metadataExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, mediaDir+"/metadata.json")
+	if err != nil {
+		return nil, "", "", "", fmt.Errorf("contribute: check metadata.json existence: %w", err)
+	}
+	tmdbExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, mediaDir+"/tmdb.json")
+	if err != nil {
+		return nil, "", "", "", fmt.Errorf("contribute: check tmdb.json existence: %w", err)
+	}
+	coverExists, err := s.github.FileExists(ctx, upstreamOwner, upstreamRepo, mediaDir+"/cover.jpg")
+	if err != nil {
+		return nil, "", "", "", fmt.Errorf("contribute: check cover.jpg existence: %w", err)
+	}
+	titleExistsUpstream := metadataExists || tmdbExists || coverExists
+
+	// Fetch TMDB details only when needed for missing title-level files.
+	var tmdbRaw json.RawMessage
+	var tmdbDetails *tmdb.MediaDetails
+	var posterBytes []byte
+
+	if !metadataExists || !tmdbExists {
+		tmdbIDInt, err := strconv.Atoi(c.TmdbID)
+		if err != nil {
+			return nil, "", "", "", fmt.Errorf("contribute: tmdb_id %q is not a valid integer: %w", c.TmdbID, err)
+		}
+
+		tmdbRaw, tmdbDetails, err = s.tmdb.GetDetails(ctx, tmdbIDInt, mediaType)
+		if err != nil {
+			return nil, "", "", "", fmt.Errorf("contribute: fetch TMDB details for id %d: %w", tmdbIDInt, err)
+		}
+
+		// Download poster image — soft failure; only when cover is missing upstream.
+		if !coverExists && tmdbDetails.PosterPath != "" {
+			imgBytes, imgErr := s.tmdb.DownloadImage(ctx, tmdbDetails.PosterPath, "original")
+			if imgErr != nil {
+				slog.Warn("contribute: failed to download TMDB poster; submission will proceed without images",
+					"poster_path", tmdbDetails.PosterPath, "error", imgErr)
+			} else {
+				posterBytes = imgBytes
+			}
+		}
+	}
+
+	// Generate file contents — always include release-level files.
 	files := []ghpkg.FileEntry{
 		{Path: releaseDir + "/release.json", Content: GenerateReleaseJSON(ri, githubUser)},
 		{Path: releaseDir + "/disc01.json", Content: GenerateDiscJSON(scan, ri.Format)},
 		{Path: releaseDir + "/disc01-summary.txt", Content: GenerateSummary(scan, labels)},
 		{Path: releaseDir + "/disc01.txt", Content: c.RawOutput},
-		{Path: mediaDir + "/metadata.json", Content: GenerateMetadataJSON(tmdbDetails, mediaType, mediaTitle, mediaYear)},
-		{Path: mediaDir + "/tmdb.json", Content: string(tmdbRaw)},
 	}
-	if len(posterBytes) > 0 {
+
+	// Append title-level files only when they don't already exist upstream.
+	if !metadataExists {
+		files = append(files, ghpkg.FileEntry{Path: mediaDir + "/metadata.json", Content: GenerateMetadataJSON(tmdbDetails, mediaType, mediaTitle, mediaYear)})
+	}
+	if !tmdbExists {
+		files = append(files, ghpkg.FileEntry{Path: mediaDir + "/tmdb.json", Content: string(tmdbRaw)})
+	}
+	if !coverExists && len(posterBytes) > 0 {
 		files = append(files, ghpkg.FileEntry{Path: mediaDir + "/cover.jpg", Blob: posterBytes})
 	}
 	if ri.FrontImageURL != "" {
@@ -235,14 +263,20 @@ func (s *Service) buildAddFiles(ctx context.Context, c *db.Contribution, ri Rele
 
 	branchName := ghpkg.ContributionBranchName(titleSlug, releaseSlug)
 
-	// Commit/PR message varies by status.
+	// Commit/PR message varies by status and whether the title already exists.
 	var commitMsg, prTitle string
 	if c.Status == "submitted" {
 		commitMsg = fmt.Sprintf("Fix %s (%d) - %s: regenerate all contribution files", mediaTitle, mediaYear, ri.Format)
+	} else if titleExistsUpstream {
+		commitMsg = fmt.Sprintf("Add %s release for %s (%d)", ri.Format, mediaTitle, mediaYear)
 	} else {
 		commitMsg = fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
 	}
-	prTitle = fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
+	if titleExistsUpstream {
+		prTitle = fmt.Sprintf("Add %s release for %s (%d)", ri.Format, mediaTitle, mediaYear)
+	} else {
+		prTitle = fmt.Sprintf("Add %s (%d) - %s", mediaTitle, mediaYear, ri.Format)
+	}
 
 	return files, branchName, commitMsg, prTitle, nil
 }

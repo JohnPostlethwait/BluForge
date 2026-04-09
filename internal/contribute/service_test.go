@@ -30,8 +30,9 @@ type mockGitHub struct {
 	commitErrList []error // consumed in order; falls back to commitErr when empty
 	prURL         string
 	prErr         error
-	prCalled      bool
-	waitErr       error
+	prCalled          bool
+	prTitleReceived   string
+	waitErr           error
 	callOrder     []string
 	fileContent   string
 	// Per-path overrides; fall back to fileContent / false when path not found.
@@ -68,6 +69,7 @@ func (m *mockGitHub) CommitFiles(ctx context.Context, owner, repo, branch string
 
 func (m *mockGitHub) CreatePR(ctx context.Context, upstreamOwner, upstreamRepo, head, baseBranch, title, body string) (string, error) {
 	m.prCalled = true
+	m.prTitleReceived = title
 	return m.prURL, m.prErr
 }
 
@@ -100,14 +102,16 @@ func (m *mockGitHub) FileExists(ctx context.Context, owner, repo, path string) (
 
 // mockTMDB implements TMDBFetcher for testing.
 type mockTMDB struct {
-	raw     json.RawMessage
-	details *tmdb.MediaDetails
-	getErr  error
-	imgData []byte
-	imgErr  error
+	raw       json.RawMessage
+	details   *tmdb.MediaDetails
+	getErr    error
+	imgData   []byte
+	imgErr    error
+	getCalled bool
 }
 
 func (m *mockTMDB) GetDetails(_ context.Context, _ int, _ string) (json.RawMessage, *tmdb.MediaDetails, error) {
+	m.getCalled = true
 	return m.raw, m.details, m.getErr
 }
 
@@ -1896,4 +1900,202 @@ func TestSubmit_omitsASINAndReleaseDateWhenEmpty(t *testing.T) {
 	if strings.Contains(releaseFile.Content, `"ReleaseDate"`) {
 		t.Error("release.json should not contain ReleaseDate field when ReleaseDate is empty")
 	}
+}
+
+// --- Add contribution: skip existing title-level files tests ---
+
+func TestBuildAddFiles_SkipsExistingTitleFiles(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	mediaDir := "data/movie/THE_MATRIX (1999)"
+
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+		fileExistsByPath: map[string]bool{
+			mediaDir + "/metadata.json": true,
+			mediaDir + "/tmdb.json":     true,
+			mediaDir + "/cover.jpg":     true,
+		},
+	}
+
+	mt := defaultMockTMDB()
+	svc := NewService(store, gh, mt)
+
+	prURL, err := svc.Execute(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if prURL == "" {
+		t.Fatal("expected non-empty PR URL")
+	}
+
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	files := gh.commitFiles[0]
+
+	// Should only have 4 release-level files (release.json, disc01.json, disc01-summary.txt, disc01.txt).
+	if len(files) != 4 {
+		t.Errorf("expected 4 files (release-level only), got %d", len(files))
+		for _, f := range files {
+			t.Logf("  file: %s", f.Path)
+		}
+	}
+
+	// None should be title-level files.
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "metadata.json") || strings.HasSuffix(f.Path, "tmdb.json") || strings.HasSuffix(f.Path, "cover.jpg") {
+			t.Errorf("unexpected title-level file in commit: %s", f.Path)
+		}
+	}
+
+	// TMDB should not have been called since both metadata.json and tmdb.json exist.
+	if mt.getCalled {
+		t.Error("TMDB GetDetails should not have been called when title-level files exist upstream")
+	}
+}
+
+func TestBuildAddFiles_IncludesAllFilesWhenNothingExists(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+	}
+
+	mt := defaultMockTMDB()
+	svc := NewService(store, gh, mt)
+
+	_, err := svc.Execute(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(gh.commitFiles) != 1 {
+		t.Fatalf("expected 1 CommitFiles call, got %d", len(gh.commitFiles))
+	}
+	files := gh.commitFiles[0]
+
+	// Should have 7 files: 4 release-level + metadata.json + tmdb.json + cover.jpg.
+	if len(files) != 7 {
+		t.Errorf("expected 7 files, got %d", len(files))
+		for _, f := range files {
+			t.Logf("  file: %s", f.Path)
+		}
+	}
+
+	if !mt.getCalled {
+		t.Error("TMDB GetDetails should have been called when no title-level files exist upstream")
+	}
+}
+
+func TestBuildAddFiles_SkipsTMDBWhenMetadataAndTmdbExist(t *testing.T) {
+	store := openTestStore(t)
+	id, _, _ := seedContribution(t, store, nil)
+
+	mediaDir := "data/movie/THE_MATRIX (1999)"
+
+	gh := &mockGitHub{
+		user:          "testuser",
+		forkName:      "testuser/data",
+		defaultBranch: "master",
+		defaultSHA:    "abc123sha",
+		prURL:         "https://github.com/TheDiscDb/data/pull/42",
+		fileExistsByPath: map[string]bool{
+			mediaDir + "/metadata.json": true,
+			mediaDir + "/tmdb.json":     true,
+			// cover.jpg does NOT exist — but TMDB fetch is still skipped
+			// because poster download depends on the TMDB fetch.
+		},
+	}
+
+	mt := defaultMockTMDB()
+	svc := NewService(store, gh, mt)
+
+	_, err := svc.Execute(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if mt.getCalled {
+		t.Error("TMDB GetDetails should not have been called when metadata.json and tmdb.json both exist upstream")
+	}
+
+	files := gh.commitFiles[0]
+	// 4 release-level files only — cover.jpg is also absent because TMDB was skipped
+	// (no poster bytes available).
+	if len(files) != 4 {
+		t.Errorf("expected 4 files, got %d", len(files))
+		for _, f := range files {
+			t.Logf("  file: %s", f.Path)
+		}
+	}
+}
+
+func TestBuildAddFiles_PRMessageForExistingTitle(t *testing.T) {
+	t.Run("title exists upstream", func(t *testing.T) {
+		store := openTestStore(t)
+		id, _, _ := seedContribution(t, store, nil)
+
+		mediaDir := "data/movie/THE_MATRIX (1999)"
+
+		gh := &mockGitHub{
+			user:          "testuser",
+			forkName:      "testuser/data",
+			defaultBranch: "master",
+			defaultSHA:    "abc123sha",
+			prURL:         "https://github.com/TheDiscDb/data/pull/42",
+			fileExistsByPath: map[string]bool{
+				mediaDir + "/metadata.json": true,
+				mediaDir + "/tmdb.json":     true,
+				mediaDir + "/cover.jpg":     true,
+			},
+		}
+
+		svc := NewService(store, gh, defaultMockTMDB())
+
+		_, err := svc.Execute(context.Background(), id)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+
+		want := "Add Blu-ray release for THE_MATRIX (1999)"
+		if gh.prTitleReceived != want {
+			t.Errorf("PR title: want %q, got %q", want, gh.prTitleReceived)
+		}
+	})
+
+	t.Run("brand new title", func(t *testing.T) {
+		store := openTestStore(t)
+		id, _, _ := seedContribution(t, store, nil)
+
+		gh := &mockGitHub{
+			user:          "testuser",
+			forkName:      "testuser/data",
+			defaultBranch: "master",
+			defaultSHA:    "abc123sha",
+			prURL:         "https://github.com/TheDiscDb/data/pull/42",
+		}
+
+		svc := NewService(store, gh, defaultMockTMDB())
+
+		_, err := svc.Execute(context.Background(), id)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+
+		want := "Add THE_MATRIX (1999) - Blu-ray"
+		if gh.prTitleReceived != want {
+			t.Errorf("PR title: want %q, got %q", want, gh.prTitleReceived)
+		}
+	})
 }
