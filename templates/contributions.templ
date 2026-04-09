@@ -38,7 +38,21 @@ templ Contributions(data ContributionsData) {
 				<p class="text-muted">No contributions yet. When BluForge scans a disc that isn't in TheDiscDB, or finds a matched disc with uncatalogued or incorrectly labelled titles, it will appear here.</p>
 			</div>
 		} else {
-			<div class="card">
+			<div class="card" x-data="{ confirmModal: { show: false, title: '', message: '', action: '' } }">
+				<!-- Confirmation modal -->
+				<div x-show="confirmModal.show" x-cloak style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
+					<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;max-width:400px;width:90%;">
+						<h3 x-text="confirmModal.title" style="margin:0 0 0.75rem;font-size:1.1rem;"></h3>
+						<p x-text="confirmModal.message" style="margin:0 0 1.25rem;color:var(--text-muted);font-size:0.9rem;"></p>
+						<div class="flex gap-2 justify-end">
+							<button type="button" class="btn" @click="confirmModal.show = false">Cancel</button>
+							<form :action="confirmModal.action" method="POST" style="display:inline;" @submit="confirmModal.show = false">
+								<button type="submit" class="btn btn-danger">Confirm</button>
+							</form>
+						</div>
+					</div>
+				</div>
+
 				<table class="data-table">
 					<thead>
 						<tr>
@@ -52,12 +66,12 @@ templ Contributions(data ContributionsData) {
 						for _, c := range data.Contributions {
 							<tr>
 								<td>
-				{ c.DiscName }
-				if c.ContributionType == "update" {
-					<br/>
-					<span class="badge badge-update">Update Available</span>
-				}
-			</td>
+									{ c.DiscName }
+									if c.ContributionType == "update" {
+										<br/>
+										<span class="badge badge-update">Update Available</span>
+									}
+								</td>
 								<td>
 									<span class={ "status-badge", statusClass(c.Status) }>{ c.Status }</span>
 								</td>
@@ -69,6 +83,12 @@ templ Contributions(data ContributionsData) {
 												<a href={ templ.SafeURL(c.PRURL) } target="_blank" rel="noopener" class="btn btn-sm">View PR</a>
 											}
 											<a href={ templ.SafeURL(fmt.Sprintf("/contributions/%d", c.ID)) } class="btn btn-sm btn-primary">Update PR</a>
+											<button
+												type="button"
+												class="btn btn-sm"
+												@click={ fmt.Sprintf("confirmModal = { show: true, title: 'Reset PR state?', message: 'This will clear the PR link and mark the contribution as pending. The next submission will open a new PR.', action: '/contributions/%d/reset-pr' }", c.ID) }>
+												Reset PR
+											</button>
 										</div>
 									} else if c.Status == "pending" || c.Status == "drafting" {
 										<div class="flex gap-2">
@@ -77,9 +97,12 @@ templ Contributions(data ContributionsData) {
 											} else {
 												<button type="button" class="btn btn-sm btn-primary" disabled aria-describedby="github-token-warning">Contribute</button>
 											}
-											<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/delete", c.ID)) } onsubmit="return confirm('Delete this contribution?')">
-												<button type="submit" class="btn btn-sm btn-danger">Delete</button>
-											</form>
+											<button
+												type="button"
+												class="btn btn-sm btn-danger"
+												@click={ fmt.Sprintf("confirmModal = { show: true, title: 'Delete contribution?', message: 'This will permanently remove the contribution. This cannot be undone.', action: '/contributions/%d/delete' }", c.ID) }>
+												Delete
+											</button>
 										</div>
 									}
 								</td>
