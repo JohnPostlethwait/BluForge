@@ -248,7 +248,20 @@ document.addEventListener('alpine:init', () => {
 			</div>
 		}
 
-		<div x-data>
+		<div x-data="{ confirmModal: { show: false, title: '', message: '', action: '' } }">
+			<!-- Confirmation modal -->
+			<div x-show="confirmModal.show" x-cloak style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
+				<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;max-width:400px;width:90%;">
+					<h3 x-text="confirmModal.title" style="margin:0 0 0.75rem;font-size:1.1rem;"></h3>
+					<p x-text="confirmModal.message" style="margin:0 0 1.25rem;color:var(--text-muted);font-size:0.9rem;"></p>
+					<div class="flex gap-2 justify-end">
+						<button type="button" class="btn" @click="confirmModal.show = false">Cancel</button>
+						<form :action="confirmModal.action" method="POST" style="display:inline;" @submit="confirmModal.show = false">
+							<button type="submit" class="btn btn-danger">Confirm</button>
+						</form>
+					</div>
+				</div>
+			</div>
 			<!-- Release metadata card -->
 			if data.Contribution.ContributionType != "update" {
 				<div class="card mb-4">
@@ -618,6 +631,14 @@ document.addEventListener('alpine:init', () => {
 
 				if data.Contribution.PRURL != "" {
 					<a href={ templ.SafeURL(data.Contribution.PRURL) } target="_blank" rel="noopener" class="btn">View PR on GitHub</a>
+				}
+				if data.Contribution.Status == "submitted" {
+					<button
+						type="button"
+						class="btn"
+						@click={ fmt.Sprintf("confirmModal = { show: true, title: 'Reset PR state?', message: 'This will clear the PR link and mark the contribution as pending. The next submission will open a new PR.', action: '/contributions/%d/reset-pr' }", data.Contribution.ID) }>
+						Reset PR
+					</button>
 				}
 			</div>
 		</div>
