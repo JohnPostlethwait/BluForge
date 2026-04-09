@@ -272,3 +272,37 @@ func TestDeleteContribution(t *testing.T) {
 		t.Errorf("expected nil after delete, got %+v", got)
 	}
 }
+
+func TestResetContributionPR(t *testing.T) {
+	store := openTestDB(t)
+
+	// Create a contribution and mark it submitted.
+	id, err := store.SaveContribution(Contribution{
+		DiscKey:          "TEST-RESET",
+		DiscName:         "Reset Test Disc",
+		ContributionType: "add",
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := store.UpdateContributionStatus(id, "submitted", "https://github.com/TheDiscDb/data/pull/999"); err != nil {
+		t.Fatalf("set submitted: %v", err)
+	}
+
+	// Reset the PR state.
+	if err := store.ResetContributionPR(id); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	// Verify status and pr_url are cleared.
+	got, err := store.GetContribution(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status != "pending" {
+		t.Errorf("status = %q, want %q", got.Status, "pending")
+	}
+	if got.PRURL != "" {
+		t.Errorf("pr_url = %q, want empty", got.PRURL)
+	}
+}

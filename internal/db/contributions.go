@@ -178,6 +178,19 @@ func (s *Store) UpdateContributionStatus(id int64, status, prURL string) error {
 	return nil
 }
 
+// ResetContributionPR clears the pr_url and sets status back to "pending".
+func (s *Store) ResetContributionPR(id int64) error {
+	const q = `
+		UPDATE contributions
+		SET status = 'pending', pr_url = '', updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`
+	_, err := s.db.Exec(q, id)
+	if err != nil {
+		return fmt.Errorf("reset contribution pr %d: %w", id, err)
+	}
+	return nil
+}
+
 // DeleteContribution removes a contribution by ID.
 func (s *Store) DeleteContribution(id int64) error {
 	const q = `DELETE FROM contributions WHERE id = ?`
