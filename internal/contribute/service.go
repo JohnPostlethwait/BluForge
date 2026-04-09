@@ -469,6 +469,7 @@ func downloadFromURL(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download: create request: %w", err)
 	}
+	req.Header.Set("User-Agent", "BluForge/1.0")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download: do request: %w", err)
