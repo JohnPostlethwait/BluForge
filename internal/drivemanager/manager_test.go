@@ -2,7 +2,9 @@ package drivemanager
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -238,5 +240,113 @@ func TestGetAllDrives_NoDrives(t *testing.T) {
 	allDrives := mgr.GetAllDrives()
 	if len(allDrives) != 0 {
 		t.Errorf("expected 0 drives, got %d", len(allDrives))
+	}
+}
+
+// mockErrorExecutor is a test double that returns configurable errors.
+type mockErrorExecutor struct {
+	listErr error
+	drives  []makemkv.DriveInfo
+}
+
+func (m *mockErrorExecutor) ListDrives(_ context.Context) ([]makemkv.DriveInfo, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return m.drives, nil
+}
+
+func (m *mockErrorExecutor) ScanDisc(_ context.Context, _ int) (*makemkv.DiscScan, error) {
+	return &makemkv.DiscScan{}, nil
+}
+
+func TestManagerRun_StopsOnCancel(t *testing.T) {
+	mock := &mockExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		mgr.Run(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+
+	// Wait for at least one poll to complete (Run calls PollOnce immediately).
+	deadline := time.After(2 * time.Second)
+	for {
+		if mgr.Ready() {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for Ready() to become true")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// Cancel the context and verify the goroutine exits promptly.
+	cancel()
+
+	select {
+	case <-done:
+		// goroutine exited — success
+	case <-time.After(1 * time.Second):
+		t.Fatal("Manager.Run did not exit within 1 second after context cancellation")
+	}
+
+	// Verify the drive was detected.
+	drive := mgr.GetDrive(0)
+	if drive == nil {
+		t.Fatal("expected GetDrive(0) to return non-nil after poll")
+	}
+	if drive.DiscName() != "MOVIE_DISC" {
+		t.Errorf("expected disc name MOVIE_DISC, got %q", drive.DiscName())
+	}
+}
+
+func TestPollOnce_ExecutorError_FirstPoll(t *testing.T) {
+	mock := &mockErrorExecutor{
+		listErr: fmt.Errorf("makemkv: connection failed"),
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+
+	mgr.PollOnce(context.Background())
+
+	// ListDrives errored on first poll, so ready should remain false.
+	if mgr.Ready() {
+		t.Error("expected Ready() to be false after ListDrives error on first poll")
+	}
+}
+
+func TestPollOnce_ExecutorError_AfterSuccess(t *testing.T) {
+	mock := &mockErrorExecutor{
+		drives: []makemkv.DriveInfo{
+			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+		},
+	}
+
+	mgr := NewManager(mock, func(e DriveEvent) {})
+
+	// First poll succeeds.
+	mgr.PollOnce(context.Background())
+	if !mgr.Ready() {
+		t.Fatal("expected Ready() to be true after successful first poll")
+	}
+
+	// Second poll fails.
+	mock.listErr = fmt.Errorf("makemkv: device disconnected")
+	mgr.PollOnce(context.Background())
+
+	// Ready should stay true even after a subsequent error.
+	if !mgr.Ready() {
+		t.Error("expected Ready() to remain true after error on second poll")
 	}
 }

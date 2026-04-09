@@ -471,6 +471,182 @@ func TestPickRichestMPLS_Empty(t *testing.T) {
 	}
 }
 
+// argCapturingRunner records the arguments passed to Run and returns canned output.
+type argCapturingRunner struct {
+	output   string
+	err      error
+	captured [][]string
+}
+
+func (m *argCapturingRunner) Run(_ context.Context, args ...string) (*strings.Reader, error) {
+	m.captured = append(m.captured, args)
+	return strings.NewReader(m.output), m.err
+}
+
+// TestExecutorListDrives_Args verifies that ListDrives passes the correct
+// arguments to makemkvcon: -r --cache=1 info disc:9999
+func TestExecutorListDrives_Args(t *testing.T) {
+	mock := &argCapturingRunner{output: twoDriverOutput}
+	ex := NewExecutor(WithRunner(mock))
+
+	_, err := ex.ListDrives(context.Background())
+	if err != nil {
+		t.Fatalf("ListDrives returned unexpected error: %v", err)
+	}
+
+	if len(mock.captured) != 1 {
+		t.Fatalf("expected 1 call to runner.Run, got %d", len(mock.captured))
+	}
+
+	args := mock.captured[0]
+	want := []string{"-r", "--cache=1", "info", "disc:9999"}
+	if len(args) != len(want) {
+		t.Fatalf("expected args %v, got %v", want, args)
+	}
+	for i, w := range want {
+		if args[i] != w {
+			t.Errorf("arg[%d]: expected %q, got %q", i, w, args[i])
+		}
+	}
+}
+
+// TestExecutorScanDisc_Args verifies that ScanDisc passes the correct
+// arguments to makemkvcon: -r info disc:N
+func TestExecutorScanDisc_Args(t *testing.T) {
+	// ScanDisc calls devicePathForDrive (which calls ListDrives) then runs the
+	// scan itself. The mock needs to handle both calls.
+	mock := &argCapturingRunner{output: scanDiscOutput}
+	ex := NewExecutor(WithRunner(mock))
+
+	_, err := ex.ScanDisc(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ScanDisc returned unexpected error: %v", err)
+	}
+
+	// Expect 2 calls: one for ListDrives (devicePathForDrive) and one for the scan.
+	if len(mock.captured) < 2 {
+		t.Fatalf("expected at least 2 calls to runner.Run, got %d", len(mock.captured))
+	}
+
+	// The second call should be the actual scan.
+	scanArgs := mock.captured[1]
+	wantScan := []string{"-r", "info", "disc:0"}
+	if len(scanArgs) != len(wantScan) {
+		t.Fatalf("scan args: expected %v, got %v", wantScan, scanArgs)
+	}
+	for i, w := range wantScan {
+		if scanArgs[i] != w {
+			t.Errorf("scan arg[%d]: expected %q, got %q", i, w, scanArgs[i])
+		}
+	}
+}
+
+// TestBuildDiscScan_WithPRGV verifies that buildDiscScan correctly parses PRGV
+// events (progress updates) that are emitted during rips. These are the events
+// that StartRip's onEvent callback receives via ParseLine.
+func TestBuildDiscScan_WithPRGV(t *testing.T) {
+	events := []Event{
+		{Type: "TCOUT", Count: 1},
+		{Type: "CINFO", Disc: &DiscInfo{Attributes: map[int]string{2: "TEST_DISC", 1: "Blu-ray disc"}}},
+		{Type: "TINFO", Title: &TitleInfo{Index: 0, Attributes: map[int]string{2: "Feature", 9: "1:30:00"}}},
+		{Type: "PRGV", Progress: &Progress{Current: 100, Total: 500, Max: 65536}},
+		{Type: "PRGV", Progress: &Progress{Current: 65536, Total: 65536, Max: 65536}},
+		{Type: "MSG", Message: &Message{Code: 1005, Text: "Operation successfully completed"}},
+	}
+
+	scan := buildDiscScan(0, events)
+
+	if scan.DiscName != "TEST_DISC" {
+		t.Errorf("DiscName: expected TEST_DISC, got %q", scan.DiscName)
+	}
+	if scan.TitleCount != 1 {
+		t.Errorf("TitleCount: expected 1, got %d", scan.TitleCount)
+	}
+	if len(scan.Titles) != 1 {
+		t.Fatalf("expected 1 title, got %d", len(scan.Titles))
+	}
+	// PRGV events are not stored in the scan (they're progress callbacks),
+	// but they should not break the scan build.
+	if scan.Titles[0].Name() != "Feature" {
+		t.Errorf("title name: expected Feature, got %q", scan.Titles[0].Name())
+	}
+}
+
+// TestParseLine_PRGVVariants tests parsing of PRGV lines that StartRip streams
+// to the onEvent callback during rip operations.
+func TestParseLine_PRGVVariants(t *testing.T) {
+	cases := []struct {
+		line    string
+		current int
+		total   int
+		max     int
+	}{
+		{"PRGV:0,0,65536", 0, 0, 65536},
+		{"PRGV:32768,32768,65536", 32768, 32768, 65536},
+		{"PRGV:65536,65536,65536", 65536, 65536, 65536},
+		{"PRGV:100,500,65536", 100, 500, 65536},
+	}
+
+	for _, tc := range cases {
+		ev, err := ParseLine(tc.line)
+		if err != nil {
+			t.Errorf("ParseLine(%q) error: %v", tc.line, err)
+			continue
+		}
+		if ev.Type != "PRGV" {
+			t.Errorf("ParseLine(%q): expected type PRGV, got %q", tc.line, ev.Type)
+			continue
+		}
+		if ev.Progress == nil {
+			t.Errorf("ParseLine(%q): Progress is nil", tc.line)
+			continue
+		}
+		if ev.Progress.Current != tc.current {
+			t.Errorf("ParseLine(%q): Current: expected %d, got %d", tc.line, tc.current, ev.Progress.Current)
+		}
+		if ev.Progress.Total != tc.total {
+			t.Errorf("ParseLine(%q): Total: expected %d, got %d", tc.line, tc.total, ev.Progress.Total)
+		}
+		if ev.Progress.Max != tc.max {
+			t.Errorf("ParseLine(%q): Max: expected %d, got %d", tc.line, tc.max, ev.Progress.Max)
+		}
+	}
+}
+
+// TestExecutorListDrives_ErrorWithPartialOutput verifies that ListDrives
+// returns drives even when makemkvcon exits non-zero, as long as valid DRV
+// lines were produced in the output.
+func TestExecutorListDrives_ErrorWithPartialOutput(t *testing.T) {
+	mock := &mockCmdRunner{
+		output: twoDriverOutput,
+		err:    fmt.Errorf("exit status 1"),
+	}
+	ex := NewExecutor(WithRunner(mock))
+
+	drives, err := ex.ListDrives(context.Background())
+	if err != nil {
+		t.Fatalf("ListDrives should return drives despite non-zero exit: %v", err)
+	}
+	if len(drives) != 2 {
+		t.Errorf("expected 2 drives, got %d", len(drives))
+	}
+}
+
+// TestExecutorListDrives_ErrorNoOutput verifies that ListDrives returns the
+// original error when makemkvcon exits non-zero and produces no parseable output.
+func TestExecutorListDrives_ErrorNoOutput(t *testing.T) {
+	mock := &mockCmdRunner{
+		output: "",
+		err:    fmt.Errorf("exit status 1"),
+	}
+	ex := NewExecutor(WithRunner(mock))
+
+	_, err := ex.ListDrives(context.Background())
+	if err == nil {
+		t.Fatal("expected error when makemkvcon fails with no output")
+	}
+}
+
 // TestParseTCOUNTLine verifies that TCOUNT (alternate spelling of TCOUT) is
 // parsed correctly.
 func TestParseTCOUNTLine(t *testing.T) {
