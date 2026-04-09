@@ -257,6 +257,7 @@ document.addEventListener('alpine:init', () => {
 					<div class="flex gap-2 justify-end">
 						<button type="button" class="btn" @click="confirmModal.show = false">Cancel</button>
 						<form :action="confirmModal.action" method="POST" style="display:inline;" @submit="confirmModal.show = false">
+							<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 							<button type="submit" class="btn btn-danger">Confirm</button>
 						</form>
 					</div>

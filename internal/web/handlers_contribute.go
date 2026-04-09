@@ -120,6 +120,7 @@ func (s *Server) handleContributions(c echo.Context) error {
 		Contributions:         contributions,
 		GitHubTokenConfigured: cfg.GitHubToken != "",
 		Flash:                 truncateFlash(c),
+		CSRFToken:             csrfToken(c),
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 
