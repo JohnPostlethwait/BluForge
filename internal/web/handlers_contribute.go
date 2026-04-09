@@ -237,6 +237,33 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/contributions?flash=Contribution+submitted+%E2%80%94+PR+opened+successfully")
 }
 
+// handleContributionResetPR resets a submitted contribution's PR state back to pending.
+func (s *Server) handleContributionResetPR(c echo.Context) error {
+	id, err := parseContribID(c)
+	if err != nil {
+		return err
+	}
+
+	contrib, err := s.store.GetContribution(id)
+	if err != nil {
+		slog.Error("failed to get contribution for pr reset", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load contribution.")
+	}
+	if contrib == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "Contribution not found.")
+	}
+	if contrib.Status != "submitted" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Cannot reset a contribution that has not been submitted.")
+	}
+
+	if err := s.store.ResetContributionPR(id); err != nil {
+		slog.Error("failed to reset contribution pr", "id", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to reset PR state.")
+	}
+
+	return c.Redirect(http.StatusSeeOther, "/contributions?flash=PR+state+reset+%E2%80%94+contribution+is+ready+to+resubmit")
+}
+
 // handleContributionDelete removes a pending/drafting contribution.
 func (s *Server) handleContributionDelete(c echo.Context) error {
 	id, err := parseContribID(c)
