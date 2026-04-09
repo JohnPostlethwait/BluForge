@@ -59,6 +59,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Go must be set up BEFORE codeql-action/init so CodeQL can instrument the correct binary.
+    - name: Setup Go
+      if: matrix.language == 'go'
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
@@ -74,13 +82,6 @@ jobs:
 
     # Go requires templ to generate _templ.go files before the package can be compiled.
     # Without this, the templates package is missing and CodeQL reports incomplete analysis.
-    - name: Setup Go
-      if: matrix.build-mode == 'manual'
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: go.mod
-        cache: true
-
     - name: Generate templ files
       if: matrix.build-mode == 'manual'
       run: |
