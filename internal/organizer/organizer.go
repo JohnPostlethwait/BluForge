@@ -37,7 +37,7 @@ func (o *Organizer) BuildPath(dirName, fileName string) string {
 // It tries os.Rename first (atomic on the same filesystem) and falls back to
 // a copy-then-delete for cross-device moves.
 func AtomicMove(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o777); err != nil {
 		return err
 	}
 
