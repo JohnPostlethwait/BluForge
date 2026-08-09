@@ -1220,3 +1220,16 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .site-footer a:hover {
   color: var(--text-secondary);
 }
+
+/* ── Spurious-AACS recovery banner ───────────────────────────────────────── */
+/* Shown while a disc that reports AACS protection over unencrypted content is
+   copied and stripped. The operation is automatic and can take tens of minutes,
+   so the banner is informational rather than an error. */
+.recovery-banner {
+  border-left: 3px solid var(--warning);
+  margin-bottom: 1rem;
+}
+
+.recovery-banner .progress-bar {
+  margin-top: 0.75rem;
+}

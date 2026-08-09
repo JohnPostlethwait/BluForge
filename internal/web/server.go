@@ -192,6 +192,13 @@ func (s *Server) UpdateConfig(fn func(*config.AppConfig)) error {
 	}
 
 	s.cfg = &candidate
+
+	// Recovery writes disc backups under the output directory, so it has to
+	// follow the setting rather than keep using the value from startup.
+	if s.orchestrator != nil {
+		s.orchestrator.SetOutputDir(candidate.OutputDir)
+	}
+
 	return config.Save(candidate, s.configPath)
 }
 

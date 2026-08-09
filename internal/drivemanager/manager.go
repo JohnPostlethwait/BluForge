@@ -228,6 +228,32 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 }
 
 // GetDrive returns the DriveStateMachine for the given index, or nil if unknown.
+// SetDriveState overrides a drive's state and emits a state_change event.
+//
+// Used for states the poller cannot infer from makemkvcon output — notably
+// StateRecovering, which is driven by BluForge rather than by the drive. A poll
+// that finds the same disc still present leaves the state alone, so a recovering
+// drive keeps its state until recovery sets it back.
+func (m *Manager) SetDriveState(index int, state DriveState) {
+	m.mu.RLock()
+	dsm, ok := m.drives[index]
+	m.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	dsm.SetState(state)
+
+	if m.onEvent != nil {
+		m.onEvent(DriveEvent{
+			Type:       EventStateChange,
+			DriveIndex: index,
+			DiscName:   dsm.DiscName(),
+			State:      state,
+		})
+	}
+}
+
 func (m *Manager) GetDrive(index int) *DriveStateMachine {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

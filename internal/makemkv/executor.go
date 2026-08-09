@@ -164,7 +164,7 @@ func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 		}
 		drives := drivesFromEvents(events)
 		if len(drives) == 0 {
-			return nil, fmt.Errorf("makemkv: list drives: %w", err)
+			return nil, noDrivesError(events, err)
 		}
 		return drives, nil
 	}
@@ -173,7 +173,34 @@ func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("makemkv: list drives parse: %w", err)
 	}
-	return drivesFromEvents(events), nil
+	drives := drivesFromEvents(events)
+	if len(drives) == 0 {
+		if msgs := messagesFromEvents(events); HasNoDrivesMessage(msgs) {
+			return nil, fmt.Errorf("makemkv: list drives: %w", ErrNoOpticalDrives)
+		}
+	}
+	return drives, nil
+}
+
+// noDrivesError distinguishes "makemkvcon cannot see any drive" from a generic
+// listing failure. On a container the former is a group-membership problem with
+// a concrete fix, and reporting it as such saves the user from investigating
+// the drive or the disc instead.
+func noDrivesError(events []Event, cmdErr error) error {
+	if HasNoDrivesMessage(messagesFromEvents(events)) {
+		return fmt.Errorf("makemkv: list drives: %w", ErrNoOpticalDrives)
+	}
+	return fmt.Errorf("makemkv: list drives: %w", cmdErr)
+}
+
+func messagesFromEvents(events []Event) []Message {
+	var msgs []Message
+	for _, ev := range events {
+		if ev.Type == "MSG" && ev.Message != nil {
+			msgs = append(msgs, *ev.Message)
+		}
+	}
+	return msgs
 }
 
 func drivesFromEvents(events []Event) []DriveInfo {
@@ -221,7 +248,7 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 	// Folder sources are read directly and need no device.
 	var devicePath string
 	if src.IsDisc() {
-		devicePath = e.devicePathForDrive(ctx, driveIndex)
+		devicePath = e.DevicePathForDrive(ctx, driveIndex)
 	}
 
 	e.mu.Lock()
@@ -335,10 +362,10 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 	return scan, nil
 }
 
-// devicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex
+// DevicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex
 // by running a lightweight ListDrives call.  Returns "" on any error; callers
 // treat a missing path as a non-fatal condition.
-func (e *Executor) devicePathForDrive(ctx context.Context, driveIndex int) string {
+func (e *Executor) DevicePathForDrive(ctx context.Context, driveIndex int) string {
 	drives, err := e.ListDrives(ctx)
 	if err != nil {
 		return ""

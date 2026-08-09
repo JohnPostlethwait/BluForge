@@ -96,10 +96,24 @@ func main() {
 		OnBroadcast: func(event, data string) {
 			sseHub.Broadcast(web.SSEEvent{Event: event, Data: data})
 		},
-		Scanner: executor,
-		DiscDB:  discdbClient,
-		Cache:   discdbCache,
+		Scanner:   executor,
+		DiscDB:    discdbClient,
+		Cache:     discdbCache,
+		Backupper: executor,
 	})
+	// Recovery writes disc backups under the output directory, so it needs to
+	// know where that is even when triggered from the scan path.
+	orch.SetOutputDir(cfg.OutputDir)
+
+	// Remove disc backups left behind by a previous run. Each is up to ~100GB,
+	// so a crash must not leak them.
+	if err := workflow.SweepScratch(cfg.OutputDir); err != nil {
+		slog.Warn("could not sweep stale disc backups", "error", err)
+	}
+
+	// Report a container that cannot see its optical drives before the first
+	// poll fails with a message that says nothing about group membership.
+	drivemanager.CheckOpticalAccess()
 
 	// 11. Create drive manager with onEvent callback.
 	// srv and driveMgr are declared here so the callback closure can read live
@@ -175,6 +189,13 @@ func main() {
 				}
 			}()
 		}
+	})
+
+	// A drive spending tens of minutes on a disc backup should not read as idle,
+	// so recovery drives the drive state directly. Wired here because it needs
+	// the manager created above.
+	orch.SetDriveStateReporter(func(driveIndex int, state string) {
+		driveMgr.SetDriveState(driveIndex, drivemanager.DriveState(state))
 	})
 
 	// 12. Create web server with all dependencies.

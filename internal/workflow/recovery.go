@@ -293,6 +293,10 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		devicePath = loc.DevicePathForDrive(ctx, driveIndex)
 	}
 
+	// Mark the drive so it does not read as idle for the length of the backup.
+	o.setDriveState(driveIndex, "recovering")
+	defer o.setDriveState(driveIndex, "detected")
+
 	rec, err := o.RecoverSpuriousAACS(ctx, RecoveryRequest{
 		DriveIndex: driveIndex,
 		DevicePath: devicePath,
@@ -311,6 +315,24 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 	o.registerRecovered(driveIndex, rec)
 	o.broadcastRecovery(driveIndex, se.Scan.DiscName, "done", 100, "")
 	return rec.Scan, nil
+}
+
+// SetDriveStateReporter installs the callback used to publish drive states the
+// poller cannot infer. Set after construction because the drive manager and the
+// orchestrator each need the other.
+func (o *Orchestrator) SetDriveStateReporter(fn func(driveIndex int, state string)) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	o.onDriveState = fn
+}
+
+func (o *Orchestrator) setDriveState(driveIndex int, state string) {
+	o.recoveredMu.Lock()
+	fn := o.onDriveState
+	o.recoveredMu.Unlock()
+	if fn != nil {
+		fn(driveIndex, state)
+	}
 }
 
 // broadcastRecovery pushes a recovery phase to the UI. Recovery runs

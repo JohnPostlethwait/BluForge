@@ -14,19 +14,19 @@ import (
 func (s *Server) handleSettings(c echo.Context) error {
 	cfg := s.GetConfig()
 	data := templates.SettingsData{
-		OutputDir:             cfg.OutputDir,
-		AutoRip:               cfg.AutoRip,
-		MinTitleLength:        strconv.Itoa(cfg.MinTitleLength),
-		PollInterval:          strconv.Itoa(cfg.PollInterval),
-		DuplicateAction:       cfg.DuplicateAction,
-		GitHubToken:           cfg.GitHubToken,
-		MakeMKVKey:            cfg.MakeMKVKey,
-		TMDBApiKey:            cfg.TMDBApiKey,
-		PreferredAudioLangs:   cfg.PreferredAudioLangs,
+		OutputDir:              cfg.OutputDir,
+		AutoRip:                cfg.AutoRip,
+		MinTitleLength:         strconv.Itoa(cfg.MinTitleLength),
+		PollInterval:           strconv.Itoa(cfg.PollInterval),
+		DuplicateAction:        cfg.DuplicateAction,
+		GitHubToken:            cfg.GitHubToken,
+		MakeMKVKey:             cfg.MakeMKVKey,
+		TMDBApiKey:             cfg.TMDBApiKey,
+		PreferredAudioLangs:    cfg.PreferredAudioLangs,
 		PreferredSubtitleLangs: cfg.PreferredSubtitleLangs,
-		KeepForcedSubtitles:   cfg.KeepForcedSubtitles,
-		KeepLosslessAudio:     cfg.KeepLosslessAudio,
-		CSRFToken:             csrfToken(c),
+		KeepForcedSubtitles:    cfg.KeepForcedSubtitles,
+		KeepLosslessAudio:      cfg.KeepLosslessAudio,
+		CSRFToken:              csrfToken(c),
 	}
 	return templates.Settings(data).Render(c.Request().Context(), c.Response().Writer)
 }

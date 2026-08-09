@@ -369,7 +369,6 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))
 	}
 
-
 	// Save disc mapping if a release was selected in the session.
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {
 		discKey := discdb.BuildDiscKey(scan)
@@ -525,4 +524,3 @@ func normalizeSearchQuery(q string) string {
 	r := strings.NewReplacer("_", " ", "-", " ")
 	return strings.Join(strings.Fields(r.Replace(q)), " ")
 }
-

@@ -115,7 +115,7 @@ type DriveJSON struct {
 // StreamJSON is the JSON representation of a single audio/video/subtitle stream.
 type StreamJSON struct {
 	StreamIndex int    `json:"streamIndex"`
-	Type        string `json:"type"`               // "video", "audio", "subtitle"
+	Type        string `json:"type"` // "video", "audio", "subtitle"
 	LangCode    string `json:"langCode"`
 	LangName    string `json:"langName"`
 	Codec       string `json:"codec"`              // short name like "TrueHD", "AC3"
@@ -228,11 +228,11 @@ type DriveStoreJSON struct {
 
 // DashboardJobJSON is a compact job representation for the dashboard.
 type DashboardJobJSON struct {
-	ID          int64  `json:"id"`
-	DiscName    string `json:"discName"`
-	TitleName   string `json:"titleName"`
-	Status      string `json:"status"`
-	FinishedAt  string `json:"finishedAt,omitempty"`
+	ID         int64  `json:"id"`
+	DiscName   string `json:"discName"`
+	TitleName  string `json:"titleName"`
+	Status     string `json:"status"`
+	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
 // DrivesStoreJSON is the Alpine.store('drives') shape for the dashboard page.
@@ -420,4 +420,3 @@ func discHasLosslessAudio(scan *makemkv.DiscScan) bool {
 	}
 	return false
 }
-

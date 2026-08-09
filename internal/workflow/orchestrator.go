@@ -41,6 +41,9 @@ type OrchestratorDeps struct {
 	// OpenDiscRoot makes a disc readable as a directory tree for inspection.
 	// Defaults to mounting via the mpls package.
 	OpenDiscRoot DiscRootOpener
+	// OnDriveState reports a drive state the poller cannot infer on its own,
+	// so a drive spending 40 minutes in recovery does not look idle. Optional.
+	OnDriveState func(driveIndex int, state string)
 }
 
 // Orchestrator coordinates the end-to-end rip pipeline: disk space check,
@@ -57,6 +60,7 @@ type Orchestrator struct {
 
 	backupper    DiscBackupper
 	openDiscRoot DiscRootOpener
+	onDriveState func(driveIndex int, state string)
 	// checkSpace verifies the scratch volume can hold a disc backup. Injected
 	// so the early-failure path can be tested without filling a disk.
 	checkSpace func(path string, needBytes int64) error
@@ -96,6 +100,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		cache:        deps.Cache,
 		backupper:    deps.Backupper,
 		openDiscRoot: openRoot,
+		onDriveState: deps.OnDriveState,
 		checkSpace:   ripper.CheckDiskSpace,
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),

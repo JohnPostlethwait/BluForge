@@ -57,6 +57,22 @@ document.addEventListener('alpine:init', () => {
 		}
 	})
 
+	// Recovery for a disc with a spurious AACS directory runs automatically and
+	// can take tens of minutes. Surfacing the phase keeps the drive from looking
+	// idle while ~100GB is copied.
+	evtSource.addEventListener('disc_recovery', (e) => {
+		const update = JSON.parse(e.data)
+		if (update.drive_index !== Alpine.store('drive').driveIndex) return
+		const store = Alpine.store('drive')
+		store.recoveryPhase = update.phase
+		store.recoveryPercent = update.percent || 0
+		store.recoveryMessage = update.message || ''
+		store.recoveryActive = update.phase !== 'done' && update.phase !== 'failed'
+		if (update.phase === 'failed') {
+			store.scanError = update.message
+		}
+	})
+
 	const _ripJobIDs = new Set()
 	evtSource.addEventListener('rip-update', (e) => {
 		const update = JSON.parse(e.data)
@@ -371,6 +387,34 @@ async function scanDisc(driveIndex) {
 
 		<!-- Workflow (only shown when a disc is present) -->
 		<div x-data x-show="$store.drive.state !== 'empty'" x-cloak>
+
+		<!-- ═══════════ Spurious-AACS recovery ═══════════ -->
+		<!--
+			This disc carries an AACS directory over unencrypted content, so
+			MakeMKV refuses to open it. Recovery copies the disc without
+			decryption and strips AACS from the copy — up to ~100GB and tens of
+			minutes, which is why it gets a progress banner rather than running
+			invisibly.
+		-->
+		<div x-data x-show="$store.drive.recoveryActive" x-cloak class="card recovery-banner">
+			<h2 class="section-title">Recovering disc</h2>
+			<p class="text-muted">
+				This disc reports an AACS protection directory but its content is not encrypted —
+				a disc authoring fault. BluForge is copying the disc and removing the AACS
+				directory from the copy so it can be ripped normally. No action is needed.
+			</p>
+			<p>
+				<strong x-text="{
+					detecting: 'Checking whether the content is actually encrypted…',
+					backing_up: 'Copying disc to scratch storage…',
+					stripping: 'Removing the AACS directory from the copy…',
+					rescanning: 'Re-reading titles from the copy…',
+				}[$store.drive.recoveryPhase] || 'Working…'"></strong>
+			</p>
+			<template x-if="$store.drive.recoveryPhase === 'backing_up'">
+				@components.ProgressBarDynamic("$store.drive.recoveryPercent", "")
+			</template>
+		</div>
 
 		<!-- Stepper -->
 		@components.Stepper([]components.StepperStep{

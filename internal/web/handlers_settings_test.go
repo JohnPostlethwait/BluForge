@@ -22,13 +22,13 @@ func testSettingsServer(t *testing.T) *Server {
 	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfg := &config.AppConfig{
-		Port:               9160,
-		OutputDir:          "/old/output",
-		AutoRip:            false,
-		MinTitleLength:     120,
-		PollInterval:       5,
-		DuplicateAction:    "skip",
-		MakeMKVKey:         "existing-key",
+		Port:            9160,
+		OutputDir:       "/old/output",
+		AutoRip:         false,
+		MinTitleLength:  120,
+		PollInterval:    5,
+		DuplicateAction: "skip",
+		MakeMKVKey:      "existing-key",
 	}
 
 	if err := config.Save(*cfg, cfgPath); err != nil {
@@ -86,7 +86,6 @@ func TestHandleSettingsSave_UpdatesConfig(t *testing.T) {
 		t.Errorf("DuplicateAction: expected %q, got %q", "overwrite", cfg.DuplicateAction)
 	}
 }
-
 
 func TestHandleSettingsSave_PartialUpdate(t *testing.T) {
 	srv := testSettingsServer(t)
