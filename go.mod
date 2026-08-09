@@ -1,6 +1,6 @@
 module github.com/johnpostlethwait/bluforge
 
-go 1.25.0
+go 1.26.5
 
 require (
 	github.com/a-h/templ v0.3.1020
