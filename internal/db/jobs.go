@@ -13,20 +13,20 @@ const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, cont
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
-	ID           int64
-	DriveIndex   int
-	DiscName     string
-	TitleIndex   int
-	TitleName    string
-	ContentType  string
-	OutputPath   string
-	Status       string
-	Progress     int
-	ErrorMessage string
-	SizeBytes    int64
-	Duration     string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            int64
+	DriveIndex    int
+	DiscName      string
+	TitleIndex    int
+	TitleName     string
+	ContentType   string
+	OutputPath    string
+	Status        string
+	Progress      int
+	ErrorMessage  string
+	SizeBytes     int64
+	Duration      string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 	TrackMetadata string // raw JSON, may be empty
 }
 

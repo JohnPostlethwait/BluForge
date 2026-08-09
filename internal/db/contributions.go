@@ -8,15 +8,15 @@ import (
 
 // Contribution represents a row in the contributions table.
 type Contribution struct {
-	ID          int64
-	DiscKey     string
-	DiscName    string
-	RawOutput   string
-	ScanJSON    string
-	Status      string
-	PRURL       string
-	TmdbID      string
-	ReleaseInfo string
+	ID               int64
+	DiscKey          string
+	DiscName         string
+	RawOutput        string
+	ScanJSON         string
+	Status           string
+	PRURL            string
+	TmdbID           string
+	ReleaseInfo      string
 	TitleLabels      string
 	ContributionType string // "add" or "update"
 	MatchInfo        string // JSON; only populated for "update" type
