@@ -185,6 +185,22 @@ docker build -t bluforge:dev .
 7. Completed files are organized into the output directory using the configured path templates
 8. A **disc mapping** is saved so the disc is instantly recognized if inserted again
 
+### Discs that report protection they do not have
+
+Some retail discs ship with a full AACS directory over unencrypted content — a
+mastering fault. MakeMKV sees the directory, demands a volume key that does not
+exist, and fails with an error that reads like a missing key.
+
+BluForge detects this by sampling the disc's actual MPEG-TS packets. When the
+payload is confirmed unencrypted it recovers automatically: a raw backup, the
+AACS directory removed from the copy, then a normal rip from the copy with your
+track selection intact. The scratch copy is deleted afterwards. When the payload
+really is encrypted, nothing is copied and the disc is reported as a genuine
+missing-key case.
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the failure signature and the
+manual procedure.
+
 ## Requirements
 
 - **MakeMKV** (`makemkvcon`) is downloaded and compiled at first container startup — set `MAKEMKV_ACCEPT_EULA=yes` and ensure outbound internet access on first run
