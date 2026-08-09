@@ -317,7 +317,7 @@ func TestDecodeLang(t *testing.T) {
 		{[]byte("eng"), "eng"},
 		{[]byte("ENG"), "eng"}, // lowercase normalisation
 		{[]byte("und"), ""},    // undetermined → empty
-		{[]byte{0, 0, 0}, ""}, // null → empty
+		{[]byte{0, 0, 0}, ""},  // null → empty
 		{[]byte("fra"), "fra"},
 	}
 	for _, tc := range cases {

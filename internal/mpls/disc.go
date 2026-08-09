@@ -22,22 +22,47 @@ import (
 // accessed; callers should treat this as a non-fatal condition and skip
 // enrichment.
 func ReadDiscLanguages(devicePath string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
-	mp, err := findMountPoint(devicePath)
+	root, cleanup, err := OpenDiscRoot(devicePath)
 	if err != nil {
-		// Device not mounted — try to mount it temporarily. This relies on
-		// fstab entries created by the entrypoint (with the "user" option)
-		// so the non-root process can mount optical devices.
-		slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
-		mp, cleanup, mountErr := tryMount(devicePath)
-		if mountErr != nil {
-			return nil, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
-		}
-		defer cleanup()
-		slog.Info("mpls: auto-mounted disc for language enrichment", "device", devicePath, "mount_point", mp)
-		return readFromMountPoint(mp, sourceFiles)
+		return nil, err
 	}
-	slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
-	return readFromMountPoint(mp, sourceFiles)
+	defer cleanup()
+	return ReadFrom(root, sourceFiles)
+}
+
+// OpenDiscRoot makes the disc at devicePath readable as a directory tree and
+// returns its root along with a cleanup function that must always be called.
+//
+// If the disc is already mounted its existing mount point is used and cleanup
+// is a no-op; otherwise the disc is mounted temporarily and cleanup unmounts
+// it. Callers that need more than playlist data — inspecting stream packets,
+// checking for an AACS directory — use this directly.
+func OpenDiscRoot(devicePath string) (string, func(), error) {
+	mp, err := findMountPoint(devicePath)
+	if err == nil {
+		slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
+		return mp, func() {}, nil
+	}
+
+	// Device not mounted — try to mount it temporarily. This relies on fstab
+	// entries created by the entrypoint (with the "user" option) so the
+	// non-root process can mount optical devices.
+	slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
+	mp, cleanup, mountErr := tryMount(devicePath)
+	if mountErr != nil {
+		return "", func() {}, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
+	}
+	slog.Info("mpls: auto-mounted disc", "device", devicePath, "mount_point", mp)
+	return mp, cleanup, nil
+}
+
+// ReadFrom reads MPLS playlists from an accessible disc root — a mount point or
+// a plain directory such as a `makemkvcon backup` folder.
+//
+// sourceFiles behaves as in ReadDiscLanguages: when non-empty only those
+// playlist filenames are read, otherwise every *.mpls in the directory is.
+func ReadFrom(root string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
+	return readFromMountPoint(root, sourceFiles)
 }
 
 // tryMount attempts to mount devicePath at the conventional mount point

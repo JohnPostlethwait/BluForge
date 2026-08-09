@@ -27,7 +27,7 @@ type blockingRipExecutor struct {
 	block   chan struct{}
 }
 
-func (b *blockingRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDir string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
+func (b *blockingRipExecutor) StartRip(_ context.Context, _ makemkv.Source, _ int, outputDir string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	atomic.AddInt32(&b.started, 1)
 	<-b.block
 	// Write a fake file so orchestrator's OnComplete doesn't fail.
@@ -41,7 +41,7 @@ func (b *blockingRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDi
 // immediateRipExecutor completes instantly.
 type immediateRipExecutor struct{}
 
-func (m *immediateRipExecutor) StartRip(_ context.Context, _ int, _ int, outputDir string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
+func (m *immediateRipExecutor) StartRip(_ context.Context, _ makemkv.Source, _ int, outputDir string, onEvent func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	_ = os.WriteFile(filepath.Join(outputDir, "title.mkv"), []byte("fake"), 0o644)
 	if onEvent != nil {
 		onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Current: 65536, Total: 65536, Max: 65536}})

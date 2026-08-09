@@ -55,7 +55,7 @@ func TestCheckDiskSpace_OneByteBelowAvailable(t *testing.T) {
 
 func TestCheckDiskSpace_Realistic50GBInsufficient(t *testing.T) {
 	dir := t.TempDir()
-	const required = 50 * 1024 * 1024 * 1024 // 50 GB
+	const required = 50 * 1024 * 1024 * 1024  // 50 GB
 	const available = 48 * 1024 * 1024 * 1024 // 48 GB
 	// Simulate 48 GB available < 50 GB required by checking against an
 	// impossibly large floor: if the machine actually has ≥50 GB free, we use

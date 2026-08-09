@@ -3,6 +3,7 @@ package makemkv
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,6 +49,58 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 	slog.Info("makemkvcon: command completed", "args", args, "output_bytes", len(out))
 	return strings.NewReader(string(out)), nil
 }
+
+// StreamRunner is an optional capability of a CmdRunner: delivering output
+// line-by-line as it is produced rather than in one buffer at exit. Operations
+// that run for tens of minutes — rips and backups — need it so progress reaches
+// the UI while they are still running.
+//
+// Runners that do not implement it still work; their output is parsed once the
+// command finishes.
+type StreamRunner interface {
+	RunStream(ctx context.Context, onLine func(string), args ...string) error
+}
+
+// RunStream executes makemkvcon and invokes onLine for each output line.
+func (r *realRunner) RunStream(ctx context.Context, onLine func(string), args ...string) error {
+	slog.Info("makemkvcon: streaming", "args", args)
+
+	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("makemkv: stdout pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("makemkv: start: %w", err)
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), "\r")
+		if line == "" {
+			continue
+		}
+		onLine(line)
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		slog.Error("makemkvcon: scanner error", "error", scanErr)
+	}
+
+	return cmd.Wait()
+}
+
+// ErrNoOpticalDrives reports that makemkvcon could not see any optical drive.
+//
+// Under Docker this is almost always a permissions problem rather than missing
+// hardware: makemkvcon enumerates drives through /dev/sg* nodes, which are
+// mode 0660 and owned by root:disk. A container process running as a non-root
+// user that is not in that group sees no drives at all, and the underlying
+// operation fails with a message that says nothing about groups.
+var ErrNoOpticalDrives = errors.New(
+	"makemkvcon reports no usable optical drives: the process must belong to the group owning /dev/sg* " +
+		"(commonly 'disk', GID 6) — add `group_add: [6]` to the container, or check the entrypoint's group detection")
 
 // Option is a functional option for configuring an Executor.
 type Option func(*Executor)
@@ -148,11 +201,28 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // to parse the output regardless of exit code, returning an error only when no
 // useful disc data was produced.
 func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
-	slog.Info("executor: starting disc scan", "drive_index", driveIndex)
+	return e.ScanSource(ctx, DiscSource(driveIndex))
+}
+
+// ScanSource scans either a physical drive or a disc folder on disk, returning
+// the same aggregated DiscScan for both. A folder source is what allows a
+// backup with its AACS directory removed to stand in for a disc that MakeMKV
+// refuses to open — everything downstream is unable to tell the difference.
+//
+// On failure the returned error is a *ScanError carrying the partially parsed
+// scan, so callers can inspect the message codes makemkvcon emitted.
+func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error) {
+	slog.Info("executor: starting scan", "source", src.Arg())
+
+	driveIndex := src.DriveIndex
 
 	// Pre-lookup: get the device path for MPLS enrichment.  This is a separate,
 	// lightweight lock acquisition that completes before the main scan starts.
-	devicePath := e.devicePathForDrive(ctx, driveIndex)
+	// Folder sources are read directly and need no device.
+	var devicePath string
+	if src.IsDisc() {
+		devicePath = e.devicePathForDrive(ctx, driveIndex)
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -160,17 +230,17 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
 
-	target := fmt.Sprintf("disc:%d", driveIndex)
+	target := src.Arg()
 	r, cmdErr := e.runner.Run(ctx, "-r", "info", target)
 
 	// Read the full output so we can preserve it for contributions and still parse events.
 	rawBytes, readErr := io.ReadAll(r)
 	if readErr != nil {
-		slog.Error("executor: failed to read scan output", "drive_index", driveIndex, "error", readErr)
+		slog.Error("executor: failed to read scan output", "source", src.Arg(), "error", readErr)
 		if cmdErr != nil {
-			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+			return nil, &ScanError{Source: src, Err: cmdErr}
 		}
-		return nil, fmt.Errorf("makemkv: scan disc %d read output: %w", driveIndex, readErr)
+		return nil, &ScanError{Source: src, Reason: "read output", Err: readErr}
 	}
 	rawOutput := string(rawBytes)
 
@@ -178,16 +248,16 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
 	events, parseErr := ParseAll(strings.NewReader(rawOutput))
 	if parseErr != nil {
-		slog.Error("executor: disc scan parse failed", "drive_index", driveIndex, "error", parseErr)
+		slog.Error("executor: scan parse failed", "source", src.Arg(), "error", parseErr)
 		if cmdErr != nil {
-			return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+			return nil, &ScanError{Source: src, Err: cmdErr}
 		}
-		return nil, fmt.Errorf("makemkv: scan disc %d parse: %w", driveIndex, parseErr)
+		return nil, &ScanError{Source: src, Reason: "parse output", Err: parseErr}
 	}
 
 	if cmdErr != nil {
-		slog.Warn("executor: disc scan command exited non-zero, parsing output anyway",
-			"drive_index", driveIndex, "error", cmdErr, "event_count", len(events))
+		slog.Warn("executor: scan command exited non-zero, parsing output anyway",
+			"source", src.Arg(), "error", cmdErr, "event_count", len(events))
 	}
 
 	scan := buildDiscScan(driveIndex, events)
@@ -195,37 +265,50 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 
 	// If we got 0 titles, check for actionable error messages from makemkvcon.
 	if len(scan.Titles) == 0 {
+		// Log every message code seen. A disc whose AACS directory is spurious
+		// produces a specific combination (3303 + 5010 + no titles); logging the
+		// full set means a variant of that signature stays diagnosable from logs
+		// alone, without repeating the original investigation.
+		slog.Info("executor: scan produced no titles",
+			"source", src.Arg(), "message_codes", MessageCodes(scan.Messages),
+			"spurious_aacs_signature", IsSpuriousAACSSignature(scan.Messages, len(scan.Titles)))
+
 		var failureReason string
 		for _, m := range scan.Messages {
 			// MSG code 5010 = "Failed to open disc" — terminal failure.
-			if m.Code == 5010 {
+			if m.Code == MsgFailedToOpenDisc {
 				failureReason = m.Text
 				break
 			}
 		}
 		if failureReason != "" {
-			slog.Error("executor: disc scan failed", "drive_index", driveIndex, "reason", failureReason)
-			return nil, fmt.Errorf("makemkv: scan disc %d: %s", driveIndex, failureReason)
+			slog.Error("executor: scan failed", "source", src.Arg(), "reason", failureReason)
+			return nil, &ScanError{Scan: scan, Source: src, Reason: failureReason, Err: cmdErr}
 		}
 	}
 
 	// If the command failed AND we got no useful data, return the original error.
 	if cmdErr != nil && len(scan.Titles) == 0 && scan.DiscName == "" {
-		slog.Error("executor: disc scan command failed with no usable output",
-			"drive_index", driveIndex, "error", cmdErr)
-		return nil, fmt.Errorf("makemkv: scan disc %d: %w", driveIndex, cmdErr)
+		slog.Error("executor: scan command failed with no usable output",
+			"source", src.Arg(), "error", cmdErr)
+		return nil, &ScanError{Scan: scan, Source: src, Err: cmdErr}
 	}
 
-	slog.Info("executor: disc scan completed", "drive_index", driveIndex,
+	slog.Info("executor: scan completed", "source", src.Arg(),
 		"disc_name", scan.DiscName, "title_count", len(scan.Titles))
 
 	// Enrich stream language codes from MPLS playlist files, which are the
 	// authoritative source for language metadata on both standard BD and UHD.
 	// CLPI files (what makemkvcon reads in robot info mode) often omit language
 	// codes for UHD disc authorings.
-	if devicePath != "" {
-		enrichScanFromMPLS(scan, devicePath)
-	} else {
+	switch {
+	case !src.IsDisc():
+		// A folder source is already a readable disc tree, so playlists are
+		// read straight out of it — no mount required.
+		enrichScanFromMPLS(scan, mplsReaderForDir(src.Path))
+	case devicePath != "":
+		enrichScanFromMPLS(scan, mplsReaderForDevice(devicePath))
+	default:
 		slog.Warn("executor: no device path for drive, skipping MPLS enrichment",
 			"drive_index", driveIndex)
 	}
@@ -274,14 +357,32 @@ func (e *Executor) devicePathForDrive(ctx context.Context, driveIndex int) strin
 // "00300.mpls"); streams are matched by type and position within each title.
 //
 // Non-fatal: any error is logged at debug level and enrichment is skipped.
-func enrichScanFromMPLS(scan *DiscScan, devicePath string) {
+// mplsReader fetches playlist languages for a scan, given the playlist
+// filenames the scan referenced. Abstracting over the two ways a disc tree can
+// be reached — a mounted device or a plain directory — keeps enrichment
+// identical for a real disc and for a backup folder.
+type mplsReader func(sourceFiles []string) (map[string]mpls.PlayItemLanguages, error)
+
+func mplsReaderForDevice(devicePath string) mplsReader {
+	return func(sourceFiles []string) (map[string]mpls.PlayItemLanguages, error) {
+		return mpls.ReadDiscLanguages(devicePath, sourceFiles)
+	}
+}
+
+func mplsReaderForDir(root string) mplsReader {
+	return func(sourceFiles []string) (map[string]mpls.PlayItemLanguages, error) {
+		return mpls.ReadFrom(root, sourceFiles)
+	}
+}
+
+func enrichScanFromMPLS(scan *DiscScan, read mplsReader) {
 	// Collect the unique MPLS filenames referenced by this scan's titles.
 	// For some UHD discs, makemkvcon omits TINFO attr 16 (source file), so
 	// sourceFiles may be empty. ReadDiscLanguages handles this by reading
 	// ALL .mpls files from the disc when given an empty list.
 	sourceFiles := collectMPLSFilenames(scan)
 
-	langs, err := mpls.ReadDiscLanguages(devicePath, sourceFiles)
+	langs, err := read(sourceFiles)
 	if err != nil {
 		slog.Warn("executor: mpls enrichment unavailable",
 			"drive_index", scan.DriveIndex, "error", err,
@@ -516,6 +617,91 @@ func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 	return scan
 }
 
+// backupTimeout bounds a full-disc backup. A dual-layer UHD is ~100GB and a
+// drive that is re-reading marginal sectors can crawl, so this is generous.
+const backupTimeout = 4 * time.Hour
+
+// Backup copies the disc in driveIndex to destDir as a raw disc folder,
+// deliberately WITHOUT --decrypt.
+//
+// Decryption is precisely what fails on a disc whose AACS directory is spurious:
+// MakeMKV sees the directory, demands a volume key, and no such key exists
+// because the payload was never encrypted. Taking a raw copy sidesteps that; the
+// AACS directory is then removed from the copy so MakeMKV treats it as an
+// unencrypted disc.
+//
+// onEvent receives parsed events (including PRGV progress) and may be nil.
+func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(Event)) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, backupTimeout)
+	defer cancel()
+
+	src := DiscSource(driveIndex)
+	slog.Info("makemkvcon: starting backup", "source", src.Arg(), "dest", destDir)
+
+	var messages []Message
+	collect := func(ev Event) {
+		if ev.Type == "MSG" && ev.Message != nil {
+			messages = append(messages, *ev.Message)
+		}
+		if onEvent != nil {
+			onEvent(ev)
+		}
+	}
+
+	// No --decrypt: see the doc comment above.
+	err := e.runEvents(ctx, collect, "-r", "--progress=-same", "backup", src.Arg(), destDir)
+	if err != nil {
+		// A backup that failed because the container cannot see the drive at all
+		// must say so. Left as a bare "backup failed" it sends the user looking
+		// at the disc instead of at group membership.
+		if HasNoDrivesMessage(messages) {
+			slog.Error("makemkvcon: backup failed with no usable optical drives",
+				"source", src.Arg(), "error", err)
+			return fmt.Errorf("makemkv: backup %s: %w", src.Arg(), ErrNoOpticalDrives)
+		}
+		slog.Error("makemkvcon: backup failed", "source", src.Arg(), "dest", destDir, "error", err)
+		return fmt.Errorf("makemkv: backup %s to %s: %w", src.Arg(), destDir, err)
+	}
+
+	slog.Info("makemkvcon: backup completed", "source", src.Arg(), "dest", destDir)
+	return nil
+}
+
+// runEvents executes makemkvcon and delivers parsed events to onEvent.
+//
+// When the runner supports streaming, events arrive while the command is still
+// running — necessary for operations measured in tens of minutes. Otherwise the
+// output is parsed once the command exits.
+func (e *Executor) runEvents(ctx context.Context, onEvent func(Event), args ...string) error {
+	emit := func(line string) {
+		if ev, err := ParseLine(line); err == nil {
+			onEvent(ev)
+		}
+	}
+
+	if sr, ok := e.runner.(StreamRunner); ok {
+		return sr.RunStream(ctx, emit, args...)
+	}
+
+	r, runErr := e.runner.Run(ctx, args...)
+	if r != nil {
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\r")
+			if line != "" {
+				emit(line)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			slog.Error("makemkvcon: output scanner error", "error", err)
+		}
+	}
+	return runErr
+}
+
 // StartRip runs `makemkvcon -r mkv disc:N titleID outputDir` and calls
 // onEvent for each parsed Event line in real time. onEvent may be nil.
 //
@@ -527,14 +713,14 @@ func buildDiscScan(driveIndex int, events []Event) *DiscScan {
 // Unlike scan operations, rips use the caller's context directly — no
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
-func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
+func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	target := fmt.Sprintf("disc:%d", driveIndex)
+	target := src.Arg()
 	titleStr := fmt.Sprintf("%d", titleID)
 
-	slog.Info("makemkvcon: starting rip", "drive", driveIndex, "title", titleID, "output", outputDir)
+	slog.Info("makemkvcon: starting rip", "source", target, "title", titleID, "output", outputDir)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
 
@@ -557,7 +743,7 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("makemkv: start rip disc:%d title %d: %w", driveIndex, titleID, err)
+		return fmt.Errorf("makemkv: start rip %s title %d: %w", target, titleID, err)
 	}
 
 	// Stream output line-by-line for real-time progress updates.
@@ -578,9 +764,9 @@ func (e *Executor) StartRip(ctx context.Context, driveIndex, titleID int, output
 	}
 
 	if err := cmd.Wait(); err != nil {
-		slog.Error("makemkvcon: rip command failed", "drive", driveIndex, "title", titleID, "error", err)
-		return fmt.Errorf("makemkv: rip disc:%d title %d: %w", driveIndex, titleID, err)
+		slog.Error("makemkvcon: rip command failed", "source", target, "title", titleID, "error", err)
+		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, err)
 	}
-	slog.Info("makemkvcon: rip command completed successfully", "drive", driveIndex, "title", titleID)
+	slog.Info("makemkvcon: rip command completed successfully", "source", target, "title", titleID)
 	return nil
 }
