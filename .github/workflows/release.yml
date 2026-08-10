@@ -60,9 +60,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/johnpostlethwait/bluforge
+          # latest=auto is the action's own rule: a semver tag gets "latest",
+          # but a pre-release (v1.2.3-rc.1, -beta, -alpha) publishes only its
+          # own version tag. The previous type=raw,value=latest overrode that
+          # and would have moved "latest" onto a release candidate, upgrading
+          # anything tracking latest onto it without asking.
+          flavor: |
+            latest=auto
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v7
