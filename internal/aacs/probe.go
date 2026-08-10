@@ -30,6 +30,8 @@ type Report struct {
 	Root           string         `json:"root"`
 	AACSDirPresent bool           `json:"aacs_dir_present"`
 	AACSEntries    []string       `json:"aacs_entries,omitempty"`
+	MKB            *MKBInfo       `json:"mkb,omitempty"`
+	MKBError       string         `json:"mkb_error,omitempty"`
 	StreamFile     string         `json:"stream_file"`
 	StreamSize     int64          `json:"stream_size"`
 	StreamCount    int            `json:"stream_count"`
@@ -56,6 +58,18 @@ func Probe(root string, withTrace bool) (Report, error) {
 				name = fmt.Sprintf("%s (%d bytes)", name, info.Size())
 			}
 			rep.AACSEntries = append(rep.AACSEntries, name)
+		}
+	}
+
+	// Best effort: a parse failure is recorded rather than hidden, since the
+	// record layout is taken from the spec and not yet confirmed against every
+	// pressing. RawHeader survives either way.
+	if mkb, err := ReadMKBInfo(root); err == nil {
+		rep.MKB = &mkb
+	} else {
+		rep.MKBError = err.Error()
+		if mkb.RawHeader != "" {
+			rep.MKB = &mkb
 		}
 	}
 

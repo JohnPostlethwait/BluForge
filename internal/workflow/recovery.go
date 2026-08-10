@@ -129,7 +129,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 	diag := db.DiscDiagnostic{
 		DiscLabel:        req.DiscLabel,
 		DriveIndex:       req.DriveIndex,
-		MKBVersion:       mkbVersionFromDump(req.DumpPath),
+		MKBVersion:       mkbVersion(root, req.DumpPath),
 		AACSDirPresent:   aacsPresent,
 		ScrambleVerdict:  string(insp.Verdict),
 		PacketsChecked:   insp.PacketsChecked,
@@ -631,6 +631,24 @@ func scratchSlug(discLabel, devicePath string) string {
 // e.g. MKB20_v82_SOME_TITLE_a1b2c3d4.tgz. The MKB version it encodes is the
 // single most useful field for spotting a pattern across discs.
 var mkbDumpPattern = regexp.MustCompile(`MKB(\d+)_v(\d+)`)
+
+// mkbVersion identifies the disc's Media Key Block.
+//
+// The disc itself is the better source: AACS/MKB_RO.inf is present on every
+// protected disc, whereas MakeMKV only writes the .tgz dump when it fails — so
+// a disc that recovers successfully would otherwise record no version at all,
+// which is precisely the case worth tracking across a box set.
+func mkbVersion(discRoot, dumpPath string) string {
+	if info, err := aacs.ReadMKBInfo(discRoot); err == nil {
+		if s := info.String(); s != "" {
+			return s
+		}
+	} else if info.RawHeader != "" {
+		slog.Warn("recovery: could not parse MKB header, recording raw bytes",
+			"error", err, "raw_header", info.RawHeader)
+	}
+	return mkbVersionFromDump(dumpPath)
+}
 
 func mkbVersionFromDump(dumpPath string) string {
 	m := mkbDumpPattern.FindStringSubmatch(filepath.Base(dumpPath))
