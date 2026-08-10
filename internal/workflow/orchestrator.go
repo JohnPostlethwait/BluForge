@@ -79,9 +79,13 @@ type Orchestrator struct {
 // recoveredDisc is a live backup: the folder jobs are ripping from, plus a
 // count of how many of those jobs are still outstanding.
 type recoveredDisc struct {
-	source   makemkv.Source
-	dir      string
+	source makemkv.Source
+	dir    string
+	// refCount is how many jobs are still ripping from this backup.
 	refCount int
+	// retired means the drive has moved on — the disc was ejected or replaced —
+	// so the backup goes as soon as the last job releases it.
+	retired bool
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
@@ -255,11 +259,12 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	// A disc recovered from a spurious AACS directory is ripped from its
 	// stripped backup: MakeMKV cannot open the drive for these discs at all.
 	// Track selection and everything else is unchanged — only the source moves.
-	usingRecovered := false
+	// The claim is on the backup itself, so this job releases the copy it read
+	// from even if the drive is given a different disc in the meantime.
+	var backupClaim *recoveredDisc
 	if src := o.RecoveredSource(params.DriveIndex); src != nil {
 		ripJob.Source = *src
-		o.retainRecovered(params.DriveIndex)
-		usingRecovered = true
+		backupClaim = o.retainRecovered(params.DriveIndex)
 	}
 
 	// OnStart: create the per-title subdir inside the shared parent temp dir.
@@ -277,8 +282,8 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		defer wg.Done()
 		// Drop this job's claim on the scratch backup. The last job to finish
 		// takes the ~100GB copy with it.
-		if usingRecovered {
-			defer o.releaseRecovered(params.DriveIndex)
+		if backupClaim != nil {
+			defer o.releaseRecovered(backupClaim)
 		}
 		if ripErr != nil {
 			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
@@ -328,8 +333,8 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		wg.Done()
 		// OnComplete never runs for a job that was not accepted, so the claim
 		// taken above has to be dropped here or the backup is never cleaned up.
-		if usingRecovered {
-			o.releaseRecovered(params.DriveIndex)
+		if backupClaim != nil {
+			o.releaseRecovered(backupClaim)
 		}
 		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
 			slog.Error("failed to update job status on submit failure", "job_id", jobID, "error", dbErr)

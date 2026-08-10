@@ -414,66 +414,94 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 	return ""
 }
 
-// registerRecovered records a recovered disc, replacing and cleaning up any
-// backup previously held for the same drive.
+// registerRecovered records a recovered disc for a drive.
+//
+// Any backup previously registered for that drive is retired rather than
+// discarded: if jobs are still ripping from it — a disc swapped mid-rip — it
+// survives until they finish, and only its map entry is replaced.
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{source: rec.Source, dir: rec.Dir}
+
+	var toRemove string
+	if stale != nil && stale.dir != rec.Dir {
+		stale.retired = true
+		// Nothing is reading it, so it is dead weight — up to ~100GB of it.
+		if stale.refCount == 0 {
+			toRemove = stale.dir
+		}
+	}
 	o.recoveredMu.Unlock()
 
-	// A previous backup for this drive with no outstanding jobs is dead weight.
-	if stale != nil && stale.refCount == 0 && stale.dir != rec.Dir {
-		removeBackupDir(stale.dir)
-	}
+	removeBackupDir(toRemove)
 }
 
-// retainRecovered claims a reference for a job about to rip from the backup.
-func (o *Orchestrator) retainRecovered(driveIndex int) {
+// retainRecovered claims the drive's current backup for a job about to rip from
+// it, returning the claim to release later.
+//
+// The claim is the backup itself, not the drive index: a job must release the
+// copy it actually read from, even if the drive has since been given a new disc.
+// Returns nil when the drive has no recovered backup.
+func (o *Orchestrator) retainRecovered(driveIndex int) *recoveredDisc {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	if rec, ok := o.recovered[driveIndex]; ok {
-		rec.refCount++
+
+	rec, ok := o.recovered[driveIndex]
+	if !ok {
+		return nil
 	}
+	rec.refCount++
+	return rec
 }
 
-// releaseRecovered drops a job's reference and deletes the backup once the last
-// job for the disc has finished — the scratch copy is up to ~100GB.
-func (o *Orchestrator) releaseRecovered(driveIndex int) {
+// releaseRecovered drops a job's claim, deleting the backup once no job holds it
+// and it is no longer the drive's current disc.
+func (o *Orchestrator) releaseRecovered(claim *recoveredDisc) {
+	if claim == nil {
+		return
+	}
+
+	o.recoveredMu.Lock()
+	claim.refCount--
+	toRemove := ""
+	if claim.refCount <= 0 && claim.retired {
+		toRemove = claim.dir
+	} else if claim.refCount <= 0 {
+		// Still the drive's current disc: drop it and forget the drive.
+		for idx, rec := range o.recovered {
+			if rec == claim {
+				delete(o.recovered, idx)
+				toRemove = claim.dir
+				break
+			}
+		}
+	}
+	o.recoveredMu.Unlock()
+
+	removeBackupDir(toRemove)
+}
+
+// ReleaseRecoveredForDrive drops a drive's backup, used when a disc is ejected.
+// A rip still reading from the backup keeps it alive; it is retired instead and
+// removed when the last job finishes.
+func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
 	o.recoveredMu.Lock()
 	rec, ok := o.recovered[driveIndex]
 	if !ok {
 		o.recoveredMu.Unlock()
 		return
 	}
-	rec.refCount--
-	done := rec.refCount <= 0
-	dir := rec.dir
-	if done {
-		delete(o.recovered, driveIndex)
-	}
-	o.recoveredMu.Unlock()
-
-	if done {
-		removeBackupDir(dir)
-	}
-}
-
-// ReleaseRecoveredForDrive drops a drive's backup outright, used when a disc is
-// ejected. A rip still in flight keeps its backup: the refcount is only zero
-// when nothing is reading from it.
-func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
-	o.recoveredMu.Lock()
-	rec, ok := o.recovered[driveIndex]
-	if !ok || rec.refCount > 0 {
-		o.recoveredMu.Unlock()
-		return
-	}
-	dir := rec.dir
 	delete(o.recovered, driveIndex)
+	rec.retired = true
+
+	toRemove := ""
+	if rec.refCount == 0 {
+		toRemove = rec.dir
+	}
 	o.recoveredMu.Unlock()
 
-	removeBackupDir(dir)
+	removeBackupDir(toRemove)
 }
 
 func removeBackupDir(dir string) {
