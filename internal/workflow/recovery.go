@@ -174,6 +174,9 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		o.finishDiagnostic(diagID, "failed", detail, 0)
 		return nil, fmt.Errorf("recovery: insufficient space for disc backup — %s", detail)
 	}
+	slog.Info("recovery: scratch space check passed",
+		"scratch_root", scratchRoot, "required_bytes", needed,
+		"required_gib", needed/(1<<30))
 
 	backupDir := filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath))
 	// makemkvcon wants a destination that does not already hold a disc tree.
@@ -565,9 +568,25 @@ func removeAACSDir(scratchRoot, backupDir string) error {
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		// Already absent — MakeMKV will treat the folder as unencrypted, which
 		// is the desired end state.
+		slog.Info("recovery: no AACS directory in the backup, nothing to strip", "backup_dir", absBackup)
 		return nil
 	}
-	return os.RemoveAll(target)
+
+	// This is the one destructive step in the feature; the log records exactly
+	// what was removed, so a surprising outcome can be traced to it.
+	entries, _ := os.ReadDir(target)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	slog.Info("recovery: removing AACS directory from backup",
+		"path", target, "entry_count", len(names), "entries", strings.Join(names, ","))
+
+	if err := os.RemoveAll(target); err != nil {
+		return err
+	}
+	slog.Info("recovery: AACS directory removed", "path", target)
+	return nil
 }
 
 // SweepScratch removes disc backups left behind by a previous run. Each is up

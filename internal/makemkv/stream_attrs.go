@@ -4,12 +4,12 @@ import "strings"
 
 // SINFO attribute ID constants.
 const (
-	AttrType         = 1  // Stream type (value: codec string like "V_MPEG4/ISO/AVC", "A_TRUEHD", "S_HDMV/PGS")
-	AttrName         = 2  // Name/description
-	AttrLangCode     = 3  // ISO 639-2 language code (e.g., "eng", "fra")
-	AttrLangName     = 4  // Human-readable language name
-	AttrCodecID      = 5  // Codec ID (e.g., "A_TRUEHD")
-	AttrCodecShort   = 6  // Codec short name (e.g., "TrueHD")
+	AttrType         = 1 // Stream type (value: codec string like "V_MPEG4/ISO/AVC", "A_TRUEHD", "S_HDMV/PGS")
+	AttrName         = 2 // Name/description
+	AttrLangCode     = 3 // ISO 639-2 language code (e.g., "eng", "fra")
+	AttrLangName     = 4 // Human-readable language name
+	AttrCodecID      = 5 // Codec ID (e.g., "A_TRUEHD")
+	AttrCodecShort   = 6 // Codec short name (e.g., "TrueHD")
 	AttrChapterCount = 8
 	AttrDuration     = 9
 	AttrSizeHuman    = 10
@@ -21,13 +21,12 @@ const (
 	AttrMkvFlags     = 38 // "d" (default), "f" (forced), "df" (both)
 )
 
-
 // losslessCodecs is the set of codec short names considered lossless.
 var losslessCodecs = map[string]bool{
-	"TrueHD":   true,
+	"TrueHD":    true,
 	"DTS-HD MA": true,
-	"FLAC":     true,
-	"PCM":      true,
+	"FLAC":      true,
+	"PCM":       true,
 }
 
 // Type returns the stream type as "video", "audio", or "subtitle".

@@ -669,10 +669,24 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 	slog.Info("makemkvcon: starting backup", "source", src.Arg(), "dest", destDir)
 
 	var messages []Message
+	lastDecile := -1
 	collect := func(ev Event) {
 		if ev.Type == "MSG" && ev.Message != nil {
 			messages = append(messages, *ev.Message)
 		}
+		logMakeMKVEvent(ev, "backup")
+
+		// A UHD backup runs for tens of minutes. Without a heartbeat there is no
+		// way to distinguish slow progress from a stalled process.
+		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
+			pct := ev.Progress.Total * 100 / ev.Progress.Max
+			if shouldLog, marker := progressDecile(lastDecile, pct); shouldLog {
+				lastDecile = marker
+				slog.Info("makemkvcon: backup progress",
+					"source", src.Arg(), "percent", marker, "dest", destDir)
+			}
+		}
+
 		if onEvent != nil {
 			onEvent(ev)
 		}
@@ -774,16 +788,31 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 	}
 
 	// Stream output line-by-line for real-time progress updates.
+	lastDecile := -1
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
 		if line == "" {
 			continue
 		}
-		if onEvent != nil {
-			if ev, err := ParseLine(line); err == nil {
-				onEvent(ev)
+		ev, err := ParseLine(line)
+		if err != nil {
+			continue
+		}
+		// Ripping from a stripped backup folder is the least-exercised path in
+		// the whole pipeline; if MakeMKV objects to the folder source, its
+		// complaint has to reach the log rather than only the progress bar.
+		logMakeMKVEvent(ev, "rip")
+		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
+			pct := ev.Progress.Total * 100 / ev.Progress.Max
+			if shouldLog, marker := progressDecile(lastDecile, pct); shouldLog {
+				lastDecile = marker
+				slog.Info("makemkvcon: rip progress",
+					"source", target, "title", titleID, "percent", marker)
 			}
+		}
+		if onEvent != nil {
+			onEvent(ev)
 		}
 	}
 	if scanErr := scanner.Err(); scanErr != nil {

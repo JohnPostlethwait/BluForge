@@ -374,8 +374,8 @@ func TestLangCodeToName(t *testing.T) {
 		{"ger", "German"},
 		{"zho", "Chinese"},
 		{"kor", "Korean"},
-		{"xyz", "xyz"},   // unknown code returns code itself
-		{"", ""},          // empty returns empty
+		{"xyz", "xyz"}, // unknown code returns code itself
+		{"", ""},       // empty returns empty
 	}
 	for _, tc := range cases {
 		got := LangCodeToName(tc.code)
