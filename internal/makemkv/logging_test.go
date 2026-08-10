@@ -75,34 +75,3 @@ func TestRipLogsMakeMKVMessages(t *testing.T) {
 func makeMsgEvent(code int, text string) Event {
 	return Event{Type: "MSG", Message: &Message{Code: code, Text: text}}
 }
-
-// Progress is logged at deciles: often enough to show a stalled backup, rare
-// enough not to bury the messages that matter under thousands of lines.
-func TestProgressDecileThrottle(t *testing.T) {
-	tests := []struct {
-		name          string
-		lastLogged    int
-		current       int
-		wantLog       bool
-		wantNewMarker int
-	}{
-		{"first progress", -1, 0, true, 0},
-		{"same decile", 10, 13, false, 10},
-		{"next decile", 10, 20, true, 20},
-		{"skips a decile", 10, 35, true, 30},
-		{"completion", 90, 100, true, 100},
-		{"backwards", 50, 20, false, 50},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotLog, gotMarker := progressDecile(tt.lastLogged, tt.current)
-			if gotLog != tt.wantLog {
-				t.Errorf("shouldLog = %v, want %v", gotLog, tt.wantLog)
-			}
-			if gotMarker != tt.wantNewMarker {
-				t.Errorf("marker = %d, want %d", gotMarker, tt.wantNewMarker)
-			}
-		})
-	}
-}

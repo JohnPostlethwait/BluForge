@@ -1,6 +1,9 @@
 package makemkv
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 // logMakeMKVEvent writes MakeMKV's own messages to the application log.
 //
@@ -25,26 +28,57 @@ func logMakeMKVEvent(ev Event, phase string) {
 	slog.Info("makemkvcon message", "phase", phase, "code", m.Code, "text", m.Text)
 }
 
-// progressDecile decides whether a progress percentage is worth logging.
+// progressHeartbeat is the longest a long-running operation may go without a
+// log line. Deciles alone are not enough: a backup can sit inside one decile
+// for many minutes, and silence there is indistinguishable from a hang.
+const progressHeartbeat = 2 * time.Minute
+
+// phaseRestartDrop is how far progress must fall to count as a new phase rather
+// than jitter. makemkvcon reports separate progress for preliminary work, so a
+// run legitimately goes 0 → 100 → 0 before the real copy starts.
+const phaseRestartDrop = 5
+
+// progressTracker decides when a progress percentage is worth logging.
 //
-// Reporting every event would bury MakeMKV's messages under thousands of lines;
-// reporting nothing leaves no way to tell a slow backup from a stalled one.
-// Deciles give roughly one line every few minutes on a UHD backup.
-//
-// Returns whether to log, and the marker to carry forward.
-func progressDecile(lastLogged, current int) (bool, int) {
-	if current < 0 {
-		return false, lastLogged
+// Reporting every event would bury MakeMKV's own messages under thousands of
+// lines. Reporting only on rising deciles looks right until a real backup does
+// what it actually does: report 100% for a preliminary phase within the first
+// second, after which a monotonic tracker never logs again — silent for the
+// entire copy it exists to monitor.
+type progressTracker struct {
+	lastDecile int
+	lastAt     time.Time
+	started    bool
+}
+
+func newProgressTracker() *progressTracker {
+	return &progressTracker{lastDecile: -1}
+}
+
+func (p *progressTracker) shouldLog(pct int, now time.Time) bool {
+	if pct < 0 {
+		return false
 	}
-	decile := (current / 10) * 10
-	if current >= 100 {
+
+	decile := (pct / 10) * 10
+	if pct >= 100 {
 		decile = 100
 	}
-	if decile <= lastLogged {
-		return false, lastLogged
+
+	switch {
+	case !p.started:
+	case decile > p.lastDecile:
+	case decile <= p.lastDecile-phaseRestartDrop:
+		// A new phase began; start reporting it from scratch.
+	case now.Sub(p.lastAt) >= progressHeartbeat:
+		// Still inside the same decile, but long enough that silence would be
+		// ambiguous.
+	default:
+		return false
 	}
-	if lastLogged < 0 {
-		return true, decile
-	}
-	return true, decile
+
+	p.started = true
+	p.lastDecile = decile
+	p.lastAt = now
+	return true
 }

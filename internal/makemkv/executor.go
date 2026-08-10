@@ -366,16 +366,38 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 // by running a lightweight ListDrives call.  Returns "" on any error; callers
 // treat a missing path as a non-fatal condition.
 func (e *Executor) DevicePathForDrive(ctx context.Context, driveIndex int) string {
+	info, ok := e.driveInfo(ctx, driveIndex)
+	if !ok {
+		return ""
+	}
+	return info.DevicePath
+}
+
+// DiscLabelForDrive returns the disc label the drive is reporting.
+//
+// A disc that MakeMKV cannot open produces no disc name in its scan, but the
+// drive listing still carries the volume label. That label is what identifies
+// the disc in diagnostics and names its scratch directory, so it is worth
+// asking for separately.
+func (e *Executor) DiscLabelForDrive(ctx context.Context, driveIndex int) string {
+	info, ok := e.driveInfo(ctx, driveIndex)
+	if !ok {
+		return ""
+	}
+	return info.DiscName
+}
+
+func (e *Executor) driveInfo(ctx context.Context, driveIndex int) (DriveInfo, bool) {
 	drives, err := e.ListDrives(ctx)
 	if err != nil {
-		return ""
+		return DriveInfo{}, false
 	}
 	for _, d := range drives {
 		if d.Index == driveIndex {
-			return d.DevicePath
+			return d, true
 		}
 	}
-	return ""
+	return DriveInfo{}, false
 }
 
 // enrichScanFromMPLS reads MPLS playlist files from the disc at devicePath and
@@ -669,7 +691,7 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 	slog.Info("makemkvcon: starting backup", "source", src.Arg(), "dest", destDir)
 
 	var messages []Message
-	lastDecile := -1
+	progress := newProgressTracker()
 	collect := func(ev Event) {
 		if ev.Type == "MSG" && ev.Message != nil {
 			messages = append(messages, *ev.Message)
@@ -680,10 +702,9 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 		// way to distinguish slow progress from a stalled process.
 		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
 			pct := ev.Progress.Total * 100 / ev.Progress.Max
-			if shouldLog, marker := progressDecile(lastDecile, pct); shouldLog {
-				lastDecile = marker
+			if progress.shouldLog(pct, time.Now()) {
 				slog.Info("makemkvcon: backup progress",
-					"source", src.Arg(), "percent", marker, "dest", destDir)
+					"source", src.Arg(), "percent", pct, "dest", destDir)
 			}
 		}
 
@@ -788,7 +809,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 	}
 
 	// Stream output line-by-line for real-time progress updates.
-	lastDecile := -1
+	progress := newProgressTracker()
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
@@ -805,10 +826,9 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 		logMakeMKVEvent(ev, "rip")
 		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
 			pct := ev.Progress.Total * 100 / ev.Progress.Max
-			if shouldLog, marker := progressDecile(lastDecile, pct); shouldLog {
-				lastDecile = marker
+			if progress.shouldLog(pct, time.Now()) {
 				slog.Info("makemkvcon: rip progress",
-					"source", target, "title", titleID, "percent", marker)
+					"source", target, "title", titleID, "percent", pct)
 			}
 		}
 		if onEvent != nil {

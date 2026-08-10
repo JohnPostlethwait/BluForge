@@ -315,8 +315,12 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		return nil, fmt.Errorf("%w for drive %d", ErrRecoveryInProgress, driveIndex)
 	}
 
-	discName := se.Scan.DiscName
+	discName := discLabelFor(ctx, o.scanner, driveIndex, se.Scan.DiscName)
 	dumpPath := dumpPathFromMessages(se.Messages())
+	if discName == "" {
+		slog.Warn("recovery: disc reports no label; diagnostics will be harder to correlate",
+			"drive_index", driveIndex)
+	}
 
 	// Detach from the caller's context. Recovery copies up to ~100GB and runs
 	// for tens of minutes; inheriting an HTTP request's context meant the
@@ -446,6 +450,30 @@ func dumpPathFromMessages(messages []makemkv.Message) string {
 // MakeMKV executor; recovery needs the device to mount the disc for inspection.
 type DeviceLocator interface {
 	DevicePathForDrive(ctx context.Context, driveIndex int) string
+}
+
+// DiscLabeller reports the disc label a drive is currently reporting.
+//
+// A disc that fails to open produces no CINFO disc name, so the scan cannot
+// supply one — yet the label is the field the whole per-disc record is keyed on,
+// and it is right there in the drive listing.
+type DiscLabeller interface {
+	DiscLabelForDrive(ctx context.Context, driveIndex int) string
+}
+
+// discLabelFor resolves the best available label for a disc.
+//
+// The scan's own name wins when it has one. Otherwise the drive listing is
+// asked, which is what makes a disc that never opened still identifiable in the
+// diagnostics record and in its scratch directory name.
+func discLabelFor(ctx context.Context, scanner DiscScanner, driveIndex int, fromScan string) string {
+	if fromScan != "" {
+		return fromScan
+	}
+	if labeller, ok := scanner.(DiscLabeller); ok {
+		return labeller.DiscLabelForDrive(ctx, driveIndex)
+	}
+	return ""
 }
 
 // SetOutputDir tells the orchestrator where scratch backups may be written.
