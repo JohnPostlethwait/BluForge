@@ -10,6 +10,7 @@
 package aacs
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -134,7 +135,7 @@ func InspectStreams(root string) (Inspection, error) {
 		}
 		insp.SamplesTaken++
 
-		s := analyseSample(chunk[:n])
+		s := analyseSample(chunk[:n], false)
 		if s.stride == 0 {
 			if s.alignedUnitRatio() >= minAlignedUnitRatio {
 				insp.Verdict = VerdictScrambled
@@ -177,10 +178,19 @@ func InspectStreams(root string) (Inspection, error) {
 // sample holds the analysis of one buffer read from the stream.
 type sample struct {
 	stride       int // 0 when no lock was achieved
+	syncOffset   int
 	checked      int
 	scrambled    int
 	auHits       int // aligned-unit boundaries carrying a sync byte
 	auBoundaries int
+	// tscHist counts packets by transport_scrambling_control value. The verdict
+	// is a conclusion; this is the evidence behind it, which is what makes a
+	// surprising result from a real disc diagnosable.
+	tscHist [4]int
+	// headerTrace holds the 8 header bytes of each packet — the 4-byte
+	// TP_extra_header plus the 4-byte TS header — and never any payload.
+	headerTrace  []string
+	traceEnabled bool
 }
 
 func (s sample) alignedUnitRatio() float64 {
@@ -196,8 +206,8 @@ func (s sample) alignedUnitRatio() float64 {
 //
 // buf must begin at an aligned-unit boundary for the fallback count to mean
 // anything; sampleOffsets guarantees that.
-func analyseSample(buf []byte) sample {
-	var s sample
+func analyseSample(buf []byte, trace bool) sample {
+	s := sample{traceEnabled: trace}
 
 	// AACS leaves the first 16 bytes of every 6144-byte unit in the clear, so
 	// the sync byte of each unit's first packet survives encryption. A high hit
@@ -216,6 +226,7 @@ func analyseSample(buf []byte) sample {
 			continue
 		}
 		s.stride = stride
+		s.syncOffset = start
 		for p := start; p+tsPacketSize <= len(buf); p += stride {
 			if buf[p] != syncByte {
 				break
@@ -224,8 +235,18 @@ func analyseSample(buf []byte) sample {
 			// transport_scrambling_control is the top two bits of byte 3.
 			// Masking before shifting (0x03 then >>6) would always yield zero
 			// and report every disc as clear.
-			if (buf[p+3]>>6)&0x03 != 0 {
+			tsc := (buf[p+3] >> 6) & 0x03
+			s.tscHist[tsc]++
+			if tsc != 0 {
 				s.scrambled++
+			}
+			if s.traceEnabled {
+				// Header bytes only: the TP_extra_header sits immediately
+				// before the sync byte, and the TS header is the 4 bytes from
+				// it. Payload is deliberately never captured.
+				if p >= 4 {
+					s.headerTrace = append(s.headerTrace, hex.EncodeToString(buf[p-4:p+4]))
+				}
 			}
 		}
 		return s
