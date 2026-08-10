@@ -71,6 +71,11 @@ document.addEventListener('alpine:init', () => {
 		if (update.phase === 'failed') {
 			store.scanError = update.message
 		}
+		if (update.phase === 'done') {
+			// The disc is now readable from its stripped backup. Re-scan so the
+			// user lands on the title list rather than having to click again.
+			scanDisc(store.driveIndex)
+		}
 	})
 
 	const _ripJobIDs = new Set()
@@ -342,6 +347,17 @@ async function scanDisc(driveIndex) {
 			method: 'POST',
 			headers: { 'Accept': 'application/json' },
 		})
+
+		// 202 means the disc carries a spurious AACS directory and is being
+		// copied in the background. It is not a title list and not an error —
+		// the banner takes over and a disc_recovery "done" event re-scans.
+		if (resp.status === 202) {
+			const info = await resp.json()
+			Alpine.store('drive').recoveryActive = true
+			Alpine.store('drive').recoveryPhase = 'detecting'
+			Alpine.store('drive').recoveryMessage = info.message || ''
+			return
+		}
 
 		if (resp.ok) {
 			const titles = await resp.json()

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -71,6 +72,35 @@ func (s *selectionRecordingExecutor) snapshot() ([]makemkv.Source, []*makemkv.Se
 	return append([]makemkv.Source(nil), s.sources...), append([]*makemkv.SelectionOpts(nil), s.selections...)
 }
 
+// scanAwaitingRecovery performs the scan a user's browser would, then waits for
+// the background recovery to finish.
+//
+// Recovery is deliberately asynchronous: it copies ~100GB and cannot run inside
+// the request that triggered it, or an abandoned request takes the backup down
+// with it. The first scan therefore reports ErrRecoveryInProgress and the disc
+// becomes scannable once the SSE "done" phase fires.
+func scanAwaitingRecovery(t *testing.T, orch *Orchestrator, driveIndex int) *makemkv.DiscScan {
+	t.Helper()
+
+	if _, err := orch.ScanDisc(context.Background(), driveIndex); !errors.Is(err, ErrRecoveryInProgress) {
+		t.Fatalf("first scan returned %v, want ErrRecoveryInProgress", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		scan, err := orch.ScanDisc(context.Background(), driveIndex)
+		if err == nil {
+			return scan
+		}
+		if !errors.Is(err, ErrRecoveryInProgress) {
+			t.Fatalf("scan failed during recovery: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("recovery did not complete in time")
+	return nil
+}
+
 func setupPipeline(t *testing.T) (*Orchestrator, *selectionRecordingExecutor, string) {
 	t.Helper()
 
@@ -110,10 +140,7 @@ func TestScanDiscRecoversSpuriousAACSDisc(t *testing.T) {
 	orch, _, output := setupPipeline(t)
 	orch.SetOutputDir(output)
 
-	scan, err := orch.ScanDisc(context.Background(), 0)
-	if err != nil {
-		t.Fatalf("ScanDisc: %v", err)
-	}
+	scan := scanAwaitingRecovery(t, orch, 0)
 	if len(scan.Titles) == 0 {
 		t.Fatal("recovered scan has no titles")
 	}
@@ -129,10 +156,7 @@ func TestRecoveredDiscRipsFromBackupWithTrackSelection(t *testing.T) {
 	orch, exec, output := setupPipeline(t)
 	orch.SetOutputDir(output)
 
-	scan, err := orch.ScanDisc(context.Background(), 0)
-	if err != nil {
-		t.Fatalf("ScanDisc: %v", err)
-	}
+	scan := scanAwaitingRecovery(t, orch, 0)
 
 	sel := &makemkv.SelectionOpts{
 		AudioLangs:    []string{"eng", "jpn"},
@@ -185,9 +209,7 @@ func TestRecoveredBackupCleanedUpAfterRip(t *testing.T) {
 	orch, exec, output := setupPipeline(t)
 	orch.SetOutputDir(output)
 
-	if _, err := orch.ScanDisc(context.Background(), 0); err != nil {
-		t.Fatalf("ScanDisc: %v", err)
-	}
+	scanAwaitingRecovery(t, orch, 0)
 	backupDir := orch.RecoveredDir(0)
 	if backupDir == "" {
 		t.Fatal("no backup directory registered")

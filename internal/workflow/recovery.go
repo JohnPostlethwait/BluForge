@@ -39,6 +39,15 @@ var ErrGenuinelyEncrypted = errors.New("disc payload is encrypted: this is a gen
 // backup that could cost 100GB and 40 minutes to prove nothing.
 var ErrInconclusive = errors.New("could not determine whether the disc payload is encrypted")
 
+// ErrRecoveryInProgress reports that a disc is being recovered in the
+// background and is not yet scannable.
+//
+// Recovery copies up to ~100GB and runs for tens of minutes, so it cannot be
+// performed inside the request that triggered it: an abandoned request would
+// take the backup down with it. Callers should surface this as "working on it"
+// rather than as a failure, and wait for the disc_recovery SSE event.
+var ErrRecoveryInProgress = errors.New("disc recovery in progress")
+
 // DiscBackupper is the subset of the MakeMKV executor recovery needs.
 type DiscBackupper interface {
 	Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(makemkv.Event)) error
@@ -276,6 +285,12 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		return nil, nil
 	}
 
+	// Recovery already running for this drive: report that rather than starting
+	// a second ~100GB copy of the same disc.
+	if o.recoveryRunning(driveIndex) {
+		return nil, fmt.Errorf("%w for drive %d", ErrRecoveryInProgress, driveIndex)
+	}
+
 	slog.Warn("orchestrator: disc failed with the spurious-AACS signature, inspecting payload",
 		"drive_index", driveIndex, "disc", se.Scan.DiscName,
 		"message_codes", makemkv.MessageCodes(se.Messages()))
@@ -296,28 +311,82 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		devicePath = loc.DevicePathForDrive(ctx, driveIndex)
 	}
 
-	// Mark the drive so it does not read as idle for the length of the backup.
-	o.setDriveState(driveIndex, "recovering")
-	defer o.setDriveState(driveIndex, "detected")
-
-	rec, err := o.RecoverSpuriousAACS(ctx, RecoveryRequest{
-		DriveIndex: driveIndex,
-		DevicePath: devicePath,
-		DiscLabel:  se.Scan.DiscName,
-		OutputDir:  outputDir,
-		DumpPath:   dumpPathFromMessages(se.Messages()),
-		OnProgress: func(phase string, percent int) {
-			o.broadcastRecovery(driveIndex, se.Scan.DiscName, phase, percent, "")
-		},
-	})
-	if err != nil {
-		o.broadcastRecovery(driveIndex, se.Scan.DiscName, "failed", 0, err.Error())
-		return nil, err
+	if !o.beginRecovery(driveIndex) {
+		return nil, fmt.Errorf("%w for drive %d", ErrRecoveryInProgress, driveIndex)
 	}
 
-	o.registerRecovered(driveIndex, rec)
-	o.broadcastRecovery(driveIndex, se.Scan.DiscName, "done", 100, "")
-	return rec.Scan, nil
+	discName := se.Scan.DiscName
+	dumpPath := dumpPathFromMessages(se.Messages())
+
+	// Detach from the caller's context. Recovery copies up to ~100GB and runs
+	// for tens of minutes; inheriting an HTTP request's context meant the
+	// backup was SIGKILLed the moment the browser stopped waiting, which is
+	// exactly how this failed in practice. Values are preserved, cancellation
+	// is not — the backup carries its own timeout.
+	bgCtx := context.WithoutCancel(ctx)
+
+	go func() {
+		defer o.endRecovery(driveIndex)
+
+		// Mark the drive so it does not read as idle for the length of the backup.
+		o.setDriveState(driveIndex, "recovering")
+		defer o.setDriveState(driveIndex, "detected")
+
+		rec, err := o.RecoverSpuriousAACS(bgCtx, RecoveryRequest{
+			DriveIndex: driveIndex,
+			DevicePath: devicePath,
+			DiscLabel:  discName,
+			OutputDir:  outputDir,
+			DumpPath:   dumpPath,
+			OnProgress: func(phase string, percent int) {
+				o.broadcastRecovery(driveIndex, discName, phase, percent, "")
+			},
+		})
+		if err != nil {
+			slog.Error("recovery: failed", "drive_index", driveIndex, "disc", discName, "error", err)
+			o.broadcastRecovery(driveIndex, discName, "failed", 0, err.Error())
+			return
+		}
+
+		o.registerRecovered(driveIndex, rec)
+		// Cache the recovered scan so the next scan request is served instantly
+		// rather than re-reading the disc that could not be read in the first
+		// place.
+		o.cacheScan(driveIndex, rec.Scan)
+		o.broadcastRecovery(driveIndex, discName, "done", 100, "")
+		slog.Info("recovery: complete, disc is ready to rip",
+			"drive_index", driveIndex, "disc", discName, "titles", len(rec.Scan.Titles))
+	}()
+
+	return nil, fmt.Errorf("%w for drive %d", ErrRecoveryInProgress, driveIndex)
+}
+
+// beginRecovery claims the recovery slot for a drive, returning false when one
+// is already running.
+func (o *Orchestrator) beginRecovery(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	if o.recovering[driveIndex] {
+		return false
+	}
+	if o.recovering == nil {
+		o.recovering = make(map[int]bool)
+	}
+	o.recovering[driveIndex] = true
+	return true
+}
+
+func (o *Orchestrator) endRecovery(driveIndex int) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	delete(o.recovering, driveIndex)
+}
+
+// recoveryRunning reports whether a recovery is in flight for a drive.
+func (o *Orchestrator) recoveryRunning(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	return o.recovering[driveIndex]
 }
 
 // SetDriveStateReporter installs the callback used to publish drive states the

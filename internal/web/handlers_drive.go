@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -364,6 +365,19 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	}
 
 	scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
+	if errors.Is(scanErr, workflow.ErrRecoveryInProgress) {
+		// Not a failure: the disc carries a spurious AACS directory and is being
+		// copied in the background. Reporting 500 here would show the user an
+		// error for something that is working, and the progress banner is
+		// already being fed by disc_recovery SSE events.
+		slog.Info("disc recovery in progress, scan deferred", "drive_index", idx)
+		return c.JSON(http.StatusAccepted, map[string]any{
+			"status": "recovering",
+			"message": "This disc reports AACS protection but its content is not encrypted. " +
+				"BluForge is copying the disc and removing the AACS directory so it can be ripped. " +
+				"This can take a while; progress is shown on this page.",
+		})
+	}
 	if scanErr != nil {
 		slog.Error("disc scan failed", "drive_index", idx, "error", scanErr)
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))

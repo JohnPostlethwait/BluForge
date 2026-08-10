@@ -73,7 +73,10 @@ type Orchestrator struct {
 	// outputDir is guarded by the same mutex: it is where scratch backups go.
 	recoveredMu sync.Mutex
 	recovered   map[int]*recoveredDisc
-	outputDir   string
+	// recovering guards against a second backup being started for a drive that
+	// is already being recovered — two ~100GB copies racing each other.
+	recovering map[int]bool
+	outputDir  string
 }
 
 // recoveredDisc is a live backup: the folder jobs are ripping from, plus a
@@ -108,6 +111,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		checkSpace:   ripper.CheckDiskSpace,
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),
+		recovering:   make(map[int]bool),
 	}
 }
 
@@ -383,6 +387,16 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 		return nil, fmt.Errorf("no scanner configured")
 	}
 
+	// A recovered disc is served from its stripped backup. Re-reading the drive
+	// would fail exactly as it did the first time and start another recovery.
+	if src := o.RecoveredSource(driveIndex); src != nil {
+		if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+			slog.Info("orchestrator: serving recovered disc from its backup",
+				"drive_index", driveIndex, "source", src.Arg())
+			return cached, nil
+		}
+	}
+
 	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
 
 	scan, err := o.scanner.ScanDisc(ctx, driveIndex)
@@ -409,6 +423,17 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 	slog.Info("orchestrator: disc scan cached", "drive_index", driveIndex, "cache_key", key)
 
 	return scan, nil
+}
+
+// cacheScan stores a scan under its drive and disc name.
+func (o *Orchestrator) cacheScan(driveIndex int, scan *makemkv.DiscScan) {
+	if scan == nil {
+		return
+	}
+	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
+	o.scanMu.Lock()
+	defer o.scanMu.Unlock()
+	o.scanCache[key] = scan
 }
 
 // CachedScan returns a previously cached scan for the given drive and disc name,
