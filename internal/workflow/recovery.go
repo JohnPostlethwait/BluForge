@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/aacs"
 	"github.com/johnpostlethwait/bluforge/internal/db"
@@ -202,15 +203,35 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		"disc", req.DiscLabel, "dest", backupDir, "estimated_bytes", needed)
 	progress("backing_up", 0)
 
-	err = o.backupper.Backup(ctx, req.DriveIndex, backupDir, func(ev makemkv.Event) {
-		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
-			pct := ev.Progress.Total * 100 / ev.Progress.Max
-			if pct > 100 {
-				pct = 100
+	// Drive the progress bar from bytes on disk rather than makemkvcon's own
+	// numbers. On a real backup it reported 0% then 100% within 100ms — for a
+	// preliminary phase, before copying 95GB — which leaves a progress bar
+	// pinned and useless. Bytes written against the size measured from the disc
+	// are monotonic and mean what a user expects them to mean.
+	stopTicker := make(chan struct{})
+	tickerDone := make(chan struct{})
+	go func() {
+		defer close(tickerDone)
+		t := time.NewTicker(backupProgressInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-stopTicker:
+				return
+			case <-t.C:
+				written := dirSize(backupDir)
+				pct := backupPercent(written, needed)
+				progress("backing_up", pct)
+				slog.Info("recovery: backup progress",
+					"disc", req.DiscLabel, "percent", pct,
+					"written_bytes", written, "estimated_bytes", needed)
 			}
-			progress("backing_up", pct)
 		}
-	})
+	}()
+
+	err = o.backupper.Backup(ctx, req.DriveIndex, backupDir, nil)
+	close(stopTicker)
+	<-tickerDone
 	if err != nil {
 		// Retained deliberately: a partial backup is evidence, and re-copying
 		// 100GB to look at it again is not reasonable.
@@ -799,6 +820,28 @@ func treeSize(root string) (int64, error) {
 		return nil
 	})
 	return total, err
+}
+
+// backupProgressInterval is how often the growing backup is measured. Frequent
+// enough that the bar visibly moves, rare enough that walking the tree costs
+// nothing against a copy measured in tens of minutes.
+const backupProgressInterval = 5 * time.Second
+
+// backupPercent reports how far a backup has got, from bytes written against
+// the size measured on the disc.
+//
+// It never returns 100: the estimate carries headroom, and a bar sitting at
+// 100% while the copy is still running is worse than one that stops just short.
+// Completion is signalled by the phase changing, not by the number.
+func backupPercent(written, needed int64) int {
+	if needed <= 0 || written <= 0 {
+		return 0
+	}
+	pct := int(written * 100 / needed)
+	if pct > 99 {
+		return 99
+	}
+	return pct
 }
 
 // dirSize is treeSize with errors ignored, for reporting only.

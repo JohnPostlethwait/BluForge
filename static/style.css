@@ -1227,7 +1227,9 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
    so the banner is informational rather than an error. */
 .recovery-banner {
   border-left: 3px solid var(--warning);
-  margin-bottom: 1rem;
+  /* The stepper's active step animates a pulse glow that extends past its
+     bounds, so a tight gap here reads as the banner clipping the step icons. */
+  margin-bottom: 2rem;
 }
 
 .recovery-banner .progress-bar {
