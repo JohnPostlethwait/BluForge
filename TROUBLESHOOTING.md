@@ -98,6 +98,30 @@ boundary plus 4. So:
 Treat "inconclusive" exactly like "encrypted". An ambiguous read is not a reason
 to spend 100GB on a guess.
 
+### What the AACS directory itself tells you: nothing
+
+Two UHD discs probed side by side — one with a spurious AACS directory, one
+that rips normally — carry **identical AACS filenames and near-identical file
+sizes**:
+
+```
+CPSUnit00001.cci (2048)          ContentRevocation.lst (1048576)
+Content000.cer (256)             DH_Pairing_Server.cer (144)
+Content001.cer (240)             DUPLICATE (672)
+Content002.cer (264)             MKB_RO.inf (5242880)
+ContentHash000.tbl (~1.33M)      Unit_Key_RO.inf (65536)
+```
+
+Both report the same MKB version (82). The protection metadata is fully
+authored on both, which is why this is a replication defect rather than a
+truncated authoring step — and why nothing short of reading the payload can
+distinguish the two cases.
+
+Note `CPSUnit00001.cci`: content protection is organised into CPS units, so
+streams on one disc are not guaranteed to share an encryption state. BluForge
+samples the three largest streams and refuses recovery if any of them reads as
+encrypted.
+
 ### The workaround (spurious AACS only)
 
 BluForge does this automatically when it confirms the payload is unencrypted.

@@ -35,6 +35,7 @@ type Report struct {
 	StreamFile     string         `json:"stream_file"`
 	StreamSize     int64          `json:"stream_size"`
 	StreamCount    int            `json:"stream_count"`
+	FilesInspected []string       `json:"files_inspected,omitempty"`
 	Samples        []SampleReport `json:"samples"`
 	Verdict        Verdict        `json:"verdict"`
 	Reason         string         `json:"reason"`
@@ -125,6 +126,9 @@ func Probe(root string, withTrace bool) (Report, error) {
 	}
 	rep.Verdict = insp.Verdict
 	rep.Reason = insp.Reason
+	// The verdict weighs several streams while the sample detail above covers
+	// the largest; listing what was actually read keeps that visible.
+	rep.FilesInspected = insp.FilesInspected
 
 	return rep, nil
 }

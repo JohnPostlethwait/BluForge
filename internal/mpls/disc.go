@@ -81,10 +81,22 @@ func tryMount(devicePath string) (string, func(), error) {
 		return "", nil, fmt.Errorf("mpls: create mount point %s: %w", mp, err)
 	}
 
-	// Use "mount <device>" which consults fstab for options and mount point.
-	cmd := exec.Command("mount", devicePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, err, strings.TrimSpace(string(out)))
+	var lastErr error
+	var lastOut string
+	mounted := false
+	for _, argv := range mountAttempts(devicePath, mp) {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			mounted = true
+			break
+		}
+		lastErr = err
+		lastOut = strings.TrimSpace(string(out))
+		slog.Debug("mpls: mount attempt failed", "argv", argv, "error", err, "output", lastOut)
+	}
+	if !mounted {
+		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, lastErr, lastOut)
 	}
 
 	cleanup := func() {
@@ -94,6 +106,22 @@ func tryMount(devicePath string) (string, func(), error) {
 	}
 
 	return mp, cleanup, nil
+}
+
+// mountAttempts returns the mount command lines to try, in order.
+//
+// The bare form comes first because it consults fstab, which is where the
+// Docker entrypoint records the "user" option a non-root process needs. It only
+// works for drives that had an fstab entry written, so an explicit read-only
+// UDF mount follows for everything else — a drive that appeared after container
+// start, or any environment without those entries. Without the fallback such a
+// drive can never be inspected, and recovery reports "could not determine"
+// indefinitely rather than doing its job.
+func mountAttempts(devicePath, mountPoint string) [][]string {
+	return [][]string{
+		{"mount", devicePath},
+		{"mount", "-t", "udf", "-o", "ro", devicePath, mountPoint},
+	}
 }
 
 // findMountPoint returns the filesystem path where devicePath is mounted.

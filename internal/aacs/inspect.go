@@ -78,11 +78,20 @@ const (
 	VerdictNotApplicable Verdict = "n/a"
 )
 
-// Inspection is the result of examining a disc's largest stream.
+// streamsToInspect is how many of the largest streams are sampled.
+//
+// One is not enough: a disc's AACS directory carries a CPS unit structure
+// (CPSUnit00001.cci and friends), so streams can in principle be keyed
+// differently. Judging a 10-stream disc by its largest file alone would let a
+// decoy or a differently-keyed unit authorise a backup that cannot be ripped.
+const streamsToInspect = 3
+
+// Inspection is the result of examining a disc's largest streams.
 type Inspection struct {
 	Verdict          Verdict
-	File             string // stream file sampled, "" when none was
-	Stride           int    // 192 or 188; 0 when no lock was achieved
+	File             string   // largest stream, "" when none was found
+	FilesInspected   []string // every stream actually sampled
+	Stride           int      // 192 or 188; 0 when no lock was achieved
 	SamplesTaken     int
 	SamplesLocked    int
 	PacketsChecked   int
@@ -105,53 +114,32 @@ func HasAACSDir(root string) bool {
 // populated Reason, because "I could not tell" is a result the caller must act
 // on, not an exception.
 func InspectStreams(root string) (Inspection, error) {
-	path, size, err := largestStream(root)
+	streams, err := largestStreams(root, streamsToInspect)
 	if err != nil {
 		return Inspection{}, err
 	}
-	if path == "" {
+	if len(streams) == 0 {
 		return Inspection{
 			Verdict: VerdictNotApplicable,
 			Reason:  "no BDMV/STREAM content found (not a Blu-ray layout)",
 		}, nil
 	}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return Inspection{}, fmt.Errorf("aacs: open %s: %w", path, err)
-	}
-	defer f.Close()
+	insp := Inspection{File: streams[0].path}
 
-	insp := Inspection{File: path}
-	chunk := make([]byte, packetsPerSample*m2tsPacketSize+alignedUnitSize)
-
-	for _, off := range sampleOffsets(size, int64(len(chunk))) {
-		n, err := f.ReadAt(chunk, off)
-		if err != nil && err != io.EOF {
-			return Inspection{}, fmt.Errorf("aacs: read %s at %d: %w", path, off, err)
+	for _, st := range streams {
+		scrambled, err := inspectOneStream(st, &insp)
+		if err != nil {
+			return Inspection{}, err
 		}
-		if n < alignedUnitSize {
-			continue
+		// Any encrypted stream settles it. A disc that is only partly readable
+		// cannot be recovered by removing a directory, and the streams are not
+		// guaranteed to share one CPS unit.
+		if scrambled != "" {
+			insp.Verdict = VerdictScrambled
+			insp.Reason = scrambled
+			return insp, nil
 		}
-		insp.SamplesTaken++
-
-		s := analyseSample(chunk[:n], false)
-		if s.stride == 0 {
-			if s.alignedUnitRatio() >= minAlignedUnitRatio {
-				insp.Verdict = VerdictScrambled
-				insp.Reason = fmt.Sprintf(
-					"no packet-stride sync lock, but %d of %d aligned-unit boundaries carry a sync byte — "+
-						"consistent with AACS encryption of 6144-byte units",
-					s.auHits, s.auBoundaries)
-				return insp, nil
-			}
-			continue
-		}
-
-		insp.SamplesLocked++
-		insp.Stride = s.stride
-		insp.PacketsChecked += s.checked
-		insp.ScrambledPackets += s.scrambled
 	}
 
 	switch {
@@ -173,6 +161,52 @@ func InspectStreams(root string) (Inspection, error) {
 	}
 
 	return insp, nil
+}
+
+// inspectOneStream samples one stream file, accumulating its results into insp.
+//
+// It returns a non-empty string when the stream is positively identified as
+// encrypted; that string is the reason. Streams too small or too damaged to
+// classify contribute nothing and are not treated as evidence either way —
+// menu and trailer streams are routinely too short to judge.
+func inspectOneStream(st streamFile, insp *Inspection) (string, error) {
+	f, err := os.Open(st.path)
+	if err != nil {
+		return "", fmt.Errorf("aacs: open %s: %w", st.path, err)
+	}
+	defer f.Close()
+
+	insp.FilesInspected = append(insp.FilesInspected, st.path)
+	chunk := make([]byte, packetsPerSample*m2tsPacketSize+alignedUnitSize)
+
+	for _, off := range sampleOffsets(st.size, int64(len(chunk))) {
+		n, err := f.ReadAt(chunk, off)
+		if err != nil && err != io.EOF {
+			return "", fmt.Errorf("aacs: read %s at %d: %w", st.path, off, err)
+		}
+		if n < alignedUnitSize {
+			continue
+		}
+		insp.SamplesTaken++
+
+		s := analyseSample(chunk[:n], false)
+		if s.stride == 0 {
+			if s.alignedUnitRatio() >= minAlignedUnitRatio {
+				return fmt.Sprintf(
+					"%s: no packet-stride sync lock, but %d of %d aligned-unit boundaries carry a sync byte — "+
+						"consistent with AACS encryption of 6144-byte units",
+					filepath.Base(st.path), s.auHits, s.auBoundaries), nil
+			}
+			continue
+		}
+
+		insp.SamplesLocked++
+		insp.Stride = s.stride
+		insp.PacketsChecked += s.checked
+		insp.ScrambledPackets += s.scrambled
+	}
+
+	return "", nil
 }
 
 // sample holds the analysis of one buffer read from the stream.
@@ -294,8 +328,15 @@ func sampleOffsets(size, chunk int64) []int64 {
 	usable := size - chunk
 	offsets := make([]int64, 0, sampleCount)
 	seen := make(map[int64]bool, sampleCount)
+	// Divide by sampleCount-1 so the last sample lands at the end of the file
+	// rather than four fifths of the way through. On a 49GB stream the previous
+	// spacing left the final ~10GB unread.
+	divisor := int64(sampleCount - 1)
+	if divisor < 1 {
+		divisor = 1
+	}
 	for i := 0; i < sampleCount; i++ {
-		off := usable * int64(i) / int64(sampleCount)
+		off := usable * int64(i) / divisor
 		off -= off % alignedUnitSize
 		if seen[off] {
 			continue
@@ -311,6 +352,53 @@ func sampleOffsets(size, chunk int64) []int64 {
 // representative of how the disc was authored.
 //
 // A missing STREAM directory is not an error — DVDs legitimately have none.
+// streamFile is one .m2ts under BDMV/STREAM.
+type streamFile struct {
+	path string
+	size int64
+}
+
+// largestStreams returns up to n streams, biggest first.
+//
+// The biggest is the feature presentation; the next few guard against judging a
+// multi-CPS-unit disc by a single file. Menus and trailers that come back too
+// small to classify cost one open and are otherwise ignored.
+func largestStreams(root string, n int) ([]streamFile, error) {
+	streamDir := filepath.Join(root, "BDMV", "STREAM")
+	entries, err := os.ReadDir(streamDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("aacs: read %s: %w", streamDir, err)
+	}
+
+	var files []streamFile
+	for _, e := range entries {
+		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".m2ts") {
+			continue
+		}
+		fi, err := os.Stat(filepath.Join(streamDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		files = append(files, streamFile{path: filepath.Join(streamDir, e.Name()), size: fi.Size()})
+	}
+
+	// Size descending, then name, so equal sizes resolve deterministically.
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].size != files[j].size {
+			return files[i].size > files[j].size
+		}
+		return files[i].path < files[j].path
+	})
+
+	if len(files) > n {
+		files = files[:n]
+	}
+	return files, nil
+}
+
 func largestStream(root string) (string, int64, error) {
 	streamDir := filepath.Join(root, "BDMV", "STREAM")
 	entries, err := os.ReadDir(streamDir)
