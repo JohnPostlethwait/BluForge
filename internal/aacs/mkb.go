@@ -30,8 +30,14 @@ const mkbHeaderBytes = 16
 // recovers successfully, which is exactly when MakeMKV writes no diagnostic
 // dump to parse it out of.
 type MKBInfo struct {
-	Type    uint32 `json:"type"`
+	// Version is the field at bytes 8-11. Confirmed against a real UHD disc:
+	// 0x00000052 = 82, matching the v82 in MakeMKV's MKB20_v82_*.tgz naming.
 	Version uint32 `json:"version"`
+	// TypeRaw is the 4 bytes at 4-7, which the AACS specification calls the MKB
+	// Type. On a real UHD disc it reads 0x48141003, which is not the small
+	// enumerated value that name implies — so it is reported verbatim rather
+	// than as a decimal that would look authoritative and mean nothing.
+	TypeRaw string `json:"type_raw"`
 	// RawHeader is the hex of the first bytes of the MKB. The record layout is
 	// taken from the specification rather than verified against every pressing,
 	// so the raw bytes travel alongside the interpretation and a bad parse can
@@ -39,13 +45,15 @@ type MKBInfo struct {
 	RawHeader string `json:"raw_header"`
 }
 
-// String renders the MKB the way MakeMKV names its diagnostic dumps, e.g.
-// "MKB20 v82" for MKB20_v82_<title>_<hash>.tgz.
+// String renders the verified part of the MKB identity, e.g. "v82". The type
+// half of MakeMKV's MKB20_v82 naming is deliberately not reconstructed: the
+// field that would supply it does not decode as a small type number on real
+// discs, and a fabricated "MKB20" would read as fact.
 func (m MKBInfo) String() string {
-	if m.Type == 0 && m.Version == 0 {
+	if m.Version == 0 {
 		return ""
 	}
-	return fmt.Sprintf("MKB%d v%d", m.Type, m.Version)
+	return fmt.Sprintf("v%d", m.Version)
 }
 
 // ReadMKBInfo reads the Media Key Block header from root/AACS/MKB_RO.inf.
@@ -80,7 +88,7 @@ func ReadMKBInfo(root string) (MKBInfo, error) {
 			path, buf[0], mkbTypeAndVersionRecord)
 	}
 
-	info.Type = binary.BigEndian.Uint32(buf[4:8])
+	info.TypeRaw = fmt.Sprintf("0x%08x", binary.BigEndian.Uint32(buf[4:8]))
 	info.Version = binary.BigEndian.Uint32(buf[8:12])
 	return info, nil
 }

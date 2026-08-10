@@ -2,6 +2,7 @@ package aacs
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,17 +35,57 @@ func TestReadMKBInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadMKBInfo: %v", err)
 	}
-	if got.Type != 20 {
-		t.Errorf("Type = %d, want 20", got.Type)
-	}
 	if got.Version != 82 {
 		t.Errorf("Version = %d, want 82", got.Version)
 	}
-	if got.String() != "MKB20 v82" {
-		t.Errorf("String() = %q, want %q", got.String(), "MKB20 v82")
+	if got.TypeRaw != "0x00000014" {
+		t.Errorf("TypeRaw = %q, want the field verbatim", got.TypeRaw)
+	}
+	if got.String() != "v82" {
+		t.Errorf("String() = %q, want %q", got.String(), "v82")
 	}
 	if got.RawHeader == "" {
 		t.Error("RawHeader is empty; the raw bytes are what let a bad parse be spotted")
+	}
+}
+
+// The first 16 bytes of MKB_RO.inf as read from a real UHD disc, 2026-08-09:
+//
+//	10        record type: Type and Version Record
+//	00 00 0c  record length: 12
+//	48 14 10 03  the field the spec calls MKB Type
+//	00 00 00 52  version: 82
+//
+// The version is corroborated independently — MakeMKV names its dumps for this
+// era of disc MKB20_v82. The type field is not the small enumerated value the
+// spec's name suggests, which is why it is carried verbatim rather than
+// rendered as a decimal that would look like a fact.
+func TestReadMKBInfoRealDiscHeader(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "AACS")
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	raw, err := hex.DecodeString("1000000c48141003000000522100028c")
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "MKB_RO.inf"), raw, 0o666); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := ReadMKBInfo(root)
+	if err != nil {
+		t.Fatalf("ReadMKBInfo on a real disc header: %v", err)
+	}
+	if got.Version != 82 {
+		t.Errorf("Version = %d, want 82 (MakeMKV names this era MKB20_v82)", got.Version)
+	}
+	if got.TypeRaw != "0x48141003" {
+		t.Errorf("TypeRaw = %q, want 0x48141003", got.TypeRaw)
+	}
+	if got.String() != "v82" {
+		t.Errorf("String() = %q, want %q", got.String(), "v82")
 	}
 }
 
