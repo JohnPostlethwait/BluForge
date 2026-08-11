@@ -11,7 +11,11 @@ import (
 
 // opticalAccess is what the process can observe about the optical device nodes.
 type opticalAccess struct {
-	nodesFound    []string
+	nodesFound []string
+	// sgNodes are the generic SCSI nodes makemkvcon actually enumerates through.
+	// The diagnosis keys on these: a host with only /dev/sr* has nothing to say
+	// about sg access, and must not be reported as a group problem.
+	sgNodes       []string
 	readable      int
 	running       string   // "uid:gid" the process runs as
 	owningGroups  []string // groups owning the nodes, e.g. "disk(6)"
@@ -37,9 +41,9 @@ func CheckOpticalAccess() {
 // Silence matters as much as the message: warning on every start when nothing is
 // broken teaches users to ignore the one time it counts.
 func describeOpticalAccess(a opticalAccess) string {
-	if len(a.nodesFound) == 0 {
-		// No nodes at all is a different problem — no devices were passed into
-		// the container — and is not a group-membership issue.
+	if len(a.sgNodes) == 0 {
+		// Nothing to diagnose: either no devices were passed into the container,
+		// or this host exposes no generic SCSI nodes. Neither is a group problem.
 		return ""
 	}
 	if a.readable > 0 {
@@ -47,8 +51,8 @@ func describeOpticalAccess(a opticalAccess) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "found %d optical device node(s) (%s) but none could be opened.",
-		len(a.nodesFound), strings.Join(a.nodesFound, ", "))
+	fmt.Fprintf(&b, "found %d generic SCSI node(s) (%s) but none could be opened.",
+		len(a.sgNodes), strings.Join(a.sgNodes, ", "))
 	if a.running != "" {
 		fmt.Fprintf(&b, " This process runs as %s", a.running)
 		if len(a.processGroups) > 0 {
@@ -82,13 +86,24 @@ func inspectOpticalNodes() opticalAccess {
 	}
 
 	for _, node := range a.nodesFound {
+		// Ownership comes from a stat, which never blocks.
+		if gid, ok := fileGroup(node); ok {
+			a.owningGroups = appendUnique(a.owningGroups, formatGroup(gid))
+		}
+
+		// Only the generic SCSI nodes are opened. Opening /dev/sr* makes the
+		// kernel probe the drive for media, which blocks for tens of seconds
+		// while a loaded disc spins up — and it tells us nothing extra, since
+		// makemkvcon enumerates drives through /dev/sg* and that is the access
+		// this check exists to verify.
+		if !strings.HasPrefix(filepath.Base(node), "sg") {
+			continue
+		}
+		a.sgNodes = append(a.sgNodes, node)
 		f, err := os.Open(node)
 		if err == nil {
 			a.readable++
 			f.Close()
-		}
-		if gid, ok := fileGroup(node); ok {
-			a.owningGroups = appendUnique(a.owningGroups, formatGroup(gid))
 		}
 	}
 

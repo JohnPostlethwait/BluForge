@@ -10,11 +10,19 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
-// ejectConfirmPolls is how many consecutive polls must report an empty drive
-// before an eject is believed. At the default 5-second interval this delays a
-// genuine eject by about ten seconds, which is invisible next to discarding the
-// user's selection because a drive was busy for one poll.
-const ejectConfirmPolls = 3
+// ejectConfirmDuration is how long a drive must report empty, continuously,
+// before an eject is believed.
+//
+// Counting polls is not enough. The poller blocks on the executor mutex for the
+// length of a scan or a rip, then several polls complete back to back the moment
+// it is released — in production that turned a failed scan into an eject 1.7
+// seconds later, for a disc still in the drive. Only elapsed time survives a
+// polling cadence that collapses like that.
+//
+// A genuine eject is reported this much later than it happens, which nobody
+// notices; a disc wrongly declared gone discards the user's release selection
+// and the cached scan, which they do.
+const ejectConfirmDuration = 30 * time.Second
 
 // EventType describes the kind of drive event that occurred.
 type EventType string
@@ -48,10 +56,13 @@ type Manager struct {
 	exec   DriveExecutor
 	drives map[int]*DriveStateMachine
 	known  map[int]string // last known disc name per drive index
-	// absent counts consecutive polls reporting no disc, per drive. A drive
+	// absentSince records when a drive first reported empty, per drive. A drive
 	// being read reports empty transiently, so an eject is only believed once
-	// the absence persists.
-	absent  map[int]int
+	// the absence has lasted ejectConfirmDuration.
+	absentSince map[int]time.Time
+	// now is the clock, injectable so the debounce can be tested without
+	// sleeping through it.
+	now     func() time.Time
 	onEvent func(DriveEvent)
 	ready   bool // true after the first poll completes
 }
@@ -59,11 +70,12 @@ type Manager struct {
 // NewManager creates a new Manager with the given executor and event callback.
 func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 	return &Manager{
-		exec:    executor,
-		drives:  make(map[int]*DriveStateMachine),
-		known:   make(map[int]string),
-		absent:  make(map[int]int),
-		onEvent: onEvent,
+		exec:        executor,
+		drives:      make(map[int]*DriveStateMachine),
+		known:       make(map[int]string),
+		absentSince: make(map[int]time.Time),
+		now:         time.Now,
+		onEvent:     onEvent,
 	}
 }
 
@@ -140,7 +152,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 
 		if discPresent(info) {
 			// A disc is present now; any earlier empty reading was transient.
-			delete(m.absent, info.Index)
+			delete(m.absentSince, info.Index)
 			if !hadDisc || prev != info.DiscName {
 				// New disc inserted (or disc name changed — treat as new insert).
 				m.known[info.Index] = info.DiscName
@@ -160,15 +172,20 @@ func (m *Manager) PollOnce(ctx context.Context) {
 			// spurious eject that cleared the user's release selection mid-backup,
 			// so absence has to be sustained before it counts.
 			if hadDisc {
-				m.absent[info.Index]++
-				if m.absent[info.Index] < ejectConfirmPolls {
-					slog.Debug("drive reported empty, waiting for confirmation",
-						"drive_index", info.Index, "consecutive", m.absent[info.Index])
+				now := m.now()
+				since, seen := m.absentSince[info.Index]
+				if !seen {
+					m.absentSince[info.Index] = now
+					since = now
+				}
+				if now.Sub(since) < ejectConfirmDuration {
+					slog.Debug("drive reported empty, waiting for the absence to persist",
+						"drive_index", info.Index, "absent_for", now.Sub(since).String())
 					continue
 				}
 
 				delete(m.known, info.Index)
-				delete(m.absent, info.Index)
+				delete(m.absentSince, info.Index)
 				dsm.ForceReset()
 				pending = append(pending, DriveEvent{
 					Type:       EventDiscEjected,

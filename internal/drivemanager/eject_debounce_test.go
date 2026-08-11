@@ -77,19 +77,8 @@ func TestTransientEmptyPollDoesNotEject(t *testing.T) {
 	}
 }
 
-// A real eject must still be reported, just after enough polls to be sure.
-func TestSustainedAbsenceEjects(t *testing.T) {
-	events := collectEvents(t, [][]makemkv.DriveInfo{
-		withDisc("STRANGER_THINGS"),
-		withoutDisc(),
-		withoutDisc(),
-		withoutDisc(),
-	})
-
-	if n := countType(events, EventDiscEjected); n != 1 {
-		t.Errorf("emitted %d eject events for a genuinely removed disc, want 1", n)
-	}
-}
+// A genuine eject is covered by TestSustainedAbsenceOverTimeEjects, which
+// advances a clock rather than counting polls — the debounce is time-based.
 
 // Swapping discs is a real change and must not be swallowed by the debounce.
 func TestDiscSwapStillReported(t *testing.T) {
