@@ -47,7 +47,7 @@ func TestManualRip_Success(t *testing.T) {
 	}
 
 	// Wait for the async rip to complete (the mock executor is instant).
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(asyncDeadline)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 
@@ -189,7 +189,7 @@ func TestManualRip_DuplicateRename(t *testing.T) {
 	}
 
 	// Wait for the async rip to complete (the mock executor is instant).
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(asyncDeadline)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 

@@ -86,7 +86,7 @@ func scanAwaitingRecovery(t *testing.T, orch *Orchestrator, driveIndex int) *mak
 		t.Fatalf("first scan returned %v, want ErrRecoveryInProgress", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(asyncDeadline)
 	for time.Now().Before(deadline) {
 		scan, err := orch.ScanDisc(context.Background(), driveIndex)
 		if err == nil {
@@ -182,7 +182,7 @@ func TestRecoveredDiscRipsFromBackupWithTrackSelection(t *testing.T) {
 
 	select {
 	case <-exec.started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("timed out waiting for the rip to start")
 	}
 
@@ -231,11 +231,11 @@ func TestRecoveredBackupCleanedUpAfterRip(t *testing.T) {
 
 	select {
 	case <-exec.started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("timed out waiting for the rip to start")
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(asyncDeadline)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(backupDir); os.IsNotExist(err) {
 			return // cleaned up

@@ -93,7 +93,7 @@ func setupAsync(t *testing.T) (*Orchestrator, *gatedBackupper, string) {
 	// into the scratch directory when the test returns. Cleanups run LIFO, so
 	// this one drains it before t.TempDir removes the tree underneath it.
 	t.Cleanup(func() {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(asyncDeadline)
 		for time.Now().Before(deadline) {
 			if !orch.recoveryRunning(0) {
 				return
@@ -125,13 +125,13 @@ func TestScanDiscDoesNotBlockOnRecovery(t *testing.T) {
 		if !errors.Is(err, ErrRecoveryInProgress) {
 			t.Fatalf("ScanDisc returned %v, want ErrRecoveryInProgress", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("ScanDisc blocked waiting for the backup instead of handing it off")
 	}
 
 	select {
 	case <-backupper.started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("recovery did not start in the background")
 	}
 }
@@ -149,7 +149,7 @@ func TestRecoveryBackupSurvivesCallerCancellation(t *testing.T) {
 
 	select {
 	case <-backupper.started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("recovery did not start")
 	}
 
@@ -182,7 +182,7 @@ func TestConcurrentScansStartOneRecovery(t *testing.T) {
 
 	select {
 	case <-backupper.started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(asyncDeadline):
 		t.Fatal("recovery did not start")
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -204,7 +204,7 @@ func TestScanAfterRecoveryReturnsTitles(t *testing.T) {
 	close(backupper.release)
 
 	var scan *makemkv.DiscScan
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(asyncDeadline)
 	for time.Now().Before(deadline) {
 		s, err := orch.ScanDisc(context.Background(), 0)
 		if err == nil {
