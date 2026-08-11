@@ -79,6 +79,13 @@ type RecoveredDisc struct {
 	Dir          string
 	Scan         *makemkv.DiscScan
 	DiagnosticID int64
+	// Ephemeral marks a recovery that only holds while the disc stays mounted —
+	// a symlink tree rather than a copy. It is never persisted across a restart,
+	// because the links would dangle and rebuilding takes seconds.
+	Ephemeral bool
+	// unmount releases the disc mount the links depend on. Held until the last
+	// job finishes, since unmounting mid-rip would break it.
+	unmount func()
 }
 
 // RecoverSpuriousAACS determines whether a disc that failed to open carries a
@@ -112,7 +119,15 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		})
 		return nil, fmt.Errorf("%w: disc could not be mounted for inspection: %v", ErrInconclusive, err)
 	}
-	defer cleanup()
+	// The symlink path hands this mount to the recovered disc, which holds it
+	// until the last rip finishes — unmounting on return would break the links
+	// the rips read through.
+	keepMounted := false
+	defer func() {
+		if !keepMounted {
+			cleanup()
+		}
+	}()
 
 	aacsPresent := aacs.HasAACSDir(root)
 	insp, err := aacs.InspectStreams(root)
@@ -160,6 +175,27 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		return nil, fmt.Errorf("%w (%s)%s", base, insp.Reason, dumpHint(req.DumpPath))
 	}
 
+	scratchRoot := filepath.Join(req.OutputDir, ScratchDirName)
+	if err := os.MkdirAll(scratchRoot, 0o777); err != nil {
+		diag.RipPath = "blocked"
+		diag.Outcome = "failed"
+		diag.Detail = fmt.Sprintf("create scratch root: %v", err)
+		o.recordDiagnostic(diag)
+		return nil, fmt.Errorf("recovery: create scratch root %s: %w", scratchRoot, err)
+	}
+
+	// Try the cheap path first: a tree of symlinks to the mounted disc with AACS
+	// left out. MakeMKV then reads the disc directly and only the selected
+	// titles, instead of copying ~100GB to read all of it twice.
+	if rec, err := o.recoverViaSymlinks(ctx, req, root, scratchRoot, diag, cleanup); err == nil {
+		keepMounted = true
+		progress("done", 100)
+		return rec, nil
+	} else {
+		slog.Warn("recovery: symlink path unavailable, falling back to a full backup",
+			"disc", req.DiscLabel, "error", err)
+	}
+
 	diag.RipPath = "backup_strip"
 	diagID := o.recordDiagnostic(diag)
 
@@ -172,12 +208,6 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		needed = 100 << 30
 	}
 	needed += needed / 20 // 5% headroom
-
-	scratchRoot := filepath.Join(req.OutputDir, ScratchDirName)
-	if err := os.MkdirAll(scratchRoot, 0o777); err != nil {
-		o.finishDiagnostic(diagID, "failed", fmt.Sprintf("create scratch root: %v", err), 0)
-		return nil, fmt.Errorf("recovery: create scratch root %s: %w", scratchRoot, err)
-	}
 
 	if err := o.checkSpace(scratchRoot, needed); err != nil {
 		detail := fmt.Sprintf("need %d bytes free in %s: %v", needed, scratchRoot, err)
@@ -563,7 +593,12 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
-	o.recovered[driveIndex] = &recoveredDisc{source: rec.Source, dir: rec.Dir}
+	o.recovered[driveIndex] = &recoveredDisc{
+		source:    rec.Source,
+		dir:       rec.Dir,
+		ephemeral: rec.Ephemeral,
+		unmount:   rec.unmount,
+	}
 	if stale != nil && stale.dir != rec.Dir {
 		// A previous backup for this drive is no longer the current disc, but it
 		// is not deleted: only a successful rip or an explicit discard removes a
@@ -571,6 +606,12 @@ func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 		stale.retired = true
 	}
 	o.recoveredMu.Unlock()
+
+	// A link tree is not worth persisting: its links dangle once the disc is
+	// unmounted, and rebuilding takes seconds. Only real copies are recorded.
+	if rec.Ephemeral {
+		return
+	}
 
 	// Persist so the copy survives a restart. Without the record the startup
 	// sweep cannot tell it from crash debris, and would delete it.
@@ -654,11 +695,15 @@ func (o *Orchestrator) DiscardBackup(driveIndex int) error {
 		return fmt.Errorf("no disc backup for drive %d", driveIndex)
 	}
 	dir := rec.dir
+	unmount := rec.unmount
 	delete(o.recovered, driveIndex)
 	o.recoveredMu.Unlock()
 
 	slog.Info("recovery: discarding disc backup on request", "drive_index", driveIndex, "dir", dir)
 	o.forgetBackup(dir)
+	if unmount != nil {
+		unmount()
+	}
 	return nil
 }
 
@@ -708,8 +753,12 @@ func (o *Orchestrator) releaseRecovered(claim *recoveredDisc, ripSucceeded bool)
 		claim.ripFailed = true
 	}
 	done := claim.refCount <= 0
-	discard := done && !claim.ripFailed
+	// A link tree costs kilobytes and seconds to rebuild, so there is nothing
+	// worth keeping for a retry — only a real copy is retained after a failure.
+	discard := done && (!claim.ripFailed || claim.ephemeral)
 	dir := claim.dir
+	unmount := claim.unmount
+	ephemeral := claim.ephemeral
 
 	if discard {
 		for idx, rec := range o.recovered {
@@ -722,8 +771,15 @@ func (o *Orchestrator) releaseRecovered(claim *recoveredDisc, ripSucceeded bool)
 	o.recoveredMu.Unlock()
 
 	if discard {
-		slog.Info("recovery: rip succeeded, discarding the scratch backup", "dir", dir)
+		if ephemeral {
+			slog.Info("recovery: releasing the disc link tree", "dir", dir)
+		} else {
+			slog.Info("recovery: rip succeeded, discarding the scratch backup", "dir", dir)
+		}
 		o.forgetBackup(dir)
+		if unmount != nil {
+			unmount()
+		}
 		return
 	}
 	if done {
@@ -774,6 +830,104 @@ func (o *Orchestrator) RecordDirectScan(scan *makemkv.DiscScan) {
 		RipPath:         "direct",
 		Outcome:         "ok",
 	})
+}
+
+// buildSymlinkTree mirrors a disc's top level as symlinks, omitting AACS.
+//
+// MakeMKV decides whether to demand a volume key from the tree it is pointed
+// at, not from the physical disc, so a tree of links with AACS left out is
+// enough: it reads the disc directly and only the titles that get selected.
+// Confirmed on real hardware — MakeMKV logged "AACS directory not present,
+// assuming unencrypted disc" and both scanned and ripped through the links.
+//
+// This costs kilobytes and milliseconds where a backup costs ~100GB and an
+// hour, so it is tried first; the copy remains the fallback.
+func buildSymlinkTree(discRoot, linkDir string) error {
+	entries, err := os.ReadDir(discRoot)
+	if err != nil {
+		return fmt.Errorf("read disc root %s: %w", discRoot, err)
+	}
+
+	if err := os.MkdirAll(linkDir, 0o777); err != nil {
+		return fmt.Errorf("create link dir %s: %w", linkDir, err)
+	}
+
+	linked := 0
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), "AACS") {
+			// The entire point: MakeMKV must not find it.
+			continue
+		}
+		target := filepath.Join(discRoot, e.Name())
+		link := filepath.Join(linkDir, e.Name())
+
+		// Replace any existing entry so a repeat attempt is not an error.
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear %s: %w", link, err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			return fmt.Errorf("link %s -> %s: %w", link, target, err)
+		}
+		linked++
+	}
+
+	if linked == 0 {
+		return fmt.Errorf("disc root %s contained nothing to link", discRoot)
+	}
+	return nil
+}
+
+// recoverViaSymlinks recovers a disc without copying it.
+//
+// The mount is handed to the caller's recovered-disc record rather than
+// released here: the links point at the mounted disc, so it has to stay mounted
+// for as long as anything might rip from them.
+func (o *Orchestrator) recoverViaSymlinks(
+	ctx context.Context,
+	req RecoveryRequest,
+	discRoot, scratchRoot string,
+	diag db.DiscDiagnostic,
+	unmount func(),
+) (*RecoveredDisc, error) {
+	linkDir := filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath)+"-link")
+
+	if err := buildSymlinkTree(discRoot, linkDir); err != nil {
+		return nil, err
+	}
+
+	src := makemkv.FileSource(linkDir)
+	scan, err := o.backupper.ScanSource(ctx, src)
+	if err != nil {
+		removeBackupDir(linkDir)
+		return nil, fmt.Errorf("scan of symlinked disc failed: %w", err)
+	}
+	if len(scan.Titles) == 0 {
+		removeBackupDir(linkDir)
+		return nil, fmt.Errorf("symlinked disc scanned but produced no titles")
+	}
+
+	diag.RipPath = "symlink"
+	diag.Outcome = "ok"
+	diag.Detail = fmt.Sprintf("read directly from the disc through a link tree; no copy taken (%s)", diag.Detail)
+	diag.DiscKey = discdb.BuildDiscKey(scan)
+	if scan.DiscName != "" {
+		diag.DiscLabel = scan.DiscName
+	}
+	diagID := o.recordDiagnostic(diag)
+
+	slog.Info("recovery: disc recovered without copying",
+		"disc", req.DiscLabel, "link_dir", linkDir, "titles", len(scan.Titles))
+
+	return &RecoveredDisc{
+		Source:       src,
+		Dir:          linkDir,
+		Scan:         scan,
+		DiagnosticID: diagID,
+		unmount:      unmount,
+		// A link tree is meaningless once the mount is gone, so it is never
+		// restored after a restart — it is seconds to rebuild anyway.
+		Ephemeral: true,
+	}, nil
 }
 
 // removeAACSDir deletes the AACS directory from a backup.

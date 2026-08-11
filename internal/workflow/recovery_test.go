@@ -31,6 +31,9 @@ type fakeBackupper struct {
 	scanCalls  []makemkv.Source
 	scanResult *makemkv.DiscScan
 	scanErr    error
+	// acceptSymlinkTree opts a test into the symlink path. It defaults to off so
+	// that tests covering the backup fallback keep covering it.
+	acceptSymlinkTree bool
 }
 
 func (f *fakeBackupper) Backup(_ context.Context, _ int, destDir string, onEvent func(makemkv.Event)) error {
@@ -53,6 +56,9 @@ func (f *fakeBackupper) ScanSource(_ context.Context, src makemkv.Source) (*make
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scanCalls = append(f.scanCalls, src)
+	if strings.HasSuffix(src.Path, "-link") && !f.acceptSymlinkTree {
+		return nil, errors.New("symlinked disc not accepted (test fixture)")
+	}
 	if f.scanErr != nil {
 		return nil, f.scanErr
 	}

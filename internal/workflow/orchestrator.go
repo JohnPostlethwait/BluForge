@@ -93,6 +93,11 @@ type recoveredDisc struct {
 	// ripFailed records that at least one job using this backup did not
 	// succeed, which is what keeps the copy on disk for a retry.
 	ripFailed bool
+	// ephemeral marks a symlink tree rather than a copy: there is nothing
+	// expensive to preserve, so it is always cleaned up and never persisted.
+	ephemeral bool
+	// unmount releases the disc mount a symlink tree depends on.
+	unmount func()
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
