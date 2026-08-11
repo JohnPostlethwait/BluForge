@@ -125,6 +125,16 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 		}
 	}
 
+	// Surface what MakeMKV complained about during the scan. A disc with
+	// unreadable sectors yields a shorter title list and nothing else to show
+	// for it, which reads as success.
+	driveStore.ScanWarnings = make([]makemkv.ScanWarning, 0)
+	if s.orchestrator != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			driveStore.ScanWarnings = makemkv.ScanWarnings(scan.Messages)
+		}
+	}
+
 	// Recovery state comes from the orchestrator rather than the event stream,
 	// so a reconnecting client can clear a banner left up by a lost "done".
 	if s.orchestrator != nil {

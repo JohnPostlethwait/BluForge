@@ -1235,3 +1235,24 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .recovery-banner .progress-bar {
   margin-top: 0.75rem;
 }
+
+/* ── Scan warnings ───────────────────────────────────────────────────────── */
+/* Shown when MakeMKV reported read errors or skipped titles. Titles it could
+   not read are simply absent from the results, so without this the user sees a
+   shorter list and no explanation. */
+.scan-warnings {
+  border-left: 3px solid var(--warning);
+  margin-bottom: 1.5rem;
+}
+
+.scan-warning-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  color: #a3b1c6;
+}
+
+.scan-warning-list li {
+  margin-bottom: 0.35rem;
+  word-break: break-word;
+}

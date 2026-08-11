@@ -227,11 +227,15 @@ type DriveStoreJSON struct {
 	RecoveryActive bool `json:"recoveryActive"`
 	// HasBackup reports that a stripped scratch copy exists for this drive,
 	// which is what makes the discard control meaningful.
-	HasBackup      bool `json:"hasBackup"`
-	KeepForcedSubs bool `json:"keepForcedSubs"`
-	KeepLossless   bool `json:"keepLossless"`
-	RipActive      bool `json:"ripActive"`
-	ActiveJobCount int  `json:"activeJobCount"`
+	HasBackup bool `json:"hasBackup"`
+	// ScanWarnings are the problems MakeMKV reported during the scan. Titles it
+	// could not read are simply absent from the list, so without these the user
+	// sees a tidy result and no sign that content was dropped.
+	ScanWarnings   []makemkv.ScanWarning `json:"scanWarnings"`
+	KeepForcedSubs bool                  `json:"keepForcedSubs"`
+	KeepLossless   bool                  `json:"keepLossless"`
+	RipActive      bool                  `json:"ripActive"`
+	ActiveJobCount int                   `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.
