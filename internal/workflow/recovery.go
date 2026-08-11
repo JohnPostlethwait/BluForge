@@ -277,6 +277,17 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		}
 	}
 
+	// The rescan of the stripped backup names the disc even when the original
+	// scan could not — a disc that fails to open reports no CINFO disc name at
+	// all. Backfill it, since the label is what the per-disc record is keyed on.
+	if scan.DiscName != "" && scan.DiscName != req.DiscLabel && o.store != nil {
+		if err := o.store.SetDiscDiagnosticLabel(diagID, scan.DiscName); err != nil {
+			slog.Warn("recovery: could not record disc label", "error", err)
+		}
+		slog.Info("recovery: disc identified from the stripped backup",
+			"disc", scan.DiscName, "drive_index", req.DriveIndex)
+	}
+
 	size := dirSize(backupDir)
 	o.finishDiagnostic(diagID, "ok", insp.Reason, size)
 	progress("done", 100)

@@ -79,6 +79,18 @@ func (s *Store) SetDiscDiagnosticKey(id int64, discKey string) error {
 	return nil
 }
 
+// SetDiscDiagnosticLabel records the disc label once it becomes known.
+//
+// A disc that fails to open reports no name, so the row is opened without one;
+// the rescan of its stripped backup supplies it.
+func (s *Store) SetDiscDiagnosticLabel(id int64, label string) error {
+	const q = `UPDATE disc_diagnostics SET disc_label = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	if _, err := s.db.Exec(q, label, id); err != nil {
+		return fmt.Errorf("set disc diagnostic label: %w", err)
+	}
+	return nil
+}
+
 // GetDiscDiagnostic returns one row by ID, or nil when it does not exist.
 func (s *Store) GetDiscDiagnostic(id int64) (*DiscDiagnostic, error) {
 	const q = `

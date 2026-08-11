@@ -10,6 +10,12 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
+// ejectConfirmPolls is how many consecutive polls must report an empty drive
+// before an eject is believed. At the default 5-second interval this delays a
+// genuine eject by about ten seconds, which is invisible next to discarding the
+// user's selection because a drive was busy for one poll.
+const ejectConfirmPolls = 3
+
 // EventType describes the kind of drive event that occurred.
 type EventType string
 
@@ -38,10 +44,14 @@ type DriveExecutor interface {
 
 // Manager polls drives and emits events when drive state changes.
 type Manager struct {
-	mu      sync.RWMutex
-	exec    DriveExecutor
-	drives  map[int]*DriveStateMachine
-	known   map[int]string // last known disc name per drive index
+	mu     sync.RWMutex
+	exec   DriveExecutor
+	drives map[int]*DriveStateMachine
+	known  map[int]string // last known disc name per drive index
+	// absent counts consecutive polls reporting no disc, per drive. A drive
+	// being read reports empty transiently, so an eject is only believed once
+	// the absence persists.
+	absent  map[int]int
 	onEvent func(DriveEvent)
 	ready   bool // true after the first poll completes
 }
@@ -52,6 +62,7 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 		exec:    executor,
 		drives:  make(map[int]*DriveStateMachine),
 		known:   make(map[int]string),
+		absent:  make(map[int]int),
 		onEvent: onEvent,
 	}
 }
@@ -128,7 +139,8 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		prev, hadDisc := m.known[info.Index]
 
 		if discPresent(info) {
-			// A disc is present now.
+			// A disc is present now; any earlier empty reading was transient.
+			delete(m.absent, info.Index)
 			if !hadDisc || prev != info.DiscName {
 				// New disc inserted (or disc name changed — treat as new insert).
 				m.known[info.Index] = info.DiscName
@@ -142,10 +154,21 @@ func (m *Manager) PollOnce(ctx context.Context) {
 				})
 			}
 		} else {
-			// No disc present now.
+			// No disc reported. That is not the same as a disc having been
+			// removed: makemkvcon reports an empty drive while it is opening the
+			// disc for a long operation. Acting on one such reading fired a
+			// spurious eject that cleared the user's release selection mid-backup,
+			// so absence has to be sustained before it counts.
 			if hadDisc {
-				// Disc was ejected.
+				m.absent[info.Index]++
+				if m.absent[info.Index] < ejectConfirmPolls {
+					slog.Debug("drive reported empty, waiting for confirmation",
+						"drive_index", info.Index, "consecutive", m.absent[info.Index])
+					continue
+				}
+
 				delete(m.known, info.Index)
+				delete(m.absent, info.Index)
 				dsm.ForceReset()
 				pending = append(pending, DriveEvent{
 					Type:       EventDiscEjected,
