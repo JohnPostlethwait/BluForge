@@ -848,7 +848,13 @@ func SweepScratch(outputDir string, keep []string) error {
 			slog.Info("recovery: keeping tracked disc backup", "path", path)
 			continue
 		}
-		slog.Info("recovery: sweeping untracked disc backup", "path", path)
+		// Say how much is going. A sweep that silently deleted ~100GB read as a
+		// single unremarkable log line, which is how a copy worth 2.5 hours
+		// disappeared without anyone noticing until it was needed.
+		size := dirSize(path)
+		slog.Warn("recovery: deleting untracked disc backup",
+			"path", path, "bytes", size, "gib", size/(1<<30),
+			"reason", "no database record accounts for it")
 		if err := os.RemoveAll(path); err != nil {
 			slog.Warn("recovery: could not sweep untracked backup", "path", path, "error", err)
 		}
