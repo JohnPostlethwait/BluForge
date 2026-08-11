@@ -15,6 +15,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
@@ -42,28 +43,12 @@ func parseDriveIndex(c echo.Context) (int, error) {
 	return strconv.Atoi(c.Param("id"))
 }
 
-// handleDriveDetail renders the detail page for a single drive.
-func (s *Server) handleDriveDetail(c echo.Context) error {
-	idx, err := parseDriveIndex(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
-	}
-
-	drv := s.driveMgr.GetDrive(idx)
-	if drv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
-	}
-
+// buildDriveStore assembles the drive page's client-side state.
+//
+// The page render and the state endpoint both use it, so a client that has
+// lost its event stream and resyncs sees exactly what a fresh page load would.
+func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) DriveStoreJSON {
 	cfg := s.GetConfig()
-
-	data := templates.DriveDetailData{
-		DriveIndex:      idx,
-		DriveName:       drv.DriveName(),
-		DiscName:        drv.DiscName(),
-		State:           string(drv.State()),
-		CSRFToken:       csrfToken(c),
-		DuplicateAction: cfg.DuplicateAction,
-	}
 
 	// Build Alpine store hydration JSON.
 	driveStore := DriveStoreJSON{
@@ -140,6 +125,13 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		}
 	}
 
+	// Recovery state comes from the orchestrator rather than the event stream,
+	// so a reconnecting client can clear a banner left up by a lost "done".
+	if s.orchestrator != nil {
+		driveStore.RecoveryActive = s.orchestrator.RecoveryInProgress(idx)
+		driveStore.HasBackup = s.orchestrator.RecoveredDir(idx) != ""
+	}
+
 	// Compute the wizard step based on current state.
 	// Step 1: Search, Step 2: Select Release, Step 3: Scan, Step 4: Review Titles, Step 5: Rip
 	if s.ripEngine != nil {
@@ -161,6 +153,55 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 	} else {
 		driveStore.CurrentStep = 1
 	}
+
+	return driveStore
+}
+
+// handleDriveState returns the drive page's state as JSON.
+//
+// The page previously trusted the SSE stream as its only source of truth, with
+// no replay and no resync. A client whose connection dropped — a laptop
+// sleeping mid-backup was enough — kept whatever it last heard forever, showing
+// "copying, 94%" long after the work had finished. This gives it somewhere
+// authoritative to ask on reconnect.
+func (s *Server) handleDriveState(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	return c.JSON(http.StatusOK, s.buildDriveStore(idx, drv))
+}
+
+// handleDriveDetail renders the detail page for a single drive.
+func (s *Server) handleDriveDetail(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	cfg := s.GetConfig()
+
+	data := templates.DriveDetailData{
+		DriveIndex:      idx,
+		DriveName:       drv.DriveName(),
+		DiscName:        drv.DiscName(),
+		State:           string(drv.State()),
+		CSRFToken:       csrfToken(c),
+		DuplicateAction: cfg.DuplicateAction,
+	}
+
+	driveStore := s.buildDriveStore(idx, drv)
 
 	storeBytes, err := json.Marshal(driveStore)
 	if err != nil {

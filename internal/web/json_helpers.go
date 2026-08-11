@@ -220,10 +220,18 @@ type DriveStoreJSON struct {
 	AudioLanguages    []LangOptionJSON     `json:"audioLanguages"`
 	SubtitleLanguages []LangOptionJSON     `json:"subtitleLanguages"`
 	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
-	KeepForcedSubs    bool                 `json:"keepForcedSubs"`
-	KeepLossless      bool                 `json:"keepLossless"`
-	RipActive         bool                 `json:"ripActive"`
-	ActiveJobCount    int                  `json:"activeJobCount"`
+	// RecoveryActive reports whether a spurious-AACS recovery is running for
+	// this drive. The client cannot infer this from the event stream alone: a
+	// dropped connection loses the "done" phase and leaves the banner up
+	// indefinitely, so the server has to be able to answer it directly.
+	RecoveryActive bool `json:"recoveryActive"`
+	// HasBackup reports that a stripped scratch copy exists for this drive,
+	// which is what makes the discard control meaningful.
+	HasBackup      bool `json:"hasBackup"`
+	KeepForcedSubs bool `json:"keepForcedSubs"`
+	KeepLossless   bool `json:"keepLossless"`
+	RipActive      bool `json:"ripActive"`
+	ActiveJobCount int  `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.

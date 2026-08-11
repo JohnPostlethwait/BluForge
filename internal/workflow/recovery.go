@@ -418,6 +418,15 @@ func (o *Orchestrator) endRecovery(driveIndex int) {
 	delete(o.recovering, driveIndex)
 }
 
+// RecoveryInProgress reports whether a drive is currently being recovered.
+//
+// Exposed because a client that lost its event stream cannot tell: the "done"
+// phase is delivered once and never replayed, so the page needs to be able to
+// ask rather than wait forever for an event that already happened.
+func (o *Orchestrator) RecoveryInProgress(driveIndex int) bool {
+	return o.recoveryRunning(driveIndex)
+}
+
 // recoveryRunning reports whether a recovery is in flight for a drive.
 func (o *Orchestrator) recoveryRunning(driveIndex int) bool {
 	o.recoveredMu.Lock()

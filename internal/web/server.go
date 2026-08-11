@@ -144,6 +144,7 @@ func NewServer(deps ServerDeps) *Server {
 	// Routes
 	e.GET("/", s.handleDashboard)
 	e.GET("/drives/:id", s.handleDriveDetail)
+	e.GET("/drives/:id/state", s.handleDriveState)
 	e.POST("/drives/:id/search", s.handleDriveSearch)
 	e.POST("/drives/:id/select", s.handleDriveSelectAlpine)
 	e.POST("/drives/:id/scan", s.handleDriveScan)

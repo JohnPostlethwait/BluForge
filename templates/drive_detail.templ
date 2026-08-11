@@ -35,6 +35,21 @@ document.addEventListener('alpine:init', () => {
 
 	const evtSource = new EventSource('/events')
 
+	// The event stream is not a reliable record of what happened. It has no
+	// replay, the server drops events for slow clients, and a machine that
+	// sleeps kills the connection outright — which left this page reporting
+	// "copying, 94 percent" long after the work had finished. Treat it
+	// as a live hint and re-ask the server whenever the connection returns or
+	// the tab wakes.
+	let _sseEverOpen = false
+	evtSource.addEventListener('open', () => {
+		if (_sseEverOpen) resyncDriveState()
+		_sseEverOpen = true
+	})
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') resyncDriveState()
+	})
+
 	evtSource.addEventListener('drive-event', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
@@ -96,6 +111,49 @@ document.addEventListener('alpine:init', () => {
 
 function goToStep(step) {
 	Alpine.store('drive').currentStep = step
+}
+
+// resyncDriveState replaces live state with the server's view.
+//
+// Only fields the server is authoritative about are overwritten; in-flight UI
+// state such as a half-typed search is left alone. Without this, anything the
+// page missed while disconnected is missed permanently.
+async function resyncDriveState() {
+	const store = Alpine.store('drive')
+	if (!store) return
+	try {
+		const resp = await fetch('/drives/' + store.driveIndex + '/state', {
+			headers: { 'Accept': 'application/json' },
+		})
+		if (!resp.ok) return
+		const s = await resp.json()
+
+		store.state = s.state
+		store.discName = s.discName
+		store.ripActive = s.ripActive
+		store.activeJobCount = s.activeJobCount
+		store.hasBackup = s.hasBackup
+
+		// A recovery that finished while we were disconnected must clear the
+		// banner, and one still running must restore it.
+		store.recoveryActive = s.recoveryActive
+		if (!s.recoveryActive && store.recoveryPhase && store.recoveryPhase !== 'done') {
+			store.recoveryPhase = 'done'
+		}
+
+		// Titles only arrive with a selected release; do not blank an existing
+		// list just because the server has not been told about one.
+		if (s.titles && s.titles.length > 0) {
+			store.titles = s.titles
+			updateLanguagesFromTitles(s.titles)
+		}
+		if (s.currentStep > store.currentStep) {
+			store.currentStep = s.currentStep
+		}
+	} catch (err) {
+		// A failed resync is not worth surfacing: the next reconnect or tab
+		// focus tries again.
+	}
 }
 
 async function searchDiscDB(driveIndex) {
