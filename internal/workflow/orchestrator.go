@@ -77,6 +77,28 @@ type Orchestrator struct {
 	// is already being recovered — two ~100GB copies racing each other.
 	recovering map[int]bool
 	outputDir  string
+
+	// scanLocks serialises scans per drive. Guarded by scanLockMu.
+	scanLockMu sync.Mutex
+	scanLocks  map[int]*sync.Mutex
+}
+
+// lockDriveScan blocks until this drive's scan slot is free, returning the
+// release function.
+func (o *Orchestrator) lockDriveScan(driveIndex int) func() {
+	o.scanLockMu.Lock()
+	if o.scanLocks == nil {
+		o.scanLocks = make(map[int]*sync.Mutex)
+	}
+	mu, ok := o.scanLocks[driveIndex]
+	if !ok {
+		mu = &sync.Mutex{}
+		o.scanLocks[driveIndex] = mu
+	}
+	o.scanLockMu.Unlock()
+
+	mu.Lock()
+	return mu.Unlock
 }
 
 // recoveredDisc is a live backup: the folder jobs are ripping from, plus a
@@ -121,6 +143,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),
 		recovering:   make(map[int]bool),
+		scanLocks:    make(map[int]*sync.Mutex),
 	}
 }
 
@@ -422,9 +445,25 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 		}
 	}
 
+	// One scan per drive at a time. A scan that appears to hang invites another
+	// click, and makemkvcon serialises on the executor mutex anyway — a second
+	// process would only double the wait. Waiters re-check the cache on the way
+	// in, so the second caller gets the first caller's result.
+	unlock := o.lockDriveScan(driveIndex)
+	defer unlock()
+
+	if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+		slog.Info("orchestrator: serving scan completed while waiting", "drive_index", driveIndex)
+		return cached, nil
+	}
+
 	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
 
-	scan, err := o.scanner.ScanDisc(ctx, driveIndex)
+	// Detach from the caller. A scan of a damaged disc retries every unreadable
+	// sector and can run for minutes; on an HTTP request's context the browser
+	// giving up killed makemkvcon mid-read, surfacing as "signal: killed". The
+	// executor applies its own timeout.
+	scan, err := o.scanner.ScanDisc(context.WithoutCancel(ctx), driveIndex)
 	if err != nil {
 		recovered, recErr := o.maybeRecover(ctx, driveIndex, err)
 		if recErr != nil {
