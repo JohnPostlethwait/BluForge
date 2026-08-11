@@ -11,7 +11,7 @@ import (
 // noopRipExecutor completes instantly without error (for race tests).
 type noopRipExecutor struct{}
 
-func (noopRipExecutor) StartRip(_ context.Context, _ int, _ int, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
+func (noopRipExecutor) StartRip(_ context.Context, _ makemkv.Source, _ int, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	return nil
 }
 

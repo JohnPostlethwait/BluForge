@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/workflow"
@@ -41,28 +43,12 @@ func parseDriveIndex(c echo.Context) (int, error) {
 	return strconv.Atoi(c.Param("id"))
 }
 
-// handleDriveDetail renders the detail page for a single drive.
-func (s *Server) handleDriveDetail(c echo.Context) error {
-	idx, err := parseDriveIndex(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
-	}
-
-	drv := s.driveMgr.GetDrive(idx)
-	if drv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
-	}
-
+// buildDriveStore assembles the drive page's client-side state.
+//
+// The page render and the state endpoint both use it, so a client that has
+// lost its event stream and resyncs sees exactly what a fresh page load would.
+func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) DriveStoreJSON {
 	cfg := s.GetConfig()
-
-	data := templates.DriveDetailData{
-		DriveIndex:      idx,
-		DriveName:       drv.DriveName(),
-		DiscName:        drv.DiscName(),
-		State:           string(drv.State()),
-		CSRFToken:       csrfToken(c),
-		DuplicateAction: cfg.DuplicateAction,
-	}
 
 	// Build Alpine store hydration JSON.
 	driveStore := DriveStoreJSON{
@@ -139,6 +125,13 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 		}
 	}
 
+	// Recovery state comes from the orchestrator rather than the event stream,
+	// so a reconnecting client can clear a banner left up by a lost "done".
+	if s.orchestrator != nil {
+		driveStore.RecoveryActive = s.orchestrator.RecoveryInProgress(idx)
+		driveStore.HasBackup = s.orchestrator.RecoveredDir(idx) != ""
+	}
+
 	// Compute the wizard step based on current state.
 	// Step 1: Search, Step 2: Select Release, Step 3: Scan, Step 4: Review Titles, Step 5: Rip
 	if s.ripEngine != nil {
@@ -160,6 +153,55 @@ func (s *Server) handleDriveDetail(c echo.Context) error {
 	} else {
 		driveStore.CurrentStep = 1
 	}
+
+	return driveStore
+}
+
+// handleDriveState returns the drive page's state as JSON.
+//
+// The page previously trusted the SSE stream as its only source of truth, with
+// no replay and no resync. A client whose connection dropped — a laptop
+// sleeping mid-backup was enough — kept whatever it last heard forever, showing
+// "copying, 94%" long after the work had finished. This gives it somewhere
+// authoritative to ask on reconnect.
+func (s *Server) handleDriveState(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	return c.JSON(http.StatusOK, s.buildDriveStore(idx, drv))
+}
+
+// handleDriveDetail renders the detail page for a single drive.
+func (s *Server) handleDriveDetail(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	drv := s.driveMgr.GetDrive(idx)
+	if drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	cfg := s.GetConfig()
+
+	data := templates.DriveDetailData{
+		DriveIndex:      idx,
+		DriveName:       drv.DriveName(),
+		DiscName:        drv.DiscName(),
+		State:           string(drv.State()),
+		CSRFToken:       csrfToken(c),
+		DuplicateAction: cfg.DuplicateAction,
+	}
+
+	driveStore := s.buildDriveStore(idx, drv)
 
 	storeBytes, err := json.Marshal(driveStore)
 	if err != nil {
@@ -364,11 +406,23 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	}
 
 	scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
+	if errors.Is(scanErr, workflow.ErrRecoveryInProgress) {
+		// Not a failure: the disc carries a spurious AACS directory and is being
+		// copied in the background. Reporting 500 here would show the user an
+		// error for something that is working, and the progress banner is
+		// already being fed by disc_recovery SSE events.
+		slog.Info("disc recovery in progress, scan deferred", "drive_index", idx)
+		return c.JSON(http.StatusAccepted, map[string]any{
+			"status": "recovering",
+			"message": "This disc reports AACS protection but its content is not encrypted. " +
+				"BluForge is copying the disc and removing the AACS directory so it can be ripped. " +
+				"This can take a while; progress is shown on this page.",
+		})
+	}
 	if scanErr != nil {
 		slog.Error("disc scan failed", "drive_index", idx, "error", scanErr)
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))
 	}
-
 
 	// Save disc mapping if a release was selected in the session.
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {
@@ -401,6 +455,33 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	titles = scanToTitleJSON(scan)
 	slog.Info("scan completed", "drive_index", idx, "title_count", len(titles))
 	return c.JSON(http.StatusOK, titles)
+}
+
+// handleDiscardBackup deletes a drive's recovery scratch copy on request.
+//
+// A copy is kept whenever a rip did not succeed, because re-reading the disc
+// costs tens of minutes and MakeMKV may refuse to read it at all. Reclaiming
+// the space — up to ~100GB — therefore has to be something the user can ask for.
+func (s *Server) handleDiscardBackup(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "orchestrator not configured")
+	}
+
+	dir := s.orchestrator.RecoveredDir(idx)
+	if err := s.orchestrator.DiscardBackup(idx); err != nil {
+		slog.Warn("discard backup failed", "drive_index", idx, "error", err)
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	slog.Info("discarded disc backup on request", "drive_index", idx, "dir", dir)
+	return c.JSON(http.StatusOK, map[string]any{
+		"status": "discarded",
+		"dir":    dir,
+	})
 }
 
 // handleDriveRescan clears any existing mapping for a drive and redirects back to the detail page.
@@ -525,4 +606,3 @@ func normalizeSearchQuery(q string) string {
 	r := strings.NewReplacer("_", " ", "-", " ")
 	return strings.Join(strings.Fields(r.Replace(q)), " ")
 }
-

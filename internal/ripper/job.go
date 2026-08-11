@@ -61,6 +61,11 @@ type Job struct {
 	// OnComplete is an optional callback invoked after the job finishes and is
 	// removed from the engine's active map. err is nil on success.
 	OnComplete func(job *Job, err error) `json:"-"`
+	// Source is what makemkvcon reads from. Normally the drive named by
+	// DriveIndex, but a disc recovered from a spurious AACS directory is ripped
+	// from its stripped backup folder instead. Not serialized — the UI groups
+	// jobs by drive either way.
+	Source makemkv.Source `json:"-"`
 	// SelectionOpts holds optional track selection criteria for this job.
 	// Not serialized — used only during rip execution.
 	SelectionOpts *makemkv.SelectionOpts `json:"-"`
@@ -79,7 +84,19 @@ func NewJob(driveIndex, titleIndex int, discName, outputDir string) *Job {
 		DiscName:   discName,
 		OutputDir:  outputDir,
 		Status:     StatusPending,
+		Source:     makemkv.DiscSource(driveIndex),
 	}
+}
+
+// RipSource returns the source this job should be ripped from, falling back to
+// the job's drive when none was set explicitly. The fallback matters because
+// jobs are also built by hand in tests and by older call sites, and a zero
+// Source would otherwise silently mean "drive 0".
+func (j *Job) RipSource() makemkv.Source {
+	if j.Source.Kind == makemkv.SourceFile && j.Source.Path != "" {
+		return j.Source
+	}
+	return makemkv.DiscSource(j.DriveIndex)
 }
 
 // Start transitions the job to the Ripping state and records the start time.

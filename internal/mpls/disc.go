@@ -22,22 +22,47 @@ import (
 // accessed; callers should treat this as a non-fatal condition and skip
 // enrichment.
 func ReadDiscLanguages(devicePath string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
-	mp, err := findMountPoint(devicePath)
+	root, cleanup, err := OpenDiscRoot(devicePath)
 	if err != nil {
-		// Device not mounted — try to mount it temporarily. This relies on
-		// fstab entries created by the entrypoint (with the "user" option)
-		// so the non-root process can mount optical devices.
-		slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
-		mp, cleanup, mountErr := tryMount(devicePath)
-		if mountErr != nil {
-			return nil, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
-		}
-		defer cleanup()
-		slog.Info("mpls: auto-mounted disc for language enrichment", "device", devicePath, "mount_point", mp)
-		return readFromMountPoint(mp, sourceFiles)
+		return nil, err
 	}
-	slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
-	return readFromMountPoint(mp, sourceFiles)
+	defer cleanup()
+	return ReadFrom(root, sourceFiles)
+}
+
+// OpenDiscRoot makes the disc at devicePath readable as a directory tree and
+// returns its root along with a cleanup function that must always be called.
+//
+// If the disc is already mounted its existing mount point is used and cleanup
+// is a no-op; otherwise the disc is mounted temporarily and cleanup unmounts
+// it. Callers that need more than playlist data — inspecting stream packets,
+// checking for an AACS directory — use this directly.
+func OpenDiscRoot(devicePath string) (string, func(), error) {
+	mp, err := findMountPoint(devicePath)
+	if err == nil {
+		slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
+		return mp, func() {}, nil
+	}
+
+	// Device not mounted — try to mount it temporarily. This relies on fstab
+	// entries created by the entrypoint (with the "user" option) so the
+	// non-root process can mount optical devices.
+	slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
+	mp, cleanup, mountErr := tryMount(devicePath)
+	if mountErr != nil {
+		return "", func() {}, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
+	}
+	slog.Info("mpls: auto-mounted disc", "device", devicePath, "mount_point", mp)
+	return mp, cleanup, nil
+}
+
+// ReadFrom reads MPLS playlists from an accessible disc root — a mount point or
+// a plain directory such as a `makemkvcon backup` folder.
+//
+// sourceFiles behaves as in ReadDiscLanguages: when non-empty only those
+// playlist filenames are read, otherwise every *.mpls in the directory is.
+func ReadFrom(root string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
+	return readFromMountPoint(root, sourceFiles)
 }
 
 // tryMount attempts to mount devicePath at the conventional mount point
@@ -56,10 +81,22 @@ func tryMount(devicePath string) (string, func(), error) {
 		return "", nil, fmt.Errorf("mpls: create mount point %s: %w", mp, err)
 	}
 
-	// Use "mount <device>" which consults fstab for options and mount point.
-	cmd := exec.Command("mount", devicePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, err, strings.TrimSpace(string(out)))
+	var lastErr error
+	var lastOut string
+	mounted := false
+	for _, argv := range mountAttempts(devicePath, mp) {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			mounted = true
+			break
+		}
+		lastErr = err
+		lastOut = strings.TrimSpace(string(out))
+		slog.Debug("mpls: mount attempt failed", "argv", argv, "error", err, "output", lastOut)
+	}
+	if !mounted {
+		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, lastErr, lastOut)
 	}
 
 	cleanup := func() {
@@ -69,6 +106,22 @@ func tryMount(devicePath string) (string, func(), error) {
 	}
 
 	return mp, cleanup, nil
+}
+
+// mountAttempts returns the mount command lines to try, in order.
+//
+// The bare form comes first because it consults fstab, which is where the
+// Docker entrypoint records the "user" option a non-root process needs. It only
+// works for drives that had an fstab entry written, so an explicit read-only
+// UDF mount follows for everything else — a drive that appeared after container
+// start, or any environment without those entries. Without the fallback such a
+// drive can never be inspected, and recovery reports "could not determine"
+// indefinitely rather than doing its job.
+func mountAttempts(devicePath, mountPoint string) [][]string {
+	return [][]string{
+		{"mount", devicePath},
+		{"mount", "-t", "udf", "-o", "ro", devicePath, mountPoint},
+	}
 }
 
 // findMountPoint returns the filesystem path where devicePath is mounted.

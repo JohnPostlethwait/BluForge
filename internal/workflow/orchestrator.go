@@ -15,6 +15,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
@@ -33,6 +34,16 @@ type OrchestratorDeps struct {
 	Scanner     DiscScanner
 	DiscDB      *discdb.Client
 	Cache       *discdb.Cache
+	// Backupper performs the raw disc backup and folder rescan used to recover
+	// a disc whose AACS directory is spurious. Optional: when nil, a disc that
+	// trips the signature is reported rather than recovered.
+	Backupper DiscBackupper
+	// OpenDiscRoot makes a disc readable as a directory tree for inspection.
+	// Defaults to mounting via the mpls package.
+	OpenDiscRoot DiscRootOpener
+	// OnDriveState reports a drive state the poller cannot infer on its own,
+	// so a drive spending 40 minutes in recovery does not look idle. Optional.
+	OnDriveState func(driveIndex int, state string)
 }
 
 // Orchestrator coordinates the end-to-end rip pipeline: disk space check,
@@ -47,21 +58,69 @@ type Orchestrator struct {
 	discDB      *discdb.Client
 	cache       *discdb.Cache
 
+	backupper    DiscBackupper
+	openDiscRoot DiscRootOpener
+	onDriveState func(driveIndex int, state string)
+	// checkSpace verifies the scratch volume can hold a disc backup. Injected
+	// so the early-failure path can be tested without filling a disk.
+	checkSpace func(path string, needBytes int64) error
+
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
+
+	// recovered tracks discs currently being ripped from a stripped backup, so
+	// the scratch copy can be deleted once the last job for the disc finishes.
+	// outputDir is guarded by the same mutex: it is where scratch backups go.
+	recoveredMu sync.Mutex
+	recovered   map[int]*recoveredDisc
+	// recovering guards against a second backup being started for a drive that
+	// is already being recovered — two ~100GB copies racing each other.
+	recovering map[int]bool
+	outputDir  string
+}
+
+// recoveredDisc is a live backup: the folder jobs are ripping from, plus a
+// count of how many of those jobs are still outstanding.
+type recoveredDisc struct {
+	source makemkv.Source
+	dir    string
+	// refCount is how many jobs are still ripping from this backup.
+	refCount int
+	// retired means the drive has moved on — the disc was ejected or replaced.
+	// The copy is kept regardless; only a successful rip or an explicit discard
+	// removes it.
+	retired bool
+	// ripFailed records that at least one job using this backup did not
+	// succeed, which is what keeps the copy on disk for a retry.
+	ripFailed bool
+	// ephemeral marks a symlink tree rather than a copy: there is nothing
+	// expensive to preserve, so it is always cleaned up and never persisted.
+	ephemeral bool
+	// unmount releases the disc mount a symlink tree depends on.
+	unmount func()
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
 func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
+	openRoot := deps.OpenDiscRoot
+	if openRoot == nil {
+		openRoot = mpls.OpenDiscRoot
+	}
 	return &Orchestrator{
-		store:       deps.Store,
-		engine:      deps.Engine,
-		organizer:   deps.Organizer,
-		onBroadcast: deps.OnBroadcast,
-		scanner:     deps.Scanner,
-		discDB:      deps.DiscDB,
-		cache:       deps.Cache,
-		scanCache:   make(map[string]*makemkv.DiscScan),
+		store:        deps.Store,
+		engine:       deps.Engine,
+		organizer:    deps.Organizer,
+		onBroadcast:  deps.OnBroadcast,
+		scanner:      deps.Scanner,
+		discDB:       deps.DiscDB,
+		cache:        deps.Cache,
+		backupper:    deps.Backupper,
+		openDiscRoot: openRoot,
+		onDriveState: deps.OnDriveState,
+		checkSpace:   ripper.CheckDiskSpace,
+		scanCache:    make(map[string]*makemkv.DiscScan),
+		recovered:    make(map[int]*recoveredDisc),
+		recovering:   make(map[int]bool),
 	}
 }
 
@@ -210,6 +269,17 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob.TrackMetadata = sel.TrackMetadata
 	ripJob.SelectionOpts = params.SelectionOpts
 
+	// A disc recovered from a spurious AACS directory is ripped from its
+	// stripped backup: MakeMKV cannot open the drive for these discs at all.
+	// Track selection and everything else is unchanged — only the source moves.
+	// The claim is on the backup itself, so this job releases the copy it read
+	// from even if the drive is given a different disc in the meantime.
+	var backupClaim *recoveredDisc
+	if src := o.RecoveredSource(params.DriveIndex); src != nil {
+		ripJob.Source = *src
+		backupClaim = o.retainRecovered(params.DriveIndex)
+	}
+
 	// OnStart: create the per-title subdir inside the shared parent temp dir.
 	ripJob.OnStart = func(job *ripper.Job) error {
 		titleDir, err := os.MkdirTemp(parentTempDir, fmt.Sprintf("t%d-", sel.TitleIndex))
@@ -223,6 +293,11 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	// OnComplete: move the ripped file to its final destination and clean up.
 	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
 		defer wg.Done()
+		// Drop this job's claim on the scratch backup. The last job to finish
+		// takes the ~100GB copy with it.
+		if backupClaim != nil {
+			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
+		}
 		if ripErr != nil {
 			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
 			o.broadcastJobUpdate(job.ID, "failed")
@@ -269,6 +344,11 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	wg.Add(1)
 	if err := o.engine.Submit(ripJob); err != nil {
 		wg.Done()
+		// OnComplete never runs for a job that was not accepted, so the claim
+		// taken above has to be dropped here or the backup is never cleaned up.
+		if backupClaim != nil {
+			o.releaseRecovered(backupClaim, false)
+		}
 		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
 			slog.Error("failed to update job status on submit failure", "job_id", jobID, "error", dbErr)
 		}
@@ -316,12 +396,48 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 		return nil, fmt.Errorf("no scanner configured")
 	}
 
+	// A recovered disc is served from its stripped backup. Re-reading the drive
+	// would fail exactly as it did the first time and start another recovery.
+	if src := o.RecoveredSource(driveIndex); src != nil {
+		if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+			slog.Info("orchestrator: serving recovered disc from its backup",
+				"drive_index", driveIndex, "source", src.Arg())
+			return cached, nil
+		}
+
+		// No cached scan — the process restarted since the backup was made. Read
+		// the folder rather than the drive: the disc is the one MakeMKV could not
+		// open, and falling through would spend another ~100GB copying what is
+		// already sitting in scratch.
+		if o.backupper != nil {
+			slog.Info("orchestrator: rescanning a restored backup",
+				"drive_index", driveIndex, "source", src.Arg())
+			scan, err := o.backupper.ScanSource(ctx, *src)
+			if err == nil && len(scan.Titles) > 0 {
+				o.cacheScan(driveIndex, scan)
+				return scan, nil
+			}
+			slog.Warn("orchestrator: restored backup did not scan; falling back to the drive",
+				"drive_index", driveIndex, "source", src.Arg(), "error", err)
+		}
+	}
+
 	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
 
 	scan, err := o.scanner.ScanDisc(ctx, driveIndex)
 	if err != nil {
-		slog.Error("orchestrator: disc scan failed", "drive_index", driveIndex, "error", err)
-		return nil, err
+		recovered, recErr := o.maybeRecover(ctx, driveIndex, err)
+		if recErr != nil {
+			slog.Error("orchestrator: disc scan failed", "drive_index", driveIndex, "error", recErr)
+			return nil, recErr
+		}
+		if recovered == nil {
+			slog.Error("orchestrator: disc scan failed", "drive_index", driveIndex, "error", err)
+			return nil, err
+		}
+		scan = recovered
+	} else {
+		o.RecordDirectScan(scan)
 	}
 
 	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
@@ -332,6 +448,17 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 	slog.Info("orchestrator: disc scan cached", "drive_index", driveIndex, "cache_key", key)
 
 	return scan, nil
+}
+
+// cacheScan stores a scan under its drive and disc name.
+func (o *Orchestrator) cacheScan(driveIndex int, scan *makemkv.DiscScan) {
+	if scan == nil {
+		return
+	}
+	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
+	o.scanMu.Lock()
+	defer o.scanMu.Unlock()
+	o.scanCache[key] = scan
 }
 
 // CachedScan returns a previously cached scan for the given drive and disc name,
@@ -455,13 +582,13 @@ func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.Dis
 			fmt.Sscanf(s, "%d", &sizeBytes)
 		}
 		titles = append(titles, TitleSelection{
-			TitleIndex:    t.Index,
-			TitleName:     t.Name(),
-			SourceFile:    t.SourceFile(),
-			SizeBytes:     sizeBytes,
-			ContentType:   mapping.MediaType,
-			ContentTitle:  mapping.MediaTitle,
-			Year:          mapping.MediaYear,
+			TitleIndex:   t.Index,
+			TitleName:    t.Name(),
+			SourceFile:   t.SourceFile(),
+			SizeBytes:    sizeBytes,
+			ContentType:  mapping.MediaType,
+			ContentTitle: mapping.MediaTitle,
+			Year:         mapping.MediaYear,
 			// Titles rebuilt from a saved mapping have no language context — include all tracks.
 			TrackMetadata: buildTrackMetadata(t, nil),
 		})

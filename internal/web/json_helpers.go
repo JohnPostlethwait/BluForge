@@ -115,7 +115,7 @@ type DriveJSON struct {
 // StreamJSON is the JSON representation of a single audio/video/subtitle stream.
 type StreamJSON struct {
 	StreamIndex int    `json:"streamIndex"`
-	Type        string `json:"type"`               // "video", "audio", "subtitle"
+	Type        string `json:"type"` // "video", "audio", "subtitle"
 	LangCode    string `json:"langCode"`
 	LangName    string `json:"langName"`
 	Codec       string `json:"codec"`              // short name like "TrueHD", "AC3"
@@ -220,19 +220,27 @@ type DriveStoreJSON struct {
 	AudioLanguages    []LangOptionJSON     `json:"audioLanguages"`
 	SubtitleLanguages []LangOptionJSON     `json:"subtitleLanguages"`
 	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
-	KeepForcedSubs    bool                 `json:"keepForcedSubs"`
-	KeepLossless      bool                 `json:"keepLossless"`
-	RipActive         bool                 `json:"ripActive"`
-	ActiveJobCount    int                  `json:"activeJobCount"`
+	// RecoveryActive reports whether a spurious-AACS recovery is running for
+	// this drive. The client cannot infer this from the event stream alone: a
+	// dropped connection loses the "done" phase and leaves the banner up
+	// indefinitely, so the server has to be able to answer it directly.
+	RecoveryActive bool `json:"recoveryActive"`
+	// HasBackup reports that a stripped scratch copy exists for this drive,
+	// which is what makes the discard control meaningful.
+	HasBackup      bool `json:"hasBackup"`
+	KeepForcedSubs bool `json:"keepForcedSubs"`
+	KeepLossless   bool `json:"keepLossless"`
+	RipActive      bool `json:"ripActive"`
+	ActiveJobCount int  `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.
 type DashboardJobJSON struct {
-	ID          int64  `json:"id"`
-	DiscName    string `json:"discName"`
-	TitleName   string `json:"titleName"`
-	Status      string `json:"status"`
-	FinishedAt  string `json:"finishedAt,omitempty"`
+	ID         int64  `json:"id"`
+	DiscName   string `json:"discName"`
+	TitleName  string `json:"titleName"`
+	Status     string `json:"status"`
+	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
 // DrivesStoreJSON is the Alpine.store('drives') shape for the dashboard page.
@@ -420,4 +428,3 @@ func discHasLosslessAudio(scan *makemkv.DiscScan) bool {
 	}
 	return false
 }
-

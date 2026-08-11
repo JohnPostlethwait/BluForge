@@ -144,12 +144,14 @@ func NewServer(deps ServerDeps) *Server {
 	// Routes
 	e.GET("/", s.handleDashboard)
 	e.GET("/drives/:id", s.handleDriveDetail)
+	e.GET("/drives/:id/state", s.handleDriveState)
 	e.POST("/drives/:id/search", s.handleDriveSearch)
 	e.POST("/drives/:id/select", s.handleDriveSelectAlpine)
 	e.POST("/drives/:id/scan", s.handleDriveScan)
 	e.POST("/drives/:id/rip", s.handleDriveRip)
 	e.POST("/drives/:id/rescan", s.handleDriveRescan)
 	e.POST("/drives/:id/match", s.handleDriveMatch)
+	e.POST("/drives/:id/discard-backup", s.handleDiscardBackup)
 	e.GET("/activity", s.handleActivity)
 	e.POST("/activity/:id/cancel", s.handleActivityCancel)
 	e.POST("/activity/clear-history", s.handleActivityClearHistory)
@@ -192,6 +194,13 @@ func (s *Server) UpdateConfig(fn func(*config.AppConfig)) error {
 	}
 
 	s.cfg = &candidate
+
+	// Recovery writes disc backups under the output directory, so it has to
+	// follow the setting rather than keep using the value from startup.
+	if s.orchestrator != nil {
+		s.orchestrator.SetOutputDir(candidate.OutputDir)
+	}
+
 	return config.Save(candidate, s.configPath)
 }
 

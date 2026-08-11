@@ -8,8 +8,12 @@ import (
 )
 
 // RipExecutor is the interface for starting a rip operation.
+//
+// The source is passed explicitly rather than derived from the drive index,
+// because a disc recovered from a spurious AACS directory is ripped from a
+// backup folder on disk while still belonging to the drive it came from.
 type RipExecutor interface {
-	StartRip(ctx context.Context, driveIndex int, titleID int, outputDir string, onEvent func(makemkv.Event), selection *makemkv.SelectionOpts) error
+	StartRip(ctx context.Context, src makemkv.Source, titleID int, outputDir string, onEvent func(makemkv.Event), selection *makemkv.SelectionOpts) error
 }
 
 // Engine manages concurrent rip jobs, enforcing one active rip per drive.
@@ -184,7 +188,7 @@ func (e *Engine) run(job *Job) {
 	}
 
 	var lastPct int
-	err := e.executor.StartRip(ctx, job.DriveIndex, job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
+	err := e.executor.StartRip(ctx, job.RipSource(), job.TitleIndex, job.OutputDir, func(ev makemkv.Event) {
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
 			if p.Max > 0 {

@@ -10,6 +10,11 @@ type DriveState string
 const (
 	StateEmpty    DriveState = "empty"
 	StateDetected DriveState = "detected"
+	// StateRecovering means the disc carries a spurious AACS directory and is
+	// being backed up so its AACS directory can be stripped. This can take
+	// tens of minutes, which is why it is a visible state rather than an
+	// apparently idle drive.
+	StateRecovering DriveState = "recovering"
 )
 
 // DriveStateMachine is a thread-safe state holder for a single optical drive.

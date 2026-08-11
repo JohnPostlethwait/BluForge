@@ -73,13 +73,17 @@ func TestManagerDetectsDiscEject(t *testing.T) {
 	// First poll: disc is present — should emit insert.
 	mgr.PollOnce(context.Background())
 
-	// Second poll: disc is gone — should emit eject.
+	// Disc is gone. An eject is only believed once the absence persists: a
+	// single empty reading is what a busy drive reports, and acting on it
+	// discarded the user's selection mid-backup in production.
 	mock.drives = []makemkv.DriveInfo{
 		{Index: 0, DriveName: "/dev/sr0", DiscName: "", Flags: 0},
 	}
-	mgr.PollOnce(context.Background())
+	for i := 0; i < ejectConfirmPolls; i++ {
+		mgr.PollOnce(context.Background())
+	}
 
-	// First poll: insert + state_change. Second poll: eject.
+	// First poll: insert + state_change. Confirmed absence: eject.
 	if len(events) != 3 {
 		t.Fatalf("expected 3 events (insert + state_change + eject), got %d", len(events))
 	}
