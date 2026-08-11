@@ -150,6 +150,7 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/drives/:id/rip", s.handleDriveRip)
 	e.POST("/drives/:id/rescan", s.handleDriveRescan)
 	e.POST("/drives/:id/match", s.handleDriveMatch)
+	e.POST("/drives/:id/discard-backup", s.handleDiscardBackup)
 	e.GET("/activity", s.handleActivity)
 	e.POST("/activity/:id/cancel", s.handleActivityCancel)
 	e.POST("/activity/clear-history", s.handleActivityClearHistory)

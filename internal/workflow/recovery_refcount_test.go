@@ -36,7 +36,7 @@ func TestReleaseAppliesToTheBackupTheJobRetained(t *testing.T) {
 	orch.registerRecovered(0, &RecoveredDisc{Dir: secondDir})
 
 	// The job that was ripping from the first backup finishes.
-	orch.releaseRecovered(claim)
+	orch.releaseRecovered(claim, true)
 
 	if _, err := os.Stat(firstDir); !os.IsNotExist(err) {
 		t.Error("the first backup was not removed when its last job finished")
@@ -58,19 +58,21 @@ func TestBackupSurvivesUntilLastJobReleases(t *testing.T) {
 	first := orch.retainRecovered(1)
 	second := orch.retainRecovered(1)
 
-	orch.releaseRecovered(first)
+	orch.releaseRecovered(first, true)
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("backup removed while a job still held it: %v", err)
 	}
 
-	orch.releaseRecovered(second)
+	orch.releaseRecovered(second, true)
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Error("backup was not removed after the last job released it")
 	}
 }
 
-// Replacing a disc whose backup nothing is using should clean up immediately.
-func TestUnusedBackupRemovedOnReplacement(t *testing.T) {
+// Replacing the disc does not throw the previous copy away. It never produced a
+// successful rip, which is precisely the case worth keeping: re-reading the disc
+// costs tens of minutes and the drive may not read it at all.
+func TestUnusedBackupRetainedOnReplacement(t *testing.T) {
 	orch := NewOrchestrator(OrchestratorDeps{})
 	oldDir := mkBackupDir(t, "old")
 	newDir := mkBackupDir(t, "new")
@@ -78,8 +80,11 @@ func TestUnusedBackupRemovedOnReplacement(t *testing.T) {
 	orch.registerRecovered(2, &RecoveredDisc{Dir: oldDir})
 	orch.registerRecovered(2, &RecoveredDisc{Dir: newDir})
 
-	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
-		t.Error("an unused backup was left behind when its drive got a new disc")
+	if _, err := os.Stat(oldDir); err != nil {
+		t.Errorf("the previous backup was deleted on replacement: %v", err)
+	}
+	if _, err := os.Stat(newDir); err != nil {
+		t.Errorf("the new backup is missing: %v", err)
 	}
 }
 
@@ -98,7 +103,7 @@ func TestEjectDoesNotRemoveBackupInUse(t *testing.T) {
 		t.Fatalf("eject removed a backup that a rip was still using: %v", err)
 	}
 
-	orch.releaseRecovered(claim)
+	orch.releaseRecovered(claim, true)
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Error("backup was not removed once the rip finished")
 	}

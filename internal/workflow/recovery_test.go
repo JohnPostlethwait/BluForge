@@ -351,7 +351,7 @@ func TestSweepScratchRemovesLeftovers(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := SweepScratch(output); err != nil {
+	if err := SweepScratch(output, nil); err != nil {
 		t.Fatalf("SweepScratch: %v", err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {

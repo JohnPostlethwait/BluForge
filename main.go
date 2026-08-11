@@ -105,10 +105,13 @@ func main() {
 	// know where that is even when triggered from the scan path.
 	orch.SetOutputDir(cfg.OutputDir)
 
-	// Remove disc backups left behind by a previous run. Each is up to ~100GB,
-	// so a crash must not leak them.
-	if err := workflow.SweepScratch(cfg.OutputDir); err != nil {
-		slog.Warn("could not sweep stale disc backups", "error", err)
+	// Reload backups from a previous run before sweeping, so a live ~100GB copy
+	// is not mistaken for crash debris and deleted.
+	if err := orch.RestoreBackups(); err != nil {
+		slog.Warn("could not restore disc backups", "error", err)
+	}
+	if err := workflow.SweepScratch(cfg.OutputDir, orch.TrackedBackupDirs()); err != nil {
+		slog.Warn("could not sweep untracked disc backups", "error", err)
 	}
 
 	// Report a container that cannot see its optical drives before the first

@@ -416,6 +416,33 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	return c.JSON(http.StatusOK, titles)
 }
 
+// handleDiscardBackup deletes a drive's recovery scratch copy on request.
+//
+// A copy is kept whenever a rip did not succeed, because re-reading the disc
+// costs tens of minutes and MakeMKV may refuse to read it at all. Reclaiming
+// the space — up to ~100GB — therefore has to be something the user can ask for.
+func (s *Server) handleDiscardBackup(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "orchestrator not configured")
+	}
+
+	dir := s.orchestrator.RecoveredDir(idx)
+	if err := s.orchestrator.DiscardBackup(idx); err != nil {
+		slog.Warn("discard backup failed", "drive_index", idx, "error", err)
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	slog.Info("discarded disc backup on request", "drive_index", idx, "dir", dir)
+	return c.JSON(http.StatusOK, map[string]any{
+		"status": "discarded",
+		"dir":    dir,
+	})
+}
+
 // handleDriveRescan clears any existing mapping for a drive and redirects back to the detail page.
 func (s *Server) handleDriveRescan(c echo.Context) error {
 	idx, err := parseDriveIndex(c)

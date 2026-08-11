@@ -86,9 +86,13 @@ type recoveredDisc struct {
 	dir    string
 	// refCount is how many jobs are still ripping from this backup.
 	refCount int
-	// retired means the drive has moved on — the disc was ejected or replaced —
-	// so the backup goes as soon as the last job releases it.
+	// retired means the drive has moved on — the disc was ejected or replaced.
+	// The copy is kept regardless; only a successful rip or an explicit discard
+	// removes it.
 	retired bool
+	// ripFailed records that at least one job using this backup did not
+	// succeed, which is what keeps the copy on disk for a retry.
+	ripFailed bool
 }
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
@@ -287,7 +291,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		// Drop this job's claim on the scratch backup. The last job to finish
 		// takes the ~100GB copy with it.
 		if backupClaim != nil {
-			defer o.releaseRecovered(backupClaim)
+			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
 		}
 		if ripErr != nil {
 			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
@@ -338,7 +342,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		// OnComplete never runs for a job that was not accepted, so the claim
 		// taken above has to be dropped here or the backup is never cleaned up.
 		if backupClaim != nil {
-			o.releaseRecovered(backupClaim)
+			o.releaseRecovered(backupClaim, false)
 		}
 		if dbErr := o.store.UpdateJobStatus(jobID, "failed", 0, err.Error()); dbErr != nil {
 			slog.Error("failed to update job status on submit failure", "job_id", jobID, "error", dbErr)

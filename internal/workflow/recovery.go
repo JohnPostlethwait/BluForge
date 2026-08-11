@@ -544,18 +544,112 @@ func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{source: rec.Source, dir: rec.Dir}
-
-	var toRemove string
 	if stale != nil && stale.dir != rec.Dir {
+		// A previous backup for this drive is no longer the current disc, but it
+		// is not deleted: only a successful rip or an explicit discard removes a
+		// copy that cost tens of minutes to make.
 		stale.retired = true
-		// Nothing is reading it, so it is dead weight — up to ~100GB of it.
-		if stale.refCount == 0 {
-			toRemove = stale.dir
-		}
 	}
 	o.recoveredMu.Unlock()
 
-	removeBackupDir(toRemove)
+	// Persist so the copy survives a restart. Without the record the startup
+	// sweep cannot tell it from crash debris, and would delete it.
+	if o.store != nil {
+		label := ""
+		if rec.Scan != nil {
+			label = rec.Scan.DiscName
+		}
+		if _, err := o.store.SaveDiscBackup(db.DiscBackup{
+			DriveIndex: driveIndex,
+			DiscLabel:  label,
+			BackupDir:  rec.Dir,
+			SourceArg:  rec.Source.Arg(),
+		}); err != nil {
+			slog.Warn("recovery: could not record disc backup", "dir", rec.Dir, "error", err)
+		}
+	}
+}
+
+// RestoreBackups reloads recovered discs recorded by a previous run.
+//
+// A backup is worth up to ~100GB and tens of minutes, so it has to outlive a
+// restart: otherwise the copy is orphaned on disk and the next scan goes back
+// to the drive MakeMKV could not read in the first place. Records whose
+// directory has since disappeared are dropped.
+func (o *Orchestrator) RestoreBackups() error {
+	if o.store == nil {
+		return nil
+	}
+
+	backups, err := o.store.ListDiscBackups()
+	if err != nil {
+		return err
+	}
+
+	for _, b := range backups {
+		if _, statErr := os.Stat(b.BackupDir); statErr != nil {
+			slog.Info("recovery: forgetting a backup whose directory is gone",
+				"dir", b.BackupDir, "drive_index", b.DriveIndex)
+			if delErr := o.store.DeleteDiscBackup(b.BackupDir); delErr != nil {
+				slog.Warn("recovery: could not drop stale backup record", "error", delErr)
+			}
+			continue
+		}
+
+		o.recoveredMu.Lock()
+		o.recovered[b.DriveIndex] = &recoveredDisc{
+			source: makemkv.FileSource(b.BackupDir),
+			dir:    b.BackupDir,
+		}
+		o.recoveredMu.Unlock()
+
+		slog.Info("recovery: restored disc backup from a previous run",
+			"drive_index", b.DriveIndex, "disc", b.DiscLabel, "dir", b.BackupDir)
+	}
+	return nil
+}
+
+// TrackedBackupDirs lists the backup directories currently accounted for, so a
+// sweep can distinguish them from debris.
+func (o *Orchestrator) TrackedBackupDirs() []string {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	dirs := make([]string, 0, len(o.recovered))
+	for _, rec := range o.recovered {
+		dirs = append(dirs, rec.dir)
+	}
+	return dirs
+}
+
+// DiscardBackup deletes a drive's scratch copy on request.
+//
+// This is the manual escape hatch: a copy is kept whenever a rip did not
+// succeed, so reclaiming the space has to be something the user can ask for.
+func (o *Orchestrator) DiscardBackup(driveIndex int) error {
+	o.recoveredMu.Lock()
+	rec, ok := o.recovered[driveIndex]
+	if !ok {
+		o.recoveredMu.Unlock()
+		return fmt.Errorf("no disc backup for drive %d", driveIndex)
+	}
+	dir := rec.dir
+	delete(o.recovered, driveIndex)
+	o.recoveredMu.Unlock()
+
+	slog.Info("recovery: discarding disc backup on request", "drive_index", driveIndex, "dir", dir)
+	o.forgetBackup(dir)
+	return nil
+}
+
+// forgetBackup removes a backup from disk and from the record.
+func (o *Orchestrator) forgetBackup(dir string) {
+	removeBackupDir(dir)
+	if o.store != nil && dir != "" {
+		if err := o.store.DeleteDiscBackup(dir); err != nil {
+			slog.Warn("recovery: could not drop backup record", "dir", dir, "error", err)
+		}
+	}
 }
 
 // retainRecovered claims the drive's current backup for a job about to rip from
@@ -576,53 +670,61 @@ func (o *Orchestrator) retainRecovered(driveIndex int) *recoveredDisc {
 	return rec
 }
 
-// releaseRecovered drops a job's claim, deleting the backup once no job holds it
-// and it is no longer the drive's current disc.
-func (o *Orchestrator) releaseRecovered(claim *recoveredDisc) {
+// releaseRecovered drops a job's claim on a backup.
+//
+// The copy is deleted only when every job that used it succeeded. A rip that
+// failed — or never produced anything — leaves it in place: it cost tens of
+// minutes and up to ~100GB, and the user will want to retry without re-reading
+// a disc that MakeMKV cannot open. Anything left behind is removed explicitly
+// via DiscardBackup.
+func (o *Orchestrator) releaseRecovered(claim *recoveredDisc, ripSucceeded bool) {
 	if claim == nil {
 		return
 	}
 
 	o.recoveredMu.Lock()
 	claim.refCount--
-	toRemove := ""
-	if claim.refCount <= 0 && claim.retired {
-		toRemove = claim.dir
-	} else if claim.refCount <= 0 {
-		// Still the drive's current disc: drop it and forget the drive.
+	if !ripSucceeded {
+		claim.ripFailed = true
+	}
+	done := claim.refCount <= 0
+	discard := done && !claim.ripFailed
+	dir := claim.dir
+
+	if discard {
 		for idx, rec := range o.recovered {
 			if rec == claim {
 				delete(o.recovered, idx)
-				toRemove = claim.dir
 				break
 			}
 		}
 	}
 	o.recoveredMu.Unlock()
 
-	removeBackupDir(toRemove)
-}
-
-// ReleaseRecoveredForDrive drops a drive's backup, used when a disc is ejected.
-// A rip still reading from the backup keeps it alive; it is retired instead and
-// removed when the last job finishes.
-func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
-	o.recoveredMu.Lock()
-	rec, ok := o.recovered[driveIndex]
-	if !ok {
-		o.recoveredMu.Unlock()
+	if discard {
+		slog.Info("recovery: rip succeeded, discarding the scratch backup", "dir", dir)
+		o.forgetBackup(dir)
 		return
 	}
-	delete(o.recovered, driveIndex)
-	rec.retired = true
-
-	toRemove := ""
-	if rec.refCount == 0 {
-		toRemove = rec.dir
+	if done {
+		slog.Warn("recovery: keeping the scratch backup because a rip did not succeed",
+			"dir", dir, "hint", "discard it from the drive page when you no longer need it")
 	}
-	o.recoveredMu.Unlock()
+}
 
-	removeBackupDir(toRemove)
+// ReleaseRecoveredForDrive marks a drive's backup as no longer current, without
+// deleting it.
+//
+// Ejecting a disc used to throw the copy away. It no longer does: a copy that
+// never produced a successful rip is exactly the one worth keeping, and
+// removing it is an explicit action.
+func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	if rec, ok := o.recovered[driveIndex]; ok {
+		rec.retired = true
+	}
 }
 
 func removeBackupDir(dir string) {
@@ -709,7 +811,7 @@ func removeAACSDir(scratchRoot, backupDir string) error {
 
 // SweepScratch removes disc backups left behind by a previous run. Each is up
 // to ~100GB, so a crash must not leak them indefinitely.
-func SweepScratch(outputDir string) error {
+func SweepScratch(outputDir string, keep []string) error {
 	scratchRoot := filepath.Join(outputDir, ScratchDirName)
 	entries, err := os.ReadDir(scratchRoot)
 	if err != nil {
@@ -718,11 +820,26 @@ func SweepScratch(outputDir string) error {
 		}
 		return fmt.Errorf("sweep scratch: %w", err)
 	}
+
+	tracked := make(map[string]bool, len(keep))
+	for _, dir := range keep {
+		if abs, err := filepath.Abs(dir); err == nil {
+			tracked[abs] = true
+		}
+	}
+
 	for _, e := range entries {
 		path := filepath.Join(scratchRoot, e.Name())
-		slog.Info("recovery: sweeping stale disc backup", "path", path)
+		abs, err := filepath.Abs(path)
+		if err == nil && tracked[abs] {
+			// A live backup, restored from the database. Deleting it here used
+			// to throw away a copy that cost ~100GB and tens of minutes.
+			slog.Info("recovery: keeping tracked disc backup", "path", path)
+			continue
+		}
+		slog.Info("recovery: sweeping untracked disc backup", "path", path)
 		if err := os.RemoveAll(path); err != nil {
-			slog.Warn("recovery: could not sweep stale backup", "path", path, "error", err)
+			slog.Warn("recovery: could not sweep untracked backup", "path", path, "error", err)
 		}
 	}
 	return nil
