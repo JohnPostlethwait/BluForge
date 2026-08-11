@@ -22,6 +22,7 @@ func TestStateRecoveringIsDistinctFromDetected(t *testing.T) {
 func TestDescribeOpticalAccessNamesTheGroupProblem(t *testing.T) {
 	got := describeOpticalAccess(opticalAccess{
 		nodesFound:    []string{"/dev/sg0", "/dev/sg1"},
+		sgNodes:       []string{"/dev/sg0", "/dev/sg1"},
 		readable:      0,
 		running:       "99:100",
 		owningGroups:  []string{"disk(6)"},
@@ -43,6 +44,7 @@ func TestDescribeOpticalAccessNamesTheGroupProblem(t *testing.T) {
 func TestDescribeOpticalAccessSilentWhenReadable(t *testing.T) {
 	got := describeOpticalAccess(opticalAccess{
 		nodesFound: []string{"/dev/sg0"},
+		sgNodes:    []string{"/dev/sg0"},
 		readable:   1,
 	})
 	if got != "" {
@@ -55,5 +57,19 @@ func TestDescribeOpticalAccessSilentWhenReadable(t *testing.T) {
 func TestDescribeOpticalAccessSilentWhenNoNodes(t *testing.T) {
 	if got := describeOpticalAccess(opticalAccess{}); got != "" {
 		t.Errorf("describeOpticalAccess returned %q, want silence when no nodes exist", got)
+	}
+}
+
+// Only /dev/sr* nodes means there is nothing to say about generic SCSI access.
+// Reporting a group problem here would be a false alarm — and /dev/sr* is
+// deliberately never opened, because doing so blocks while a loaded disc spins
+// up and delayed startup by tens of seconds.
+func TestDescribeOpticalAccessSilentWithoutGenericNodes(t *testing.T) {
+	got := describeOpticalAccess(opticalAccess{
+		nodesFound: []string{"/dev/sr0", "/dev/sr1"},
+		readable:   0,
+	})
+	if got != "" {
+		t.Errorf("describeOpticalAccess returned %q for a host with no sg nodes", got)
 	}
 }

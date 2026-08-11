@@ -107,16 +107,30 @@ func main() {
 
 	// Reload backups from a previous run before sweeping, so a live ~100GB copy
 	// is not mistaken for crash debris and deleted.
+	//
+	// These two stay on the startup path deliberately: the sweep deletes any
+	// scratch directory no record accounts for, so it has to finish before a
+	// recovery can create one, or it could delete a backup mid-write.
+	restoreStart := time.Now()
 	if err := orch.RestoreBackups(); err != nil {
 		slog.Warn("could not restore disc backups", "error", err)
 	}
 	if err := workflow.SweepScratch(cfg.OutputDir, orch.TrackedBackupDirs()); err != nil {
 		slog.Warn("could not sweep untracked disc backups", "error", err)
 	}
+	slog.Info("disc backup housekeeping complete", "took", time.Since(restoreStart).String())
 
-	// Report a container that cannot see its optical drives before the first
-	// poll fails with a message that says nothing about group membership.
-	drivemanager.CheckOpticalAccess()
+	// Report a container that cannot see its optical drives.
+	//
+	// This runs in the background: it opens every /dev/sg* and /dev/sr* node to
+	// test readability, and opening an optical device with a disc loaded blocks
+	// while the drive spins up and probes for media. It is pure diagnostics and
+	// has no business delaying the web server by tens of seconds.
+	go func() {
+		start := time.Now()
+		drivemanager.CheckOpticalAccess()
+		slog.Info("optical access check complete", "took", time.Since(start).String())
+	}()
 
 	// 11. Create drive manager with onEvent callback.
 	// srv and driveMgr are declared here so the callback closure can read live
