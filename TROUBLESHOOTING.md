@@ -122,10 +122,40 @@ streams on one disc are not guaranteed to share an encryption state. BluForge
 samples the three largest streams and refuses recovery if any of them reads as
 encrypted.
 
-### The workaround (spurious AACS only)
+### The fix (spurious AACS only): don't copy the disc, hide the directory
+
+MakeMKV decides whether to demand a volume key from **the tree it is pointed
+at**, not from the physical disc. So the disc does not need copying at all —
+point MakeMKV at a directory of symlinks that omits `AACS`:
+
+```bash
+mount /dev/sr0 /mnt/disc
+```
+
+```bash
+mkdir -p /tmp/mydisc && ln -s /mnt/disc/BDMV /tmp/mydisc/BDMV && ln -s /mnt/disc/CERTIFICATE /tmp/mydisc/CERTIFICATE
+```
+
+Link everything at the disc's top level **except `AACS`**. Then:
+
+```bash
+makemkvcon mkv file:/tmp/mydisc all /path/to/output
+```
+
+MakeMKV logs "AACS directory not present, assuming unencrypted disc" and reads
+the disc directly. This costs kilobytes and seconds, and reads only the titles
+you select. Measured on a real disc: 18 seconds, against 70 minutes and 97GB for
+the copy below.
+
+The disc must stay in the drive and mounted for the whole rip, since the links
+resolve through the mount.
 
 BluForge does this automatically when it confirms the payload is unencrypted.
-Manually:
+
+### The fallback: copy the disc and strip AACS from the copy
+
+Use this when the disc cannot be mounted, or MakeMKV will not accept a
+symlinked tree.
 
 ```bash
 makemkvcon backup disc:0 /path/to/scratch/mydisc
@@ -142,9 +172,9 @@ rm -rf /path/to/scratch/mydisc/AACS
 makemkvcon mkv file:/path/to/scratch/mydisc all /path/to/output
 ```
 
-MakeMKV will now log "AACS directory not present, assuming unencrypted disc" and
-complete normally. Budget up to ~100GB of scratch space for a UHD disc, and
-check free space *before* you start rather than dying halfway through.
+Budget up to ~100GB of scratch space for a UHD disc, and check free space
+*before* you start rather than dying halfway through. The advantage over the
+symlink method is that the disc can be ejected once the copy finishes.
 
 ### If the payload really is encrypted
 

@@ -192,11 +192,15 @@ mastering fault. MakeMKV sees the directory, demands a volume key that does not
 exist, and fails with an error that reads like a missing key.
 
 BluForge detects this by sampling the disc's actual MPEG-TS packets. When the
-payload is confirmed unencrypted it recovers automatically: a raw backup, the
-AACS directory removed from the copy, then a normal rip from the copy with your
-track selection intact. The scratch copy is deleted afterwards. When the payload
-really is encrypted, nothing is copied and the disc is reported as a genuine
-missing-key case.
+payload is confirmed unencrypted it recovers automatically, without copying the
+disc: it points MakeMKV at a directory of symlinks that omits AACS, so the rip
+reads the disc directly and only the titles you selected. Measured at 18 seconds
+against 70 minutes for the copy-based approach.
+
+Where that is not possible — a disc that cannot be mounted, or a MakeMKV that
+refuses the tree — it falls back to a raw backup with AACS removed from the
+copy. When the payload really is encrypted, nothing is copied and the disc is
+reported as a genuine missing-key case.
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the failure signature and the
 manual procedure.
