@@ -52,6 +52,14 @@ func (m *mockDriveExecutor) ScanDisc(_ context.Context, driveIndex int) (*makemk
 	}, nil
 }
 
+// asyncDeadline bounds waits for work happening on another goroutine.
+//
+// It is a safety net against a hang, not a statement about how fast the work
+// ought to be. CI runs the suite under -race on a slower machine, where the
+// previous five-second ceiling failed a rip that completes in milliseconds
+// locally. A generous ceiling costs nothing when the test passes.
+const asyncDeadline = 30 * time.Second
+
 func setupOrchestrator(t *testing.T) (*Orchestrator, *db.Store, string) {
 	t.Helper()
 	return setupOrchestratorWithScanner(t, nil)
@@ -95,7 +103,7 @@ func waitForCompletedJob(t *testing.T, store *db.Store) {
 
 func waitForCompletedJobs(t *testing.T, store *db.Store, count int) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(asyncDeadline)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 	for {
