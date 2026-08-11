@@ -399,6 +399,22 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 				"drive_index", driveIndex, "source", src.Arg())
 			return cached, nil
 		}
+
+		// No cached scan — the process restarted since the backup was made. Read
+		// the folder rather than the drive: the disc is the one MakeMKV could not
+		// open, and falling through would spend another ~100GB copying what is
+		// already sitting in scratch.
+		if o.backupper != nil {
+			slog.Info("orchestrator: rescanning a restored backup",
+				"drive_index", driveIndex, "source", src.Arg())
+			scan, err := o.backupper.ScanSource(ctx, *src)
+			if err == nil && len(scan.Titles) > 0 {
+				o.cacheScan(driveIndex, scan)
+				return scan, nil
+			}
+			slog.Warn("orchestrator: restored backup did not scan; falling back to the drive",
+				"drive_index", driveIndex, "source", src.Arg(), "error", err)
+		}
 	}
 
 	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
