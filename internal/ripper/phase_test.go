@@ -90,21 +90,26 @@ func TestJobIsAnalyzingUntilTheCopyBegins(t *testing.T) {
 	}
 }
 
-// makemkvcon's progress runs 0 to 100 for the preliminary phase and restarts for
-// the copy. If the save message is ever missing, that restart still marks the
-// transition — better than a rip that claims to be analyzing to the end.
-func TestAProgressRestartAlsoMarksTheCopy(t *testing.T) {
+// v0.4.8 still showed "10.9 GB / 63.9 GB · 17%" seconds into a rip. A progress
+// restart was treated as the copy beginning, but makemkvcon restarts progress
+// repeatedly through its preliminary work -- once per sub-operation -- so the
+// first of those flipped the phase and the fabricated byte count came straight
+// back. Only the save message marks the copy.
+func TestProgressRestartsDuringAnalysisDoNotStartTheCopy(t *testing.T) {
 	var job *Job
 	exec := &phasedExecutor{done: make(chan struct{})}
 
 	exec.run = func(onEvent func(makemkv.Event)) {
-		onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Total: 100, Max: 100}})
-		onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Total: 2, Max: 100}})
+		// Preliminary work: several sub-operations, each running to 100 and
+		// restarting. None of this is copying.
+		for _, pct := range []int{40, 100, 3, 90, 100, 8, 60} {
+			onEvent(makemkv.Event{Type: "PRGV", Progress: &makemkv.Progress{Total: pct, Max: 100}})
+		}
 		exec.record(job)
 	}
 
 	engine := NewEngine(exec)
-	job = NewJob(0, 0, "DISC", t.TempDir())
+	job = NewJob(0, 0, "RAMBO_DISC2", t.TempDir())
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -115,8 +120,8 @@ func TestAProgressRestartAlsoMarksTheCopy(t *testing.T) {
 		t.Fatal("the rip never finished")
 	}
 
-	if phases := exec.seen(); phases[0] != PhaseCopying {
-		t.Errorf("phase after a progress restart was %q, want %q", phases[0], PhaseCopying)
+	if phases := exec.seen(); phases[0] != PhaseAnalyzing {
+		t.Errorf("phase after preliminary progress restarts was %q, want %q", phases[0], PhaseAnalyzing)
 	}
 }
 
