@@ -928,14 +928,12 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 		// the file, the wrong title is already on disk under the right name.
 		if guardErr == nil {
 			guard.observe(ev)
-			if guard.readyToDecide() {
-				if verr := guard.verdict(); verr != nil {
-					guardErr = verr
-					slog.Error("makemkvcon: aborting rip, the title moved",
-						"source", target, "requested_index", titleID,
-						"expected", expectSource, "error", verr)
-					kill()
-				}
+			if verr := guard.verdict(); verr != nil {
+				guardErr = verr
+				slog.Error("makemkvcon: aborting rip, the title moved",
+					"source", target, "requested_index", titleID,
+					"expected", expectSource, "error", verr)
+				kill()
 			}
 		}
 
