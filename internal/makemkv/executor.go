@@ -287,6 +287,13 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	return e.ScanSource(ctx, DiscSource(driveIndex))
 }
 
+// ScanDiscWithProgress is ScanDisc with live reporting. A scan of a damaged
+// disc can run for the better part of an hour; onEvent is what lets the caller
+// say so rather than appear to hang.
+func (e *Executor) ScanDiscWithProgress(ctx context.Context, driveIndex int, onEvent func(Event)) (*DiscScan, error) {
+	return e.ScanSourceWithProgress(ctx, DiscSource(driveIndex), onEvent)
+}
+
 // ScanSource scans either a physical drive or a disc folder on disk, returning
 // the same aggregated DiscScan for both. A folder source is what allows a
 // backup with its AACS directory removed to stand in for a disc that MakeMKV

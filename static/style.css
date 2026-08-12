@@ -1286,3 +1286,22 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
 .scan-warning-details summary:hover {
   color: var(--text-secondary);
 }
+
+/* The elapsed count is the difference between "slow" and "stuck", so it is
+   given the weight of a number worth watching. */
+.scan-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.scan-operation {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.scan-hint {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}

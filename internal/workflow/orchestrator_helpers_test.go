@@ -67,6 +67,11 @@ func setupOrchestrator(t *testing.T) (*Orchestrator, *db.Store, string) {
 
 func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestrator, *db.Store, string) {
 	t.Helper()
+	return setupOrchestratorWithScannerAndBroadcast(t, scanner, func(string, string) {})
+}
+
+func setupOrchestratorWithScannerAndBroadcast(t *testing.T, scanner DiscScanner, broadcast func(string, string)) (*Orchestrator, *db.Store, string) {
+	t.Helper()
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -83,7 +88,7 @@ func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestra
 		Store:       store,
 		Engine:      engine,
 		Organizer:   org,
-		OnBroadcast: func(string, string) {},
+		OnBroadcast: broadcast,
 		Scanner:     scanner,
 	})
 

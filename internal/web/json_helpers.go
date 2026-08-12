@@ -235,11 +235,17 @@ type DriveStoreJSON struct {
 	// ScanDiagnosis reads those same messages back in terms of what the user
 	// lost. The raw form is nine lines of SCSI sense data; this says which
 	// titles are missing.
-	ScanDiagnosis  makemkv.ScanDiagnosis `json:"scanDiagnosis"`
-	KeepForcedSubs bool                  `json:"keepForcedSubs"`
-	KeepLossless   bool                  `json:"keepLossless"`
-	RipActive      bool                  `json:"ripActive"`
-	ActiveJobCount int                   `json:"activeJobCount"`
+	ScanDiagnosis makemkv.ScanDiagnosis `json:"scanDiagnosis"`
+	// ScanActive and its companions let a page that reconnected mid-scan draw
+	// the banner it missed the events for. ScanStartedAt is a Unix time so the
+	// client can tick the elapsed count itself, rather than needing a heartbeat.
+	ScanActive     bool   `json:"scanActive"`
+	ScanOperation  string `json:"scanOperation"`
+	ScanStartedAt  int64  `json:"scanStartedAt"`
+	KeepForcedSubs bool   `json:"keepForcedSubs"`
+	KeepLossless   bool   `json:"keepLossless"`
+	RipActive      bool   `json:"ripActive"`
+	ActiveJobCount int    `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.

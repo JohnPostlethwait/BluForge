@@ -63,8 +63,9 @@ func ParseLine(line string) (Event, error) {
 	case "PRGV":
 		return parsePRGV(rest)
 	case "PRGT", "PRGC":
-		// Progress title/chapter text — informational only, no data to extract.
-		return Event{Type: typ}, nil
+		// Progress title/chapter: code,id,name. The name is the current step,
+		// which is what a scan has to show for itself while it runs.
+		return Event{Type: typ, Operation: progressName(rest)}, nil
 	default:
 		return Event{}, fmt.Errorf("makemkv: unknown line type: %q", typ)
 	}
@@ -184,6 +185,16 @@ func parseMSG(s string) (Event, error) {
 		msg.Params = parts[5:]
 	}
 	return Event{Type: "MSG", Message: msg}, nil
+}
+
+// progressName pulls the operation name from a PRGT/PRGC line, returning ""
+// when the line is short. A progress line carries nothing worth failing over.
+func progressName(s string) string {
+	parts := parseCSV(s)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
 }
 
 // parsePRGV parses: current,total,max
