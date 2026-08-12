@@ -140,7 +140,7 @@ func TestUpdateJobOutput(t *testing.T) {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
-	if err := store.UpdateJobOutput(id, "/final/movie.mkv"); err != nil {
+	if err := store.UpdateJobOutput(id, "/final/movie.mkv", 8_912_345_678); err != nil {
 		t.Fatalf("UpdateJobOutput: %v", err)
 	}
 
@@ -151,6 +151,12 @@ func TestUpdateJobOutput(t *testing.T) {
 
 	if got.OutputPath != "/final/movie.mkv" {
 		t.Errorf("OutputPath: want %q, got %q", "/final/movie.mkv", got.OutputPath)
+	}
+	// The measured size is the whole point: the estimate on the job describes
+	// the disc, and showing it against a finished rip reported successes that
+	// were nothing of the sort.
+	if got.OutputSizeBytes != 8_912_345_678 {
+		t.Errorf("OutputSizeBytes: want 8912345678, got %d", got.OutputSizeBytes)
 	}
 }
 

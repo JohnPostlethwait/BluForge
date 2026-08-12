@@ -40,20 +40,25 @@ type TrackMetadata struct {
 // JSON tags use uppercase names to match the existing SSE contract consumed
 // by Alpine.js in drive_detail.templ and queue.templ.
 type Job struct {
-	mu          sync.Mutex `json:"-"`
-	ID          int64      `json:"ID"`
-	DriveIndex  int        `json:"DriveIndex"`
-	TitleIndex  int        `json:"TitleIndex"`
-	DiscName    string     `json:"DiscName"`
-	TitleName   string     `json:"TitleName"`
-	ContentType string     `json:"ContentType,omitempty"`
-	OutputDir   string     `json:"-"`
-	OutputPath  string     `json:"-"`
-	Status      JobStatus  `json:"Status"`
-	Progress    int        `json:"Progress"`
-	Error       string     `json:"Error,omitempty"`
-	StartedAt   time.Time  `json:"StartedAt"`
-	FinishedAt  time.Time  `json:"FinishedAt"`
+	mu         sync.Mutex `json:"-"`
+	ID         int64      `json:"ID"`
+	DriveIndex int        `json:"DriveIndex"`
+	TitleIndex int        `json:"TitleIndex"`
+	// SourceFile is the playlist or stream this title came from, e.g.
+	// "00000.mpls". It is checked against makemkvcon's enumeration at rip time:
+	// the index alone is not stable between invocations on a disc whose titles
+	// fail to read, and trusting it rips the wrong title under the right name.
+	SourceFile  string    `json:"SourceFile,omitempty"`
+	DiscName    string    `json:"DiscName"`
+	TitleName   string    `json:"TitleName"`
+	ContentType string    `json:"ContentType,omitempty"`
+	OutputDir   string    `json:"-"`
+	OutputPath  string    `json:"-"`
+	Status      JobStatus `json:"Status"`
+	Progress    int       `json:"Progress"`
+	Error       string    `json:"Error,omitempty"`
+	StartedAt   time.Time `json:"StartedAt"`
+	FinishedAt  time.Time `json:"FinishedAt"`
 	// OnStart is an optional callback invoked just before the rip begins.
 	// Returning a non-nil error aborts the job and transitions it to Failed.
 	// Typical use: lazy creation of the per-title temp directory.

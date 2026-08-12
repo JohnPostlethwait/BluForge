@@ -16,7 +16,7 @@ type sourceRecordingExecutor struct {
 	done    chan struct{}
 }
 
-func (s *sourceRecordingExecutor) StartRip(_ context.Context, src makemkv.Source, _ int, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
+func (s *sourceRecordingExecutor) StartRip(_ context.Context, src makemkv.Source, _ int, expectSource string, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	s.mu.Lock()
 	s.sources = append(s.sources, src)
 	s.mu.Unlock()

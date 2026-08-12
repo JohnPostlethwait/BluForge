@@ -291,6 +291,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob := ripper.NewJob(params.DriveIndex, sel.TitleIndex, params.DiscName, "")
 	ripJob.ID = jobID
 	ripJob.TitleName = sel.TitleName
+	// The index alone is not enough to identify a title across makemkvcon
+	// invocations; the source file is what the rip verifies against.
+	ripJob.SourceFile = sel.SourceFile
 	ripJob.ContentType = sel.ContentType
 	ripJob.TrackMetadata = sel.TrackMetadata
 	ripJob.SelectionOpts = params.SelectionOpts
@@ -359,7 +362,16 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
 		}
 
-		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest); dbErr != nil {
+		// Measure what actually landed. The size shown against a finished rip
+		// was MakeMKV's estimate for the title on the disc, which reported a
+		// 67.4 GB success for a file that is 118 MB.
+		var outputSize int64
+		if fi, statErr := os.Stat(fullDest); statErr == nil {
+			outputSize = fi.Size()
+		} else {
+			slog.Warn("could not measure the ripped file", "job_id", job.ID, "path", fullDest, "error", statErr)
+		}
+		if dbErr := o.store.UpdateJobOutput(job.ID, fullDest, outputSize); dbErr != nil {
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)
 		}
 		o.setJobStatus(job.ID, "completed", 100, "")

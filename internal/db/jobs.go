@@ -9,7 +9,7 @@ import (
 
 const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
 	       output_path, status, progress, error_message, size_bytes, duration,
-	       created_at, updated_at, track_metadata`
+	       created_at, updated_at, track_metadata, output_size_bytes`
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
@@ -23,8 +23,13 @@ type RipJob struct {
 	Status        string
 	Progress      int
 	ErrorMessage  string
-	SizeBytes     int64
-	Duration      string
+	// SizeBytes is MakeMKV's estimate for the title on the disc, taken when the
+	// job is created. It describes the disc, not the result.
+	SizeBytes int64
+	// OutputSizeBytes is the file that actually landed, measured after the move.
+	// Zero on jobs that predate the column, and on jobs that never finished.
+	OutputSizeBytes int64
+	Duration        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	TrackMetadata string // raw JSON, may be empty
@@ -93,14 +98,18 @@ func (s *Store) UpdateJobStatus(id int64, status string, progress int, errMsg st
 	return nil
 }
 
-// UpdateJobOutput updates the output_path of a rip job.
-func (s *Store) UpdateJobOutput(id int64, outputPath string) error {
+// UpdateJobOutput records where a rip landed and how big it actually is.
+//
+// The size is measured rather than assumed: the estimate captured at scan time
+// was being shown against a finished rip, which reported a 67.4 GB success for
+// a 118 MB file.
+func (s *Store) UpdateJobOutput(id int64, outputPath string, outputSizeBytes int64) error {
 	const q = `
 		UPDATE rip_jobs
-		SET output_path = ?, updated_at = CURRENT_TIMESTAMP
+		SET output_path = ?, output_size_bytes = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?`
 
-	_, err := s.db.Exec(q, outputPath, id)
+	_, err := s.db.Exec(q, outputPath, outputSizeBytes, id)
 	if err != nil {
 		return fmt.Errorf("update job output %d: %w", id, err)
 	}
@@ -232,7 +241,7 @@ func scanJob(s scanner) (*RipJob, error) {
 		&job.ID, &job.DriveIndex, &job.DiscName, &job.TitleIndex, &job.TitleName,
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
-		&job.CreatedAt, &job.UpdatedAt, &trackMeta,
+		&job.CreatedAt, &job.UpdatedAt, &trackMeta, &job.OutputSizeBytes,
 	)
 	if err != nil {
 		return nil, err

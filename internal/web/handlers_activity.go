@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -137,7 +138,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 			Error:             j.ErrorMessage,
 			DriveIndex:        j.DriveIndex,
 			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
-			SizeHuman:         meta.SizeHuman,
+			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			Duration:          meta.Duration,
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,
@@ -197,7 +198,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 			OutputPath:        j.OutputPath,
 			Duration:          j.Duration,
 			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
-			SizeHuman:         meta.SizeHuman,
+			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,
 		})
@@ -292,4 +293,26 @@ func (s *Server) handleActivityClearFiltered(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// deliveredSize reports the size of the file that actually landed, falling back
+// to MakeMKV's estimate for jobs that predate the measurement.
+//
+// The estimate describes the title on the disc. Shown against a finished rip it
+// claimed a 67.4 GB success for a file that was 118 MB, because nothing had
+// ever looked at the result.
+func deliveredSize(outputBytes int64, estimate string) string {
+	if outputBytes <= 0 {
+		return estimate
+	}
+	const unit = 1000
+	if outputBytes < unit {
+		return fmt.Sprintf("%d B", outputBytes)
+	}
+	div, exp := int64(unit), 0
+	for n := outputBytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(outputBytes)/float64(div), "kMGTPE"[exp])
 }
