@@ -583,9 +583,16 @@ document.addEventListener('alpine:init', () => {
 				}
 
 				<!-- Submit / Update PR form -->
+				<!--
+					The guard is in the submit handler, not only on :disabled. A
+					double-click fires both submit events before Alpine has
+					re-rendered the button, and each one opens its own pull request
+					upstream — the status that would prevent the second is not
+					written until the first finishes.
+				-->
 				<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/contributions/%d/submit", data.Contribution.ID)) }
 					x-data="{ submitting: false }"
-					@submit="document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
+					@submit="if (submitting) { $event.preventDefault(); return } document.getElementById('title_labels_submit').value = $store.contrib.serializedLabels(); submitting = true">
 					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 					if data.Contribution.ContributionType != "update" {
 						<input type="hidden" name="tmdb_id" :value="$store.contrib.tmdbID"/>

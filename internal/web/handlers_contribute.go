@@ -1,11 +1,13 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -220,7 +222,7 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	}
 	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
 	svc := contribute.NewService(s.store, ghClient, tmdbClient)
-	prURL, err := svc.Execute(c.Request().Context(), id)
+	prURL, err := s.submitContribution(c.Request().Context(), svc, id)
 	if err != nil {
 		slog.Error("failed to execute contribution", "id", id, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to submit contribution: "+err.Error())
@@ -236,6 +238,31 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	})
 
 	return c.Redirect(http.StatusSeeOther, "/contributions?flash=Contribution+submitted+%E2%80%94+PR+opened+successfully")
+}
+
+// contributionSubmitTimeout bounds a detached submission. Long enough for a
+// poster download and half a dozen GitHub calls on a slow link; short enough
+// that a wedged call does not pin the goroutine for the life of the process.
+const contributionSubmitTimeout = 5 * time.Minute
+
+// contributionExecutor opens the pull request for a contribution. Narrowed to
+// the one method so the submission can be tested without GitHub.
+type contributionExecutor interface {
+	Execute(ctx context.Context, contributionID int64) (string, error)
+}
+
+// submitContribution runs a submission on a context detached from the request.
+//
+// Submitting opens a PR against TheDiscDB: a TMDB fetch, a poster download, a
+// fork, a branch, a commit and a pull request. On the request's context, a
+// browser that gave up in the middle could leave the branch pushed and the PR
+// opened upstream with nothing recorded here — and the next attempt would open
+// a second PR for the same disc. This is the shape of bug that destroyed a
+// 97GB backup when recovery ran on a request context.
+func (s *Server) submitContribution(parent context.Context, svc contributionExecutor, id int64) (string, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), contributionSubmitTimeout)
+	defer cancel()
+	return svc.Execute(ctx, id)
 }
 
 // handleContributionResetPR resets a submitted contribution's PR state back to pending.

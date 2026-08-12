@@ -187,6 +187,57 @@ func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	return drives, nil
 }
 
+// runScan executes an info scan, returning the raw output, the parsed events,
+// and the command error.
+//
+// When the runner supports streaming, events reach onEvent as makemkvcon
+// produces them. A scan of a disc with unreadable sectors runs for many minutes
+// while the drive retries, and buffering until exit left nothing able to tell
+// that apart from a hang.
+func (e *Executor) runScan(ctx context.Context, target string, onEvent func(Event)) (string, []Event, error) {
+	args := []string{"-r", "info", target}
+
+	if sr, ok := e.runner.(StreamRunner); ok {
+		var raw strings.Builder
+		var events []Event
+		err := sr.RunStream(ctx, func(line string) {
+			raw.WriteString(line)
+			raw.WriteByte('\n')
+			ev, parseErr := ParseLine(line)
+			if parseErr != nil {
+				return
+			}
+			events = append(events, ev)
+			if onEvent != nil {
+				onEvent(ev)
+			}
+		}, args...)
+		return raw.String(), events, err
+	}
+
+	// Buffered fallback: parse once the command exits.
+	r, cmdErr := e.runner.Run(ctx, args...)
+	if r == nil {
+		return "", nil, cmdErr
+	}
+	rawBytes, readErr := io.ReadAll(r)
+	if readErr != nil && cmdErr == nil {
+		cmdErr = readErr
+	}
+	raw := string(rawBytes)
+
+	events, parseErr := ParseAll(strings.NewReader(raw))
+	if parseErr != nil && cmdErr == nil {
+		cmdErr = parseErr
+	}
+	if onEvent != nil {
+		for _, ev := range events {
+			onEvent(ev)
+		}
+	}
+	return raw, events, cmdErr
+}
+
 // noDrivesError distinguishes "makemkvcon cannot see any drive" from a generic
 // listing failure. On a container the former is a group-membership problem with
 // a concrete fix, and reporting it as such saves the user from investigating
@@ -236,6 +287,13 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 	return e.ScanSource(ctx, DiscSource(driveIndex))
 }
 
+// ScanDiscWithProgress is ScanDisc with live reporting. A scan of a damaged
+// disc can run for the better part of an hour; onEvent is what lets the caller
+// say so rather than appear to hang.
+func (e *Executor) ScanDiscWithProgress(ctx context.Context, driveIndex int, onEvent func(Event)) (*DiscScan, error) {
+	return e.ScanSourceWithProgress(ctx, DiscSource(driveIndex), onEvent)
+}
+
 // ScanSource scans either a physical drive or a disc folder on disk, returning
 // the same aggregated DiscScan for both. A folder source is what allows a
 // backup with its AACS directory removed to stand in for a disc that MakeMKV
@@ -244,6 +302,16 @@ func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, err
 // On failure the returned error is a *ScanError carrying the partially parsed
 // scan, so callers can inspect the message codes makemkvcon emitted.
 func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error) {
+	return e.ScanSourceWithProgress(ctx, src, nil)
+}
+
+// ScanSourceWithProgress is ScanSource with live reporting.
+//
+// onEvent receives each parsed line as makemkvcon produces it. A scan of a disc
+// with unreadable sectors runs for many minutes while the drive retries, and
+// buffering its output until exit meant nothing could distinguish that from a
+// hung process — not the UI, not the log. onEvent may be nil.
+func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEvent func(Event)) (*DiscScan, error) {
 	slog.Info("executor: starting scan", "source", src.Arg())
 
 	driveIndex := src.DriveIndex
@@ -263,7 +331,7 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 	defer cancel()
 
 	target := src.Arg()
-	r, cmdErr := e.runner.Run(ctx, "-r", "info", target)
+	rawOutput, events, cmdErr := e.runScan(ctx, target, onEvent)
 
 	// A scan killed by the ceiling reports whatever the kernel did — "signal:
 	// killed" — which describes the mechanism and hides the cause. Say what
@@ -279,27 +347,6 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 	}
 
 	// Read the full output so we can preserve it for contributions and still parse events.
-	rawBytes, readErr := io.ReadAll(r)
-	if readErr != nil {
-		slog.Error("executor: failed to read scan output", "source", src.Arg(), "error", readErr)
-		if cmdErr != nil {
-			return nil, &ScanError{Source: src, Err: cmdErr}
-		}
-		return nil, &ScanError{Source: src, Reason: "read output", Err: readErr}
-	}
-	rawOutput := string(rawBytes)
-
-	// Always attempt to parse output — makemkvcon returns non-zero on AACS
-	// warnings but may still have produced valid TINFO/CINFO/SINFO lines.
-	events, parseErr := ParseAll(strings.NewReader(rawOutput))
-	if parseErr != nil {
-		slog.Error("executor: scan parse failed", "source", src.Arg(), "error", parseErr)
-		if cmdErr != nil {
-			return nil, &ScanError{Source: src, Err: cmdErr}
-		}
-		return nil, &ScanError{Source: src, Reason: "parse output", Err: parseErr}
-	}
-
 	if cmdErr != nil {
 		slog.Warn("executor: scan command exited non-zero, parsing output anyway",
 			"source", src.Arg(), "error", cmdErr, "event_count", len(events))

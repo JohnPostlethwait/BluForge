@@ -128,10 +128,20 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	// Surface what MakeMKV complained about during the scan. A disc with
 	// unreadable sectors yields a shorter title list and nothing else to show
 	// for it, which reads as success.
+	if s.orchestrator != nil {
+		if st := s.orchestrator.ScanStatus(idx); st.Active {
+			driveStore.ScanActive = true
+			driveStore.ScanOperation = st.Operation
+			driveStore.ScanStartedAt = st.StartedAt.Unix()
+		}
+	}
+
 	driveStore.ScanWarnings = make([]makemkv.ScanWarning, 0)
+	driveStore.ScanDiagnosis = makemkv.ScanDiagnosis{Findings: []makemkv.ScanFinding{}}
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
 			driveStore.ScanWarnings = makemkv.ScanWarnings(scan.Messages)
+			driveStore.ScanDiagnosis = makemkv.Diagnose(scan.Messages)
 		}
 	}
 
@@ -395,7 +405,12 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/activity?flash=Rip+started+successfully")
 }
 
-// handleDriveScan runs a disc scan synchronously and returns the titles as JSON.
+// handleDriveScan returns the titles for a disc, starting the scan in the
+// background if it has not run yet.
+//
+// It used to block until makemkvcon exited. A disc that retries unreadable
+// sectors can take the better part of an hour, which is longer than any browser
+// will wait — and the request dying killed the scan with it.
 func (s *Server) handleDriveScan(c echo.Context) error {
 	idx, err := parseDriveIndex(c)
 	if err != nil {
@@ -415,23 +430,20 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "scanner not configured")
 	}
 
-	scan, scanErr := s.orchestrator.ScanDisc(c.Request().Context(), idx)
-	if errors.Is(scanErr, workflow.ErrRecoveryInProgress) {
-		// Not a failure: the disc carries a spurious AACS directory and is being
-		// copied in the background. Reporting 500 here would show the user an
-		// error for something that is working, and the progress banner is
-		// already being fed by disc_recovery SSE events.
-		slog.Info("disc recovery in progress, scan deferred", "drive_index", idx)
+	// A scan that has already run is served from cache; this is the request the
+	// page makes when it sees the scan finish.
+	scan := s.orchestrator.GetCachedScanByDrive(idx)
+	if scan == nil {
+		err := s.orchestrator.StartScan(idx)
+		if err != nil && !errors.Is(err, workflow.ErrScanInProgress) {
+			slog.Error("could not start disc scan", "drive_index", idx, "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", err))
+		}
+		// Progress, completion and failure all arrive as disc_scan SSE events.
 		return c.JSON(http.StatusAccepted, map[string]any{
-			"status": "recovering",
-			"message": "This disc reports AACS protection but its content is not encrypted. " +
-				"BluForge is copying the disc and removing the AACS directory so it can be ripped. " +
-				"This can take a while; progress is shown on this page.",
+			"status":  "scanning",
+			"message": "Reading the disc. This can take a while on a damaged disc; progress is shown on this page.",
 		})
-	}
-	if scanErr != nil {
-		slog.Error("disc scan failed", "drive_index", idx, "error", scanErr)
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", scanErr))
 	}
 
 	// Save disc mapping if a release was selected in the session.

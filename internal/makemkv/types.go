@@ -109,4 +109,7 @@ type Event struct {
 	Progress *Progress
 	Message  *Message
 	Count    int
+	// Operation is the name makemkvcon gives the step it is on, from a
+	// PRGT/PRGC line. It is the only thing a long scan says about itself.
+	Operation string
 }

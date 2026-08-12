@@ -67,6 +67,9 @@ type Orchestrator struct {
 
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
+	// scanning tracks in-flight scans so the page can be told what a scan that
+	// takes half an hour is actually doing. Guarded by scanMu.
+	scanning map[int]*scanState
 
 	// recovered tracks discs currently being ripped from a stripped backup, so
 	// the scratch copy can be deleted once the last job for the disc finishes.
@@ -463,7 +466,7 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 	// sector and can run for minutes; on an HTTP request's context the browser
 	// giving up killed makemkvcon mid-read, surfacing as "signal: killed". The
 	// executor applies its own timeout.
-	scan, err := o.scanner.ScanDisc(context.WithoutCancel(ctx), driveIndex)
+	scan, err := o.scanOnce(context.WithoutCancel(ctx), driveIndex)
 	if err != nil {
 		recovered, recErr := o.maybeRecover(ctx, driveIndex, err)
 		if recErr != nil {

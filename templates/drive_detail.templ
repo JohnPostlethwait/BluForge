@@ -31,7 +31,14 @@ document.addEventListener('alpine:init', () => {
 	store.subtitleLangs = store.subtitleLanguages || []
 	store.keepLossless = store.keepLossless !== undefined ? store.keepLossless : true
 	store.keepForcedSubs = store.keepForcedSubs !== undefined ? store.keepForcedSubs : true
+	// A page loaded while a scan is already running has to show it: the events
+	// so far are gone, and the server-rendered state is the only record.
+	store.scanning = store.scanActive || false
+	store.scanOperation = store.scanOperation || ''
+	store.scanStartedAt = store.scanStartedAt ? store.scanStartedAt * 1000 : 0
+	store.scanElapsed = store.scanStartedAt ? Math.floor((Date.now() - store.scanStartedAt) / 1000) : 0
 	Alpine.store('drive', store)
+	if (store.scanning) startScanClock()
 
 	const evtSource = new EventSource('/events')
 
@@ -94,6 +101,39 @@ document.addEventListener('alpine:init', () => {
 	})
 
 	const _ripJobIDs = new Set()
+	// A scan of a damaged disc can run for the better part of an hour. These
+	// events are the only thing that distinguishes it from a hung one.
+	evtSource.addEventListener('disc_scan', (e) => {
+		const update = JSON.parse(e.data)
+		const store = Alpine.store('drive')
+		if (update.drive_index !== store.driveIndex) return
+
+		if (update.phase === 'scanning') {
+			store.scanning = true
+			store.scanError = ''
+			store.scanOperation = update.operation || ''
+			if (update.started_at) store.scanStartedAt = update.started_at * 1000
+			startScanClock()
+			return
+		}
+
+		stopScanClock()
+		store.scanning = false
+		store.scanOperation = ''
+
+		if (update.phase === 'done') {
+			// The titles are cached now; the same endpoint returns them.
+			loadScanResults(store.driveIndex)
+		} else if (update.phase === 'failed') {
+			store.scanError = update.message || 'Scan failed'
+			resyncDriveState()
+		} else if (update.phase === 'recovering') {
+			// Recovery took over; its own banner and events run from here.
+			store.recoveryActive = true
+			store.recoveryPhase = 'detecting'
+		}
+	})
+
 	evtSource.addEventListener('rip-update', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex !== Alpine.store('drive').driveIndex) return
@@ -134,6 +174,18 @@ async function resyncDriveState() {
 		store.activeJobCount = s.activeJobCount
 		store.hasBackup = s.hasBackup
 		store.scanWarnings = s.scanWarnings || []
+		store.scanDiagnosis = s.scanDiagnosis || { summary: '', findings: [] }
+
+		// A scan that started while we were disconnected has to restore its
+		// banner, and one that finished has to take it down.
+		store.scanning = s.scanActive
+		store.scanOperation = s.scanOperation || ''
+		store.scanStartedAt = s.scanStartedAt ? s.scanStartedAt * 1000 : 0
+		if (s.scanActive) {
+			startScanClock()
+		} else {
+			stopScanClock()
+		}
 
 		// A recovery that finished while we were disconnected must clear the
 		// banner, and one still running must restore it.
@@ -396,10 +448,45 @@ function hasLosslessAudio() {
 	)
 }
 
+// The scan clock ticks locally from the start time the server sent, so elapsed
+// time advances every second without a heartbeat event per second.
+let _scanClock = null
+
+function startScanClock() {
+	if (_scanClock) return
+	_scanClock = setInterval(() => {
+		const store = Alpine.store('drive')
+		if (!store || !store.scanning || !store.scanStartedAt) return
+		store.scanElapsed = Math.max(0, Math.floor((Date.now() - store.scanStartedAt) / 1000))
+	}, 1000)
+}
+
+function stopScanClock() {
+	if (!_scanClock) return
+	clearInterval(_scanClock)
+	_scanClock = null
+}
+
+function formatElapsed(seconds) {
+	const total = Math.max(0, Math.floor(seconds || 0))
+	const mins = Math.floor(total / 60)
+	const secs = total - mins * 60
+	if (mins < 60) return mins + ':' + String(secs).padStart(2, '0')
+	const hours = Math.floor(mins / 60)
+	return hours + ':' + String(mins - hours * 60).padStart(2, '0') + ':' + String(secs).padStart(2, '0')
+}
+
+// scanDisc asks for a scan. It returns as soon as the scan is under way: the
+// result arrives as a disc_scan event, because a scan can outlast any request.
 async function scanDisc(driveIndex) {
-	Alpine.store('drive').scanning = true
-	Alpine.store('drive').scanError = ''
-	Alpine.store('drive').titles = []
+	const store = Alpine.store('drive')
+	store.scanning = true
+	store.scanError = ''
+	store.scanElapsed = 0
+	store.scanStartedAt = Date.now()
+	store.scanOperation = 'Starting'
+	store.titles = []
+	startScanClock()
 
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/scan', {
@@ -407,37 +494,65 @@ async function scanDisc(driveIndex) {
 			headers: { 'Accept': 'application/json' },
 		})
 
-		// 202 means the disc carries a spurious AACS directory and is being
-		// copied in the background. It is not a title list and not an error —
-		// the banner takes over and a disc_recovery "done" event re-scans.
+		// 202: the scan is running, or the disc carries a spurious AACS
+		// directory and is being copied. Neither is a title list nor an error.
 		if (resp.status === 202) {
 			const info = await resp.json()
-			Alpine.store('drive').recoveryActive = true
-			Alpine.store('drive').recoveryPhase = 'detecting'
-			Alpine.store('drive').recoveryMessage = info.message || ''
+			if (info.status === 'recovering') {
+				stopScanClock()
+				store.scanning = false
+				store.recoveryActive = true
+				store.recoveryPhase = 'detecting'
+				store.recoveryMessage = info.message || ''
+			}
 			return
 		}
 
 		if (resp.ok) {
-			const titles = await resp.json()
-			Alpine.store('drive').titles = titles
-			updateLanguagesFromTitles(titles)
-			if (titles.length > 0) {
-				Alpine.store('drive').currentStep = 4
-			}
-			// Warnings live in the drive state rather than the title list, so pick
-			// up anything MakeMKV complained about during this scan.
-			resyncDriveState()
-			// If 0 titles, stay on step 3 to show error-like message
-		} else {
-			const text = await resp.text()
-			Alpine.store('drive').scanError = text || 'Scan failed (HTTP ' + resp.status + ')'
+			stopScanClock()
+			store.scanning = false
+			applyScanResults(await resp.json())
+			return
 		}
+
+		stopScanClock()
+		store.scanning = false
+		store.scanError = (await resp.text()) || 'Scan failed (HTTP ' + resp.status + ')'
 	} catch (err) {
-		Alpine.store('drive').scanError = 'Scan request failed: ' + err.message
-	} finally {
-		Alpine.store('drive').scanning = false
+		stopScanClock()
+		store.scanning = false
+		store.scanError = 'Scan request failed: ' + err.message
 	}
+}
+
+// loadScanResults fetches the titles of a scan that has already finished.
+async function loadScanResults(driveIndex) {
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/scan', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		if (!resp.ok) {
+			Alpine.store('drive').scanError = (await resp.text()) || 'Scan failed (HTTP ' + resp.status + ')'
+			return
+		}
+		if (resp.status === 202) return
+		applyScanResults(await resp.json())
+	} catch (err) {
+		Alpine.store('drive').scanError = 'Could not load scan results: ' + err.message
+	}
+}
+
+function applyScanResults(titles) {
+	const store = Alpine.store('drive')
+	store.titles = titles
+	updateLanguagesFromTitles(titles)
+	if (titles.length > 0) {
+		store.currentStep = 4
+	}
+	// The diagnosis lives in the drive state rather than the title list, so pick
+	// up whatever MakeMKV complained about during this scan.
+	resyncDriveState()
 }
 </script>`, data.StoreJSON))
 
@@ -741,8 +856,20 @@ async function scanDisc(driveIndex) {
 					<div class="empty-state" role="status" aria-live="polite" style="padding: 2rem 1rem;">
 						<div class="flex items-center justify-center gap-2">
 							<span class="spinner" aria-hidden="true"></span>
-							<span>Scanning disc&hellip; this may take a moment.</span>
+							<span>
+								Reading disc&hellip;
+								<span class="scan-elapsed" x-text="formatElapsed($store.drive.scanElapsed)"></span>
+							</span>
 						</div>
+						<!--
+							What makemkvcon is doing right now. On a damaged disc this is
+							the read errors scrolling past, which is slow but not stuck.
+						-->
+						<p class="text-muted scan-operation" x-show="$store.drive.scanOperation" x-text="$store.drive.scanOperation"></p>
+						<p class="text-muted scan-hint">
+							A disc with damaged sectors can take up to an hour; the drive
+							retries every unreadable sector.
+						</p>
 					</div>
 				</template>
 
@@ -765,24 +892,34 @@ async function scanDisc(driveIndex) {
 			-->
 			<div
 				x-data
-				x-show="($store.drive.scanWarnings || []).length > 0"
+				x-show="((($store.drive.scanDiagnosis || {}).findings) || []).length > 0"
 				x-cloak
 				class="card scan-warnings"
 			>
 				<h2 class="section-title">The disc did not read cleanly</h2>
-				<p class="text-muted">
-					MakeMKV reported problems while reading this disc. Any title it could not
-					read is missing from the list below, and titles that did load may still
-					contain damaged sectors.
-				</p>
+				<p class="text-muted" x-text="($store.drive.scanDiagnosis || {}).summary"></p>
 				<ul class="scan-warning-list">
-					<template x-for="w in ($store.drive.scanWarnings || [])" x-bind:key="w.text">
-						<li>
-							<span x-text="w.text"></span>
-							<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>
+					<template x-for="f in ((($store.drive.scanDiagnosis || {}).findings) || [])" x-bind:key="f.kind + (f.target || '') + f.text">
+						<li x-bind:class="'scan-finding scan-finding-' + f.kind">
+							<span x-text="f.text"></span>
 						</li>
 					</template>
 				</ul>
+				<!--
+					The SCSI detail is what MakeMKV's own support asks for, so it stays
+					available — just not as the first thing the user has to read.
+				-->
+				<details class="scan-warning-details" x-show="($store.drive.scanWarnings || []).length > 0">
+					<summary class="text-muted">What MakeMKV reported</summary>
+					<ul class="scan-warning-list">
+						<template x-for="w in ($store.drive.scanWarnings || [])" x-bind:key="w.text">
+							<li>
+								<span x-text="w.text"></span>
+								<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>
+							</li>
+						</template>
+					</ul>
+				</details>
 			</div>
 			<div class="card">
 				<div class="step-card-header">
