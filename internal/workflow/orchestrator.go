@@ -83,7 +83,10 @@ type Orchestrator struct {
 	// recovering guards against a second backup being started for a drive that
 	// is already being recovered — two ~100GB copies racing each other.
 	recovering map[int]bool
-	outputDir  string
+	// salvaging tracks drives being recovered from physical damage. Mutually
+	// exclusive with recovering: both copy the whole disc.
+	salvaging map[int]bool
+	outputDir string
 
 	// scanLocks serialises scans per drive. Guarded by scanLockMu.
 	scanLockMu sync.Mutex
@@ -151,6 +154,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),
 		recovering:   make(map[int]bool),
+		salvaging:    make(map[int]bool),
 		scanLocks:    make(map[int]*sync.Mutex),
 	}
 }

@@ -236,6 +236,10 @@ type DriveStoreJSON struct {
 	// lost. The raw form is nine lines of SCSI sense data; this says which
 	// titles are missing.
 	ScanDiagnosis makemkv.ScanDiagnosis `json:"scanDiagnosis"`
+	// SalvageActive reports a salvage running for this drive. It takes hours,
+	// so a page that reconnects has to be able to ask rather than wait for an
+	// event it already missed.
+	SalvageActive bool `json:"salvageActive"`
 	// ScanActive and its companions let a page that reconnected mid-scan draw
 	// the banner it missed the events for. ScanStartedAt is a Unix time so the
 	// client can tick the elapsed count itself, rather than needing a heartbeat.

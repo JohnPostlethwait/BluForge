@@ -2,12 +2,14 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -207,4 +209,125 @@ func logSalvageEvent(ev makemkv.Event) {
 		return
 	}
 	slog.Info("salvage: makemkvcon message", "code", ev.Message.Code, "text", ev.Message.Text)
+}
+
+// salvageDeadline is the wall-clock ceiling on a salvage.
+//
+// ddrescue's --timeout measures time since the last successful read, not total
+// runtime, so a scraping phase that trickles out a few hundred bytes a second
+// never trips it — the Rambo rescue would have run for another 76 minutes to
+// recover a further few kilobytes. A real limit has to come from here.
+const salvageDeadline = 6 * time.Hour
+
+// StartSalvage runs a salvage in the background, returning as soon as it is
+// under way.
+//
+// Salvage is never automatic. It produces a file MakeMKV would refuse to make,
+// containing damaged video wherever the disc is unreadable, and that is a
+// decision for the person who will watch it.
+func (o *Orchestrator) StartSalvage(driveIndex int) error {
+	outputDir := o.currentOutputDir()
+	if outputDir == "" {
+		return fmt.Errorf("salvage: no output directory configured")
+	}
+	if o.backupper == nil {
+		return fmt.Errorf("salvage: no backupper configured")
+	}
+	if !o.beginSalvage(driveIndex) {
+		return ErrSalvageInProgress
+	}
+
+	var devicePath string
+	if loc, ok := o.scanner.(DeviceLocator); ok {
+		devicePath = loc.DevicePathForDrive(context.Background(), driveIndex)
+	}
+	discLabel := discLabelFor(context.Background(), o.scanner, driveIndex, "")
+
+	go func() {
+		defer o.endSalvage(driveIndex)
+
+		// Detached from any request, with a ceiling of its own: a salvage runs
+		// for hours and must not be killed by a browser giving up, nor run
+		// until the drive gives out.
+		ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
+		defer cancel()
+
+		o.setDriveState(driveIndex, "salvaging")
+		defer o.setDriveState(driveIndex, "detected")
+
+		rec, err := o.Salvage(ctx, SalvageRequest{
+			DriveIndex: driveIndex,
+			DevicePath: devicePath,
+			DiscLabel:  discLabel,
+			OutputDir:  outputDir,
+			OnProgress: func(phase string, percent int, message string) {
+				o.broadcastSalvage(driveIndex, phase, percent, message, 0)
+			},
+		})
+		if err != nil {
+			slog.Error("salvage: failed", "drive_index", driveIndex, "error", err)
+			o.broadcastSalvage(driveIndex, "failed", 0, err.Error(), 0)
+			return
+		}
+
+		o.registerRecovered(driveIndex, rec)
+		o.cacheScan(driveIndex, rec.Scan)
+		o.broadcastSalvage(driveIndex, "done", 100, "", rec.Unrecovered)
+		slog.Info("salvage: disc is ready to rip",
+			"drive_index", driveIndex, "titles", len(rec.Scan.Titles),
+			"unrecovered_bytes", rec.Unrecovered)
+	}()
+
+	return nil
+}
+
+// beginSalvage claims the drive. A salvage and a recovery cannot run together:
+// both copy the whole disc, and two at once would race for the drive and the
+// scratch directory.
+func (o *Orchestrator) beginSalvage(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	if o.recovering[driveIndex] || o.salvaging[driveIndex] {
+		return false
+	}
+	if o.salvaging == nil {
+		o.salvaging = make(map[int]bool)
+	}
+	o.salvaging[driveIndex] = true
+	return true
+}
+
+func (o *Orchestrator) endSalvage(driveIndex int) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	delete(o.salvaging, driveIndex)
+}
+
+// SalvageInProgress reports whether a drive is being salvaged.
+//
+// Exposed because a page that reconnects has missed every event so far, and a
+// salvage runs for hours.
+func (o *Orchestrator) SalvageInProgress(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	return o.salvaging[driveIndex]
+}
+
+// broadcastSalvage pushes a salvage phase to the page.
+func (o *Orchestrator) broadcastSalvage(driveIndex int, phase string, percent int, message string, unrecovered int64) {
+	if o.onBroadcast == nil {
+		return
+	}
+	data, err := json.Marshal(map[string]any{
+		"drive_index": driveIndex,
+		"phase":       phase,
+		"percent":     percent,
+		"message":     message,
+		"unrecovered": unrecovered,
+	})
+	if err != nil {
+		slog.Error("salvage: could not marshal SSE payload", "error", err)
+		return
+	}
+	o.onBroadcast("disc_salvage", string(data))
 }
