@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -223,6 +224,13 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 	tmdbClient := tmdb.NewClient(cfg.TMDBApiKey, tmdbOpts...)
 	svc := contribute.NewService(s.store, ghClient, tmdbClient)
 	prURL, err := s.submitContribution(c.Request().Context(), svc, id)
+	if errors.Is(err, ErrSubmitInProgress) {
+		// The PR this request wanted is being opened right now by the request
+		// that beat it here. An error page would be wrong about what happened.
+		slog.Info("contribution submission already in flight", "id", id)
+		return c.Redirect(http.StatusSeeOther,
+			fmt.Sprintf("/contributions/%d?flash=Submission+already+in+progress", id))
+	}
 	if err != nil {
 		slog.Error("failed to execute contribution", "id", id, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to submit contribution: "+err.Error())
@@ -245,6 +253,10 @@ func (s *Server) handleContributionSubmit(c echo.Context) error {
 // that a wedged call does not pin the goroutine for the life of the process.
 const contributionSubmitTimeout = 5 * time.Minute
 
+// ErrSubmitInProgress reports that a contribution is already being submitted.
+// Not a failure: the PR the caller wanted is being opened right now.
+var ErrSubmitInProgress = errors.New("this contribution is already being submitted")
+
 // contributionExecutor opens the pull request for a contribution. Narrowed to
 // the one method so the submission can be tested without GitHub.
 type contributionExecutor interface {
@@ -260,9 +272,43 @@ type contributionExecutor interface {
 // a second PR for the same disc. This is the shape of bug that destroyed a
 // 97GB backup when recovery ran on a request context.
 func (s *Server) submitContribution(parent context.Context, svc contributionExecutor, id int64) (string, error) {
+	// One submission per contribution. The button's own guard lives in a single
+	// page's state, so two tabs each have their own and neither sees the other --
+	// and Execute chooses between opening a new PR and pushing to the existing
+	// one by reading a status that is not written until it finishes. Two
+	// concurrent submissions would therefore open two PRs upstream.
+	if !s.beginSubmit(id) {
+		return "", ErrSubmitInProgress
+	}
+	defer s.endSubmit(id)
+
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), contributionSubmitTimeout)
 	defer cancel()
 	return svc.Execute(ctx, id)
+}
+
+// beginSubmit claims the submission slot for a contribution, returning false
+// when one is already running.
+func (s *Server) beginSubmit(id int64) bool {
+	s.submitMu.Lock()
+	defer s.submitMu.Unlock()
+	if s.submitting == nil {
+		s.submitting = make(map[int64]bool)
+	}
+	if s.submitting[id] {
+		return false
+	}
+	s.submitting[id] = true
+	return true
+}
+
+// endSubmit gives the claim back. Deferred rather than conditional: a
+// submission that fails must still be retryable, and a claim never released
+// would lock that contribution out for the life of the process.
+func (s *Server) endSubmit(id int64) {
+	s.submitMu.Lock()
+	defer s.submitMu.Unlock()
+	delete(s.submitting, id)
 }
 
 // handleContributionResetPR resets a submitted contribution's PR state back to pending.

@@ -20,16 +20,19 @@ const activityHistoryPageSize = 50
 // covering active, pending, completed, and history states. Fields not relevant
 // to a given state are omitted from JSON output via omitempty.
 type activityJobJSON struct {
-	ID                int64               `json:"id"`
-	DiscName          string              `json:"discName"`
-	TitleName         string              `json:"titleName"`
-	ContentType       string              `json:"contentType"`
-	Status            string              `json:"status"`
-	Progress          int                 `json:"progress"`
-	Error             string              `json:"error,omitempty"`
-	DriveIndex        int                 `json:"driveIndex"`
-	FinishedAt        string              `json:"finishedAt,omitempty"`
-	StartedAt         string              `json:"startedAt,omitempty"`
+	ID          int64  `json:"id"`
+	DiscName    string `json:"discName"`
+	TitleName   string `json:"titleName"`
+	ContentType string `json:"contentType"`
+	Status      string `json:"status"`
+	Progress    int    `json:"progress"`
+	Error       string `json:"error,omitempty"`
+	DriveIndex  int    `json:"driveIndex"`
+	FinishedAt  string `json:"finishedAt,omitempty"`
+	StartedAt   string `json:"startedAt,omitempty"`
+	// Phase is "analyzing" or "copying" for a running rip. Progress advances
+	// through both, but only means bytes written during the copy.
+	Phase             string              `json:"phase,omitempty"`
 	SizeBytes         int64               `json:"sizeBytes,omitempty"`
 	SizeHuman         string              `json:"sizeHuman,omitempty"`
 	Duration          string              `json:"duration,omitempty"`
@@ -79,15 +82,19 @@ func (s *Server) handleActivity(c echo.Context) error {
 				startedAt = j.StartedAt.UTC().Format(time.RFC3339)
 			}
 			store.Active = append(store.Active, activityJobJSON{
-				ID:                j.ID,
-				DiscName:          j.DiscName,
-				TitleName:         j.TitleName,
-				ContentType:       normalizeContentType(j.ContentType),
-				Status:            string(j.Status),
-				Progress:          j.Progress,
-				Error:             j.Error,
-				DriveIndex:        j.DriveIndex,
-				StartedAt:         startedAt,
+				ID:          j.ID,
+				DiscName:    j.DiscName,
+				TitleName:   j.TitleName,
+				ContentType: normalizeContentType(j.ContentType),
+				Status:      string(j.Status),
+				Progress:    j.Progress,
+				Error:       j.Error,
+				DriveIndex:  j.DriveIndex,
+				StartedAt:   startedAt,
+				// A page loaded mid-rip has seen no events, so the phase has to
+				// come from the engine or the byte counter starts out lying
+				// again until the next update arrives.
+				Phase:             j.CurrentPhase(),
 				SizeBytes:         j.TrackMetadata.SizeBytes,
 				SizeHuman:         j.TrackMetadata.SizeHuman,
 				Duration:          j.TrackMetadata.Duration,

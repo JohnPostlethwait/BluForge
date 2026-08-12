@@ -6,11 +6,10 @@ import (
 	"strings"
 )
 
-// Message codes that bound the enumeration makemkvcon performs before copying.
-const (
-	msgTitleAdded  = 3307 // File %1 was added as title #%2
-	msgSavingTitle = 5014 // Saving %1 titles into directory %2
-)
+// msgTitleAdded is "File %1 was added as title #%2" — makemkvcon's enumeration.
+// The end of that enumeration is MsgSavingTitles, declared alongside the other
+// message codes in source.go.
+const msgTitleAdded = 3307
 
 // TitleMovedError reports that the title number BluForge asked for no longer
 // names the title it was chosen for.
@@ -75,7 +74,7 @@ func (g *titleGuard) observe(ev Event) {
 		return
 	}
 	switch ev.Message.Code {
-	case msgSavingTitle:
+	case MsgSavingTitles:
 		g.copying = true
 	case msgTitleAdded:
 		if source, index, ok := titleAssignment(*ev.Message); ok {

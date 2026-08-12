@@ -56,9 +56,15 @@ type Job struct {
 	OutputPath  string    `json:"-"`
 	Status      JobStatus `json:"Status"`
 	Progress    int       `json:"Progress"`
-	Error       string    `json:"Error,omitempty"`
-	StartedAt   time.Time `json:"StartedAt"`
-	FinishedAt  time.Time `json:"FinishedAt"`
+	// Phase distinguishes MakeMKV's preliminary analysis from the copy itself.
+	// Progress is reported through both, so without it the UI multiplied an
+	// analysis percentage by the title's estimated size and presented the
+	// result as bytes written -- "4.7 GB / 67.4 GB" before a byte had been
+	// copied.
+	Phase      string    `json:"Phase,omitempty"`
+	Error      string    `json:"Error,omitempty"`
+	StartedAt  time.Time `json:"StartedAt"`
+	FinishedAt time.Time `json:"FinishedAt"`
 	// OnStart is an optional callback invoked just before the rip begins.
 	// Returning a non-nil error aborts the job and transitions it to Failed.
 	// Typical use: lazy creation of the per-title temp directory.
@@ -110,6 +116,29 @@ func (j *Job) Start() {
 	defer j.mu.Unlock()
 	j.Status = StatusRipping
 	j.StartedAt = time.Now()
+}
+
+// Rip phases. A job reports no phase until its rip actually starts.
+const (
+	// PhaseAnalyzing is MakeMKV reading the disc structure. Progress advances
+	// during it, but nothing is being written.
+	PhaseAnalyzing = "analyzing"
+	// PhaseCopying is the copy itself, where progress means what it appears to.
+	PhaseCopying = "copying"
+)
+
+// SetPhase records which part of the rip is running.
+func (j *Job) SetPhase(phase string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.Phase = phase
+}
+
+// CurrentPhase reports the running part of the rip.
+func (j *Job) CurrentPhase() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.Phase
 }
 
 // UpdateProgress sets the progress percentage (0-100).
