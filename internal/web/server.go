@@ -52,6 +52,11 @@ type Server struct {
 	driveSessions      *DriveSessionStore
 	onMakeMKVKeyChange func(string)
 	tmdbBaseURL        string // empty = use TMDB default; overridden in tests
+
+	// submitting tracks contributions with a submission in flight, so two tabs
+	// cannot open two pull requests for the same disc. Guarded by submitMu.
+	submitMu   sync.Mutex
+	submitting map[int64]bool
 }
 
 // NewServer creates and configures a new Server from the provided dependencies.
