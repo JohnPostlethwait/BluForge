@@ -99,14 +99,15 @@ func Rescue(ctx context.Context, r Runner, opts Options, onProgress func(Progres
 		timeout = DefaultTimeout
 	}
 
+	// Unreadable regions are left as holes in the output file, which read back
+	// as zeros — the file keeps its full length and every read succeeds, which
+	// is what stops MakeMKV abandoning the title. That is ddrescue's ordinary
+	// behaviour and needs no flag; --fill-mode is a different mode entirely and
+	// asking for it here was a mistake.
 	args := []string{
-		"--idirect",
 		fmt.Sprintf("--sector-size=%d", sectorSize),
 		fmt.Sprintf("--retry-passes=%d", retries),
 		fmt.Sprintf("--timeout=%ds", int(timeout.Seconds())),
-		// Zero-fill what cannot be read, so the file is complete in length and
-		// MakeMKV's reads succeed all the way through.
-		"--fill-mode=-",
 	}
 	if opts.StartOffset > 0 {
 		args = append(args,

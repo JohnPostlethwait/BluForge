@@ -63,15 +63,17 @@ func TestRescueIsBounded(t *testing.T) {
 	}
 }
 
-// Unreadable regions must end up as zeros rather than as holes or a short file:
-// the whole point is that MakeMKV's reads then succeed from end to end.
-func TestRescueFillsWhatItCannotRead(t *testing.T) {
+// --fill-mode is a separate ddrescue mode for writing a pattern over chosen
+// blocks, not an option for a copy. Passing it during a rescue was wrong: an
+// ordinary copy already leaves unreadable regions as holes that read back as
+// zeros, which is exactly what makes MakeMKV's reads succeed.
+func TestRescueDoesNotAskForFillMode(t *testing.T) {
 	r := &recordingRunner{}
 	if err := Rescue(context.Background(), r, opts(t), nil); err != nil {
 		t.Fatalf("Rescue: %v", err)
 	}
-	if _, ok := r.arg("--fill-mode="); !ok {
-		t.Errorf("nothing tells ddrescue to fill the gaps: %v", r.args)
+	if _, ok := r.arg("--fill-mode"); ok {
+		t.Errorf("a copy was given --fill-mode: %v", r.args)
 	}
 }
 
