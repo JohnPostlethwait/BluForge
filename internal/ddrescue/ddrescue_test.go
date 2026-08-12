@@ -136,7 +136,7 @@ func TestRescueCreatesTheDestinationDirectory(t *testing.T) {
 // reporting it as one would throw away the recovery we just spent an hour on.
 func TestRescueTreatsBadAreasAsSuccess(t *testing.T) {
 	r := &recordingRunner{lines: []string{
-		"rescued: 48354 MB, bad areas: 9 MB, bad sectors: 4544",
+		"non-tried:       0 B,  bad-sector:   172032 B,    error rate:     146 B/s",
 	}}
 	if err := Rescue(context.Background(), r, opts(t), nil); err != nil {
 		t.Errorf("a rescue with bad areas reported failure: %v", err)
@@ -157,23 +157,37 @@ func TestRescueReportsAFailureToRun(t *testing.T) {
 
 // The running totals are what tell a user it is working.
 func TestProgressReportsRescuedAndBadBytes(t *testing.T) {
+	// Real ddrescue 1.27 output from the Rambo salvage. "bad areas" counts
+	// regions and "bad-sector" measures them; confusing the two reported 38
+	// bytes lost when the true figure was 168 kB.
+	var rescued, bad, areas int64
 	r := &recordingRunner{lines: []string{
-		"rescued: 48354 MB, bad areas: 9 MB, bad sectors: 4544",
+		"non-tried:       0 B,  bad-sector:   172032 B,    error rate:     146 B/s",
+		"  rescued:   68716 MB,   bad areas:       38,        run time:  1h 53m 44s",
 	}}
 
-	var last Progress
-	if err := Rescue(context.Background(), r, opts(t), func(p Progress) { last = p }); err != nil {
+	if err := Rescue(context.Background(), r, opts(t), func(p Progress) {
+		if p.BytesRescued > 0 {
+			rescued = p.BytesRescued
+		}
+		if p.BytesBad > 0 {
+			bad = p.BytesBad
+		}
+		if p.BadAreas > 0 {
+			areas = p.BadAreas
+		}
+	}); err != nil {
 		t.Fatalf("Rescue: %v", err)
 	}
 
-	if last.BytesRescued != 48354*1000*1000 {
-		t.Errorf("BytesRescued = %d, want 48354 MB", last.BytesRescued)
+	if rescued != 68716*1000*1000 {
+		t.Errorf("BytesRescued = %d, want 68716 MB", rescued)
 	}
-	if last.BytesBad != 9*1000*1000 {
-		t.Errorf("BytesBad = %d, want 9 MB", last.BytesBad)
+	if bad != 172032 {
+		t.Errorf("BytesBad = %d, want 172032 — the size, not the region count", bad)
 	}
-	if last.Line == "" {
-		t.Error("the raw status line was dropped")
+	if areas != 38 {
+		t.Errorf("BadAreas = %d, want 38", areas)
 	}
 }
 

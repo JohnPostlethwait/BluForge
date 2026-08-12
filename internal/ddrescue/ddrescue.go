@@ -68,8 +68,14 @@ type Options struct {
 type Progress struct {
 	// BytesRescued is how much has been recovered so far.
 	BytesRescued int64
-	// BytesBad is how much has been given up on and zero-filled.
+	// BytesBad is how much has been given up on and zero-filled, from
+	// ddrescue's "bad-sector" field. Not "bad areas", which counts regions:
+	// a run reporting "bad areas: 38" alongside "bad-sector: 172032 B" has
+	// lost 168 kB spread over 38 places, and reading the wrong field made
+	// that 38 bytes.
 	BytesBad int64
+	// BadAreas is how many separate regions were lost.
+	BadAreas int64
 	// Line is ddrescue's own status text, for the log.
 	Line string
 }
@@ -144,10 +150,11 @@ func parseProgress(line string) Progress {
 	if v, ok := sizeAfter(line, "rescued:"); ok {
 		p.BytesRescued = v
 	}
+	if v, ok := sizeAfter(line, "bad-sector:"); ok {
+		p.BytesBad = v
+	}
 	if v, ok := sizeAfter(line, "bad areas:"); ok {
-		p.BytesBad = v
-	} else if v, ok := sizeAfter(line, "bad sectors:"); ok {
-		p.BytesBad = v
+		p.BadAreas = v
 	}
 	return p
 }

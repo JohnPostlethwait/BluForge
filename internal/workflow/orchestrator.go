@@ -13,6 +13,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/contribute"
 	"github.com/johnpostlethwait/bluforge/internal/db"
+	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
@@ -64,6 +65,9 @@ type Orchestrator struct {
 	// checkSpace verifies the scratch volume can hold a disc backup. Injected
 	// so the early-failure path can be tested without filling a disk.
 	checkSpace func(path string, needBytes int64) error
+	// rescuer runs ddrescue over the streams a damaged disc will not give up.
+	// Injected so salvage can be tested without a scratched disc.
+	rescuer ddrescue.Runner
 
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
@@ -143,6 +147,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		openDiscRoot: openRoot,
 		onDriveState: deps.OnDriveState,
 		checkSpace:   ripper.CheckDiskSpace,
+		rescuer:      ddrescue.ExecRunner{},
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),
 		recovering:   make(map[int]bool),

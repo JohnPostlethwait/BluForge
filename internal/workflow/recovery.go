@@ -79,6 +79,10 @@ type RecoveredDisc struct {
 	Dir          string
 	Scan         *makemkv.DiscScan
 	DiagnosticID int64
+	// Unrecovered is how many bytes a salvage could not read and left blank.
+	// Zero for an ordinary recovery. It is what explains a glitch to someone
+	// looking at the file a year later.
+	Unrecovered int64
 	// Ephemeral marks a recovery that only holds while the disc stays mounted —
 	// a symlink tree rather than a copy. It is never persisted across a restart,
 	// because the links would dangle and rebuilding takes seconds.

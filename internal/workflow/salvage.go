@@ -46,7 +46,7 @@ type SalvageRequest struct {
 // Then ddrescue whatever it left short, zero-filling the unreadable parts so
 // the reads succeed. What comes out is the film with a glitch, which is what a
 // player would have shown all along.
-func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*recoveredDisc, error) {
+func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*RecoveredDisc, error) {
 	if o.backupper == nil {
 		return nil, fmt.Errorf("salvage: no backupper configured")
 	}
@@ -60,9 +60,13 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*recove
 		}
 	}
 
-	dir, err := o.scratchDirFor(req.OutputDir, req.DiscLabel)
-	if err != nil {
-		return nil, err
+	scratchRoot := filepath.Join(req.OutputDir, ScratchDirName)
+	if err := os.MkdirAll(scratchRoot, 0o777); err != nil {
+		return nil, fmt.Errorf("salvage: create scratch root %s: %w", scratchRoot, err)
+	}
+	dir := filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath))
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return nil, fmt.Errorf("salvage: create backup dir %s: %w", dir, err)
 	}
 
 	// 1. Back up what the disc will give. A backup that dies partway is not a
@@ -94,6 +98,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*recove
 	}
 
 	// 3. Fill what the backup could not take.
+	var unrecovered int64
 	for i, s := range short {
 		report("rescuing", percentOf(i, len(short)),
 			fmt.Sprintf("Recovering %s", filepath.Base(s.name)))
@@ -105,6 +110,9 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*recove
 			StartOffset: s.have,
 			Retries:     req.Retries,
 		}, func(p ddrescue.Progress) {
+			if p.BytesBad > 0 {
+				unrecovered = p.BytesBad
+			}
 			if p.Line != "" {
 				slog.Info("salvage: rescuing", "file", s.name, "status", p.Line)
 			}
@@ -130,7 +138,12 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*recove
 	slog.Info("salvage: complete", "drive_index", req.DriveIndex, "dir", dir,
 		"titles", len(scan.Titles), "rescued_files", len(short))
 
-	return &recoveredDisc{source: src, dir: dir, Scan: scan}, nil
+	return &RecoveredDisc{
+		Source:      src,
+		Dir:         dir,
+		Scan:        scan,
+		Unrecovered: unrecovered,
+	}, nil
 }
 
 // shortStream is a stream file the backup did not copy in full.
