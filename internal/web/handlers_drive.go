@@ -129,9 +129,11 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	// unreadable sectors yields a shorter title list and nothing else to show
 	// for it, which reads as success.
 	driveStore.ScanWarnings = make([]makemkv.ScanWarning, 0)
+	driveStore.ScanDiagnosis = makemkv.ScanDiagnosis{Findings: []makemkv.ScanFinding{}}
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
 			driveStore.ScanWarnings = makemkv.ScanWarnings(scan.Messages)
+			driveStore.ScanDiagnosis = makemkv.Diagnose(scan.Messages)
 		}
 	}
 

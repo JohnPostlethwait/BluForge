@@ -231,7 +231,11 @@ type DriveStoreJSON struct {
 	// ScanWarnings are the problems MakeMKV reported during the scan. Titles it
 	// could not read are simply absent from the list, so without these the user
 	// sees a tidy result and no sign that content was dropped.
-	ScanWarnings   []makemkv.ScanWarning `json:"scanWarnings"`
+	ScanWarnings []makemkv.ScanWarning `json:"scanWarnings"`
+	// ScanDiagnosis reads those same messages back in terms of what the user
+	// lost. The raw form is nine lines of SCSI sense data; this says which
+	// titles are missing.
+	ScanDiagnosis  makemkv.ScanDiagnosis `json:"scanDiagnosis"`
 	KeepForcedSubs bool                  `json:"keepForcedSubs"`
 	KeepLossless   bool                  `json:"keepLossless"`
 	RipActive      bool                  `json:"ripActive"`

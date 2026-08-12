@@ -1256,3 +1256,33 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   margin-bottom: 0.35rem;
   word-break: break-word;
 }
+
+/* Findings are the plain-language reading of the scan; the raw SCSI text lives
+   behind the disclosure below them. A lost title is the one thing the user
+   cannot recover from, so it is the only one styled as an error. */
+.scan-finding {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.scan-finding-title-unreadable {
+  color: var(--error);
+  font-weight: 500;
+}
+
+.scan-finding-title-damaged {
+  color: var(--warning);
+}
+
+.scan-warning-details {
+  margin-top: 1rem;
+}
+
+.scan-warning-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.scan-warning-details summary:hover {
+  color: var(--text-secondary);
+}

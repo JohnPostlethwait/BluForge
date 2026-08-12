@@ -765,24 +765,34 @@ async function scanDisc(driveIndex) {
 			-->
 			<div
 				x-data
-				x-show="($store.drive.scanWarnings || []).length > 0"
+				x-show="((($store.drive.scanDiagnosis || {}).findings) || []).length > 0"
 				x-cloak
 				class="card scan-warnings"
 			>
 				<h2 class="section-title">The disc did not read cleanly</h2>
-				<p class="text-muted">
-					MakeMKV reported problems while reading this disc. Any title it could not
-					read is missing from the list below, and titles that did load may still
-					contain damaged sectors.
-				</p>
+				<p class="text-muted" x-text="($store.drive.scanDiagnosis || {}).summary"></p>
 				<ul class="scan-warning-list">
-					<template x-for="w in ($store.drive.scanWarnings || [])" x-bind:key="w.text">
-						<li>
-							<span x-text="w.text"></span>
-							<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>
+					<template x-for="f in ((($store.drive.scanDiagnosis || {}).findings) || [])" x-bind:key="f.kind + (f.target || '') + f.text">
+						<li x-bind:class="'scan-finding scan-finding-' + f.kind">
+							<span x-text="f.text"></span>
 						</li>
 					</template>
 				</ul>
+				<!--
+					The SCSI detail is what MakeMKV's own support asks for, so it stays
+					available — just not as the first thing the user has to read.
+				-->
+				<details class="scan-warning-details" x-show="($store.drive.scanWarnings || []).length > 0">
+					<summary class="text-muted">What MakeMKV reported</summary>
+					<ul class="scan-warning-list">
+						<template x-for="w in ($store.drive.scanWarnings || [])" x-bind:key="w.text">
+							<li>
+								<span x-text="w.text"></span>
+								<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>
+							</li>
+						</template>
+					</ul>
+				</details>
 			</div>
 			<div class="card">
 				<div class="step-card-header">
