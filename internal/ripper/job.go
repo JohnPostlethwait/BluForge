@@ -178,6 +178,9 @@ func (j *Job) Skip() {
 
 // Snapshot returns a consistent copy of the job's exported fields.
 // Safe to call from any goroutine.
+//
+// Every field the UI reads has to be listed here. An omission is silent: the
+// field marshals as its zero value and the page quietly shows the wrong thing.
 func (j *Job) Snapshot() Job {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -188,8 +191,10 @@ func (j *Job) Snapshot() Job {
 		DiscName:      j.DiscName,
 		TitleName:     j.TitleName,
 		ContentType:   j.ContentType,
+		SourceFile:    j.SourceFile,
 		Status:        j.Status,
 		Progress:      j.Progress,
+		Phase:         j.Phase,
 		Error:         j.Error,
 		StartedAt:     j.StartedAt,
 		FinishedAt:    j.FinishedAt,

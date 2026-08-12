@@ -211,11 +211,6 @@ func (e *Engine) run(job *Job) {
 				// the new stage from zero.
 				if pct < lastPct-5 {
 					lastPct = pct
-					// Progress running 0 to 100 and restarting is the
-					// preliminary phase giving way to the copy. Kept as a
-					// fallback so a rip cannot report "analyzing" to the end if
-					// the save message never arrives.
-					job.SetPhase(PhaseCopying)
 				}
 				// Only update when progress advances within the
 				// current stage.

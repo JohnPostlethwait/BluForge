@@ -291,7 +291,10 @@ function formatDuration(secs) {
 										const remaining = Math.max(0, total - elapsed)
 										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining'
 									}
-									return elapsedStr + ' elapsed'
+									// Below the threshold an estimate would swing wildly, but a
+									// blank where a number used to be reads as information lost
+									// rather than not yet known.
+									return elapsedStr + ' elapsed \u00b7 estimating\u2026'
 								})() : ''"></div>
 								<div class="text-right mt-2">
 									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
