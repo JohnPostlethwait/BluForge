@@ -92,7 +92,11 @@ func TestGuardReportsATitleThatIsGoneEntirely(t *testing.T) {
 	g := newTitleGuard(0, "00005.mpls")
 	g.observe(added("00003.mpls", 0))
 	g.observe(added("00002.mpls", 1))
+	if err := g.verdict(); err != nil {
+		t.Fatalf("gave up while the enumeration was still arriving: %v", err)
+	}
 
+	g.observe(saving())
 	err := g.verdict()
 	var moved *TitleMovedError
 	if !errors.As(err, &moved) {
@@ -215,8 +219,42 @@ func TestGuardChecksAnythingThatNamesAFile(t *testing.T) {
 	for _, expect := range []string{"00000.mpls", "00004.m2ts"} {
 		g := newTitleGuard(0, expect)
 		g.observe(added("00003.mpls", 0))
+		g.observe(saving())
 		if err := g.verdict(); err == nil {
 			t.Errorf("guard allowed the wrong title for expectation %q", expect)
 		}
+	}
+}
+
+// Police Story 2, second attempt. The scan put the feature at index 3, but by
+// rip time 00005.mpls had become readable again and pushed everything down one.
+// Index 3 was announced as 00001.mpls -- proof the request was wrong -- while
+// the feature was announced at 4 two lines later. Aborting on the first proof
+// reported "not in this pass" and skipped the retry that would have ripped it.
+func TestGuardWaitsToLearnWhereTheTitleWent(t *testing.T) {
+	g := newTitleGuard(3, "00000.mpls")
+
+	g.observe(added("00005.mpls", 0))
+	g.observe(added("00003.mpls", 1))
+	g.observe(added("00002.mpls", 2))
+	g.observe(added("00001.mpls", 3)) // proof the requested index is wrong
+	if err := g.verdict(); err != nil {
+		t.Fatalf("gave up before learning where the feature went: %v", err)
+	}
+
+	g.observe(added("00000.mpls", 4))
+	err := g.verdict()
+	if err == nil {
+		t.Fatal("did not object once the drift was fully known")
+	}
+	var moved *TitleMovedError
+	if !errors.As(err, &moved) {
+		t.Fatalf("error is %T, want *TitleMovedError", err)
+	}
+	if moved.CorrectIndex != 4 {
+		t.Errorf("CorrectIndex = %d, want 4 — without it there is no retry", moved.CorrectIndex)
+	}
+	if moved.Found != "00001.mpls" {
+		t.Errorf("Found = %q, want 00001.mpls", moved.Found)
 	}
 }
