@@ -333,13 +333,24 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
 		}
 		if ripErr != nil {
-			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
-			o.broadcastJobUpdate(job.ID, "failed")
-			if job.OutputDir != "" {
+			// Look before deleting. A rip of Rambo ran forty minutes and read
+			// 48GB before a scratch stopped it, and whatever it had written was
+			// removed unexamined -- this path used to call RemoveAll without
+			// ever opening the directory. Even most of a film is the user's to
+			// decide about.
+			reason := ripErr.Error()
+			if partial, size := largestFile(job.OutputDir); partial != "" {
+				reason = fmt.Sprintf("%s — a partial file was kept at %s (%s)",
+					reason, partial, humanBytes(size))
+				slog.Warn("rip failed but left a partial file; keeping it",
+					"job_id", job.ID, "path", partial, "bytes", size)
+			} else if job.OutputDir != "" {
 				if err := os.RemoveAll(job.OutputDir); err != nil {
 					slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
 				}
 			}
+			o.setJobStatus(job.ID, "failed", job.Progress, reason)
+			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
 
@@ -1071,6 +1082,51 @@ func langInList(langs []string, code string) bool {
 		}
 	}
 	return false
+}
+
+// largestFile returns the biggest non-empty file in dir and its size, or ""
+// when the directory is missing, empty, or holds nothing with any bytes in it.
+//
+// makemkvcon may or may not remove its own partial output when a rip fails; we
+// were deleting the directory without looking, so nobody knew which. Asking is
+// cheaper than assuming.
+func largestFile(dir string) (string, int64) {
+	if dir == "" {
+		return "", 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0
+	}
+	var best string
+	var bestSize int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		if info.Size() > bestSize {
+			best, bestSize = filepath.Join(dir, e.Name()), info.Size()
+		}
+	}
+	return best, bestSize
+}
+
+// humanBytes renders a size the way the rest of the UI does.
+func humanBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.
