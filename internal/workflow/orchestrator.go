@@ -333,23 +333,22 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
 		}
 		if ripErr != nil {
-			// Look before deleting. A rip of Rambo ran forty minutes and read
-			// 48GB before a scratch stopped it, and whatever it had written was
-			// removed unexamined -- this path used to call RemoveAll without
-			// ever opening the directory. Even most of a film is the user's to
-			// decide about.
-			reason := ripErr.Error()
+			// Look before deleting, and say what was there. Whether makemkvcon
+			// leaves its partial output behind or removes it itself was unknown
+			// because this path called RemoveAll without ever opening the
+			// directory. The file itself is no use -- an MKV cannot be fed back
+			// into a rip or a salvage -- so it still goes, but the fact is
+			// recorded rather than destroyed unseen.
 			if partial, size := largestFile(job.OutputDir); partial != "" {
-				reason = fmt.Sprintf("%s — a partial file was kept at %s (%s)",
-					reason, partial, humanBytes(size))
-				slog.Warn("rip failed but left a partial file; keeping it",
+				slog.Warn("rip failed after writing a partial file; discarding it",
 					"job_id", job.ID, "path", partial, "bytes", size)
-			} else if job.OutputDir != "" {
+			}
+			if job.OutputDir != "" {
 				if err := os.RemoveAll(job.OutputDir); err != nil {
 					slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
 				}
 			}
-			o.setJobStatus(job.ID, "failed", job.Progress, reason)
+			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
 			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
@@ -1113,20 +1112,6 @@ func largestFile(dir string) (string, int64) {
 		}
 	}
 	return best, bestSize
-}
-
-// humanBytes renders a size the way the rest of the UI does.
-func humanBytes(n int64) string {
-	const unit = 1000
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for v := n / unit; v >= unit; v /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.
