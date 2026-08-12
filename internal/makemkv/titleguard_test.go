@@ -114,27 +114,70 @@ func TestGuardWithoutAnExpectationAllowsTheRip(t *testing.T) {
 	}
 }
 
-// The guard has to decide before the copy begins, or it saves nothing: the
-// wrong title is already written by the time makemkvcon exits.
-func TestGuardIsReadyWhenTheCopyStarts(t *testing.T) {
-	g := newTitleGuard(1, "00003.mpls")
-	g.observe(added("00005.mpls", 0))
-	if g.readyToDecide() {
-		t.Error("decided before the enumeration reached the requested title")
+// v0.4.5 failed a correct rip of the Police Story 2 feature within seconds of
+// starting: progress was treated as the start of copying, but makemkvcon
+// reports progress through its preliminary phases too, so the guard ruled on an
+// empty enumeration and called the title absent before it had been announced.
+func TestGuardDoesNotRuleOnAnEnumerationStillArriving(t *testing.T) {
+	g := newTitleGuard(4, "00000.mpls")
+
+	g.observe(Event{Type: "PRGV", Progress: &Progress{Current: 1, Total: 100, Max: 100}})
+	if err := g.verdict(); err != nil {
+		t.Fatalf("ruled before any title was announced: %v", err)
 	}
 
-	g.observe(saving())
-	if !g.readyToDecide() {
-		t.Error("did not decide at the point copying begins")
+	// Titles arrive one at a time over several minutes; none of these is proof.
+	g.observe(added("00003.mpls", 0))
+	g.observe(Event{Type: "PRGV", Progress: &Progress{Current: 50, Total: 100, Max: 100}})
+	g.observe(added("00002.mpls", 1))
+	if err := g.verdict(); err != nil {
+		t.Fatalf("ruled on a partial enumeration: %v", err)
+	}
+
+	// The requested index turning up as another title is proof.
+	g.observe(added("00001.mpls", 2))
+	g.observe(added("00000.mpls", 3))
+	if err := g.verdict(); err == nil {
+		t.Error("did not object once the feature appeared at another index")
 	}
 }
 
-// Progress means copying has started, which is the other boundary.
-func TestGuardDecidesWhenProgressStarts(t *testing.T) {
-	g := newTitleGuard(1, "00003.mpls")
-	g.observe(Event{Type: "PRGV", Progress: &Progress{Current: 1, Total: 1, Max: 100}})
-	if !g.readyToDecide() {
-		t.Error("did not decide once copy progress began")
+// A title genuinely missing is only knowable once the enumeration is over,
+// which is when copying starts.
+func TestGuardCallsATitleAbsentOnlyOnceCopyingBegins(t *testing.T) {
+	g := newTitleGuard(4, "00000.mpls")
+	g.observe(added("00003.mpls", 0))
+	if err := g.verdict(); err != nil {
+		t.Fatalf("called the title absent while the enumeration ran: %v", err)
+	}
+
+	g.observe(saving())
+	err := g.verdict()
+	if err == nil {
+		t.Fatal("did not object to an index that was never announced")
+	}
+	var moved *TitleMovedError
+	if !errors.As(err, &moved) || moved.CorrectIndex != -1 {
+		t.Errorf("got %v, want an absent title with CorrectIndex -1", err)
+	}
+}
+
+// The whole run of a correct rip must pass without objection, progress and all.
+func TestGuardStaysSilentThroughACorrectRip(t *testing.T) {
+	g := newTitleGuard(3, "00000.mpls")
+	for _, ev := range []Event{
+		{Type: "PRGV", Progress: &Progress{Current: 1, Total: 100, Max: 100}},
+		added("00003.mpls", 0),
+		added("00002.mpls", 1),
+		added("00001.mpls", 2),
+		added("00000.mpls", 3),
+		saving(),
+		{Type: "PRGV", Progress: &Progress{Current: 100, Total: 100, Max: 100}},
+	} {
+		g.observe(ev)
+		if err := g.verdict(); err != nil {
+			t.Fatalf("objected to a correct rip: %v", err)
+		}
 	}
 }
 

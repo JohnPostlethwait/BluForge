@@ -64,11 +64,13 @@ func newTitleGuard(requested int, expect string) *titleGuard {
 }
 
 // observe records one event from the rip's output stream.
+//
+// Progress deliberately does not mark the start of copying. makemkvcon reports
+// progress for its preliminary phases too — a run goes 0 to 100 and back to 0
+// before the copy begins — and treating that as the enumeration boundary made
+// the guard rule on an empty map within seconds of starting, failing a rip of a
+// title that was about to be announced.
 func (g *titleGuard) observe(ev Event) {
-	if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
-		g.copying = true
-		return
-	}
 	if ev.Type != "MSG" || ev.Message == nil {
 		return
 	}
@@ -82,18 +84,12 @@ func (g *titleGuard) observe(ev Event) {
 	}
 }
 
-// readyToDecide reports whether enough of the enumeration has been read to
-// judge, either because the requested index has been announced or because
-// copying is about to start.
-func (g *titleGuard) readyToDecide() bool {
-	if g.copying {
-		return true
-	}
-	_, ok := g.seen[g.requested]
-	return ok
-}
-
-// verdict returns nil when the copy may proceed.
+// verdict returns non-nil only when drift is proven.
+//
+// Absence is never proof while the enumeration is still arriving: titles are
+// announced one at a time over several minutes on a disc that has to be re-read
+// to list them. Concluding from a map that is merely incomplete is what failed
+// a correct rip of the Police Story 2 feature within seconds.
 func (g *titleGuard) verdict() error {
 	// An expectation that cannot appear in the enumeration cannot be checked.
 	// Attribute 16 is the playlist name on a UHD disc but can be a segment list
@@ -102,10 +98,31 @@ func (g *titleGuard) verdict() error {
 	if !checkableSource(g.expect) {
 		return nil
 	}
-	found := g.seen[g.requested]
-	if found == g.expect {
-		return nil
+
+	// Proven: the requested index has been announced and it is another title.
+	if found, announced := g.seen[g.requested]; announced && found != g.expect {
+		return g.moved(found)
 	}
+
+	// Proven: the title we want has been announced at a different number. This
+	// usually lands before the requested index does, which makes it the earlier
+	// and cheaper of the two signals.
+	if idx := g.indexOf(g.expect); idx >= 0 && idx != g.requested {
+		return g.moved(g.seen[g.requested])
+	}
+
+	// Concluded: copying has begun, so the enumeration is complete, and the
+	// index we asked for was never announced.
+	if g.copying {
+		if _, announced := g.seen[g.requested]; !announced {
+			return g.moved("")
+		}
+	}
+
+	return nil
+}
+
+func (g *titleGuard) moved(found string) *TitleMovedError {
 	return &TitleMovedError{
 		Requested:    g.requested,
 		Expected:     g.expect,
