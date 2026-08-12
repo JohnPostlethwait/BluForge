@@ -152,3 +152,28 @@ func TestGuardReadsParametersNotProse(t *testing.T) {
 		t.Errorf("localized enumeration was not understood: %v", err)
 	}
 }
+
+// Attribute 16 is the playlist name on a UHD disc but can be a segment list
+// like "1,2,3" on standard Blu-ray. That never appears in the enumeration, so
+// enforcing it would fail every rip on those discs — the guard must recognise
+// an expectation it cannot check and stand aside.
+func TestGuardIgnoresAnExpectationItCannotCheck(t *testing.T) {
+	for _, expect := range []string{"1,2,3", "1", "", "Title 1"} {
+		g := newTitleGuard(0, expect)
+		g.observe(added("00003.mpls", 0))
+		if err := g.verdict(); err != nil {
+			t.Errorf("guard blocked a rip on an uncheckable expectation %q: %v", expect, err)
+		}
+	}
+}
+
+// A real source file is still checked.
+func TestGuardChecksAnythingThatNamesAFile(t *testing.T) {
+	for _, expect := range []string{"00000.mpls", "00004.m2ts"} {
+		g := newTitleGuard(0, expect)
+		g.observe(added("00003.mpls", 0))
+		if err := g.verdict(); err == nil {
+			t.Errorf("guard allowed the wrong title for expectation %q", expect)
+		}
+	}
+}

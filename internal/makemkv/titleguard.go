@@ -95,10 +95,11 @@ func (g *titleGuard) readyToDecide() bool {
 
 // verdict returns nil when the copy may proceed.
 func (g *titleGuard) verdict() error {
-	// A caller that does not say what it expects gets the old behaviour. Not
-	// every rip path knows the source file, and refusing those would break
-	// working flows to guard against a case they cannot hit.
-	if g.expect == "" {
+	// An expectation that cannot appear in the enumeration cannot be checked.
+	// Attribute 16 is the playlist name on a UHD disc but can be a segment list
+	// like "1,2,3" on standard Blu-ray, and enforcing that would fail every rip
+	// on those discs rather than catch anything.
+	if !checkableSource(g.expect) {
 		return nil
 	}
 	found := g.seen[g.requested]
@@ -111,6 +112,13 @@ func (g *titleGuard) verdict() error {
 		Found:        found,
 		CorrectIndex: g.indexOf(g.expect),
 	}
+}
+
+// checkableSource reports whether an expectation names a file makemkvcon would
+// announce in its enumeration.
+func checkableSource(s string) bool {
+	l := strings.ToLower(s)
+	return strings.HasSuffix(l, ".mpls") || strings.HasSuffix(l, ".m2ts")
 }
 
 // indexOf reports where a source file landed in this pass, or -1.
