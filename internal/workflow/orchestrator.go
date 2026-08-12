@@ -171,9 +171,14 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 		return result
 	}
 
+	// Destinations are built for the batch, because a collision is only visible
+	// across titles: a disc that offers its feature as both a playlist and a raw
+	// stream yields the same name twice, and one rip would overwrite the other.
+	destPaths := o.buildDestPaths(params)
+
 	var wg sync.WaitGroup
-	for _, sel := range params.Titles {
-		tr := o.processTitle(params, sel, parentTempDir, &wg)
+	for i, sel := range params.Titles {
+		tr := o.processTitle(params, sel, destPaths[i], parentTempDir, &wg)
 		result.Titles = append(result.Titles, tr)
 	}
 	go func() {
@@ -202,9 +207,9 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 
 // processTitle handles a single title: build path, duplicate check, disk space,
 // DB creation, engine submission.
-func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, parentTempDir string, wg *sync.WaitGroup) TitleResult {
-	// 1. Build destination path.
-	destPath := o.buildDestPath(params, sel)
+func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, destPath string, parentTempDir string, wg *sync.WaitGroup) TitleResult {
+	// 1. The destination is chosen for the batch so titles that would share a
+	// name are told apart; see buildDestPaths.
 	fullDest := filepath.Join(params.OutputDir, destPath)
 
 	// Guard against path traversal: ensure the destination stays within OutputDir.
@@ -401,6 +406,109 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		TitleIndex: sel.TitleIndex,
 		Status:     "submitted",
 	}
+}
+
+// buildDestPaths builds one destination path per selected title, giving any
+// that would collide a suffix naming their source.
+//
+// Police Story 2 offers its feature twice, as the playlist 00000.mpls and as
+// the raw stream 00000.m2ts. The destination name is the source file with its
+// extension stripped, so both resolved to the same .mkv and ripping both would
+// have quietly overwritten 67GB with 67GB.
+//
+// Only the colliding titles are renamed. Suffixing every rip to prevent a
+// collision that is not happening would be the worse bug.
+func (o *Orchestrator) buildDestPaths(params ManualRipParams) []string {
+	paths := make([]string, len(params.Titles))
+	build := func(disambiguate func(TitleSelection) TitleSelection) map[string]int {
+		counts := make(map[string]int, len(params.Titles))
+		for i, sel := range params.Titles {
+			if disambiguate != nil {
+				sel = disambiguate(sel)
+			}
+			paths[i] = o.buildDestPath(params, sel)
+			counts[paths[i]]++
+		}
+		return counts
+	}
+
+	counts := build(nil)
+	if !hasCollision(counts) {
+		return paths
+	}
+
+	// The source file is what tells two otherwise identical names apart: a
+	// playlist from the stream it points at, or two titles matched to the same
+	// episode. Only the colliding entries are renamed — suffixing every rip to
+	// prevent a collision that is not happening would be the worse bug.
+	collided := counts
+	counts = build(func(sel TitleSelection) TitleSelection {
+		if collided[o.buildDestPath(params, sel)] < 2 {
+			return sel
+		}
+		return withSuffix(sel, sourceDisambiguator(sel))
+	})
+	if !hasCollision(counts) {
+		return paths
+	}
+
+	// Nothing about the source distinguished them, so fall back to the one
+	// thing that always does.
+	stillCollided := counts
+	build(func(sel TitleSelection) TitleSelection {
+		base := o.buildDestPath(params, sel)
+		if collided[base] < 2 {
+			return sel
+		}
+		suffixed := withSuffix(sel, sourceDisambiguator(sel))
+		if stillCollided[o.buildDestPath(params, suffixed)] < 2 {
+			return suffixed
+		}
+		return withSuffix(sel, fmt.Sprintf("title %d", sel.TitleIndex))
+	})
+	return paths
+}
+
+func hasCollision(counts map[string]int) bool {
+	for _, n := range counts {
+		if n > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceDisambiguator returns the part of a title's source that distinguishes
+// it from another with the same destination name.
+//
+// A matched title is named from its episode, so the whole source file is what
+// differs. An unmatched title is already named from its source file with the
+// extension stripped, so the extension is the difference — that is exactly the
+// 00000.mpls versus 00000.m2ts case.
+func sourceDisambiguator(sel TitleSelection) string {
+	if sel.SourceFile == "" {
+		return fmt.Sprintf("title %d", sel.TitleIndex)
+	}
+	if sel.TitleName != "" {
+		return sel.SourceFile
+	}
+	if ext := strings.TrimPrefix(filepath.Ext(sel.SourceFile), "."); ext != "" {
+		return ext
+	}
+	return fmt.Sprintf("title %d", sel.TitleIndex)
+}
+
+// withSuffix appends a parenthesised marker to whichever field the destination
+// name is built from.
+func withSuffix(sel TitleSelection, suffix string) TitleSelection {
+	if sel.TitleName != "" {
+		sel.TitleName += " (" + suffix + ")"
+		return sel
+	}
+	// The extension is stripped when the path is built, so the marker has to be
+	// folded into the name rather than left on the end.
+	sel.SourceFile = strings.TrimSuffix(sel.SourceFile, filepath.Ext(sel.SourceFile)) + " (" + suffix + ")"
+	return sel
 }
 
 // buildDestPath builds the output path for a title.
