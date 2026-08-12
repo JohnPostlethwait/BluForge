@@ -84,12 +84,15 @@ func (g *titleGuard) observe(ev Event) {
 	}
 }
 
-// verdict returns non-nil only when drift is proven.
+// verdict returns non-nil only when drift is proven and there is nothing more
+// to learn by waiting.
 //
-// Absence is never proof while the enumeration is still arriving: titles are
-// announced one at a time over several minutes on a disc that has to be re-read
-// to list them. Concluding from a map that is merely incomplete is what failed
-// a correct rip of the Police Story 2 feature within seconds.
+// Proving the requested index is wrong is not enough on its own: the point of
+// the check is to rip the title anyway, and that needs the number it moved to.
+// Titles are announced in order over several minutes, so the one we want is
+// often announced after the one that proves the mismatch. Aborting on the first
+// proof reported "00000.mpls is not in this pass" for a title that was about to
+// be announced two lines later, and skipped the retry that would have ripped it.
 func (g *titleGuard) verdict() error {
 	// An expectation that cannot appear in the enumeration cannot be checked.
 	// Attribute 16 is the playlist name on a UHD disc but can be a segment list
@@ -99,26 +102,23 @@ func (g *titleGuard) verdict() error {
 		return nil
 	}
 
-	// Proven: the requested index has been announced and it is another title.
-	if found, announced := g.seen[g.requested]; announced && found != g.expect {
-		return g.moved(found)
-	}
+	moved := g.indexOf(g.expect)
 
-	// Proven: the title we want has been announced at a different number. This
-	// usually lands before the requested index does, which makes it the earlier
-	// and cheaper of the two signals.
-	if idx := g.indexOf(g.expect); idx >= 0 && idx != g.requested {
+	// Everything needed is known: the title is somewhere else in this pass, so
+	// there is nothing to gain by reading the rest of the enumeration.
+	if moved >= 0 && moved != g.requested {
 		return g.moved(g.seen[g.requested])
 	}
 
-	// Concluded: copying has begun, so the enumeration is complete, and the
-	// index we asked for was never announced.
-	if g.copying {
-		if _, announced := g.seen[g.requested]; !announced {
-			return g.moved("")
-		}
+	// Copying is about to start, so the enumeration is complete and this is the
+	// last moment to intervene. Whatever is known now is all there will be.
+	if g.copying && moved != g.requested {
+		return g.moved(g.seen[g.requested])
 	}
 
+	// Otherwise the enumeration is still arriving. A requested index that names
+	// another title is proof of drift, but not yet of where the title went, and
+	// the retry is worth more than the seconds saved by failing early.
 	return nil
 }
 
