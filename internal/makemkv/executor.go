@@ -27,9 +27,14 @@ type CmdRunner interface {
 // realRunner executes the real makemkvcon binary.
 type realRunner struct{}
 
-// scanTimeout is the maximum time a disc scan may run. UHD discs with AACS
-// negotiation and LibreDrive activation can take several minutes.
-const scanTimeout = 10 * time.Minute
+// scanTimeout is the maximum time a disc scan may run.
+//
+// This exists to stop a wedged process holding the executor mutex forever, not
+// to bound how long a difficult disc may legitimately take. A disc with
+// unreadable sectors makes the drive retry each one, and a real scan was killed
+// at 10m07s under the previous ten-minute value — a disc that scanned to
+// completion when run by hand without a ceiling.
+const scanTimeout = 60 * time.Minute
 
 // driveListTimeout is the maximum time a drive listing may run. This is a
 // lightweight operation that should complete quickly.
@@ -259,6 +264,19 @@ func (e *Executor) ScanSource(ctx context.Context, src Source) (*DiscScan, error
 
 	target := src.Arg()
 	r, cmdErr := e.runner.Run(ctx, "-r", "info", target)
+
+	// A scan killed by the ceiling reports whatever the kernel did — "signal:
+	// killed" — which describes the mechanism and hides the cause. Say what
+	// actually happened, since the two look identical in a log otherwise.
+	if cmdErr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		slog.Error("executor: scan exceeded its time limit",
+			"source", src.Arg(), "limit", scanTimeout.String())
+		return nil, &ScanError{
+			Source: src,
+			Reason: fmt.Sprintf("timed out after %s — the drive may be retrying unreadable sectors", scanTimeout),
+			Err:    cmdErr,
+		}
+	}
 
 	// Read the full output so we can preserve it for contributions and still parse events.
 	rawBytes, readErr := io.ReadAll(r)
