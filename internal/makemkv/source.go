@@ -57,6 +57,10 @@ const (
 	MsgFailedToOpenDisc = 5010
 	// MsgNoUsableDrives — "The program can't find any usable optical drives".
 	MsgNoUsableDrives = 5042
+	// MsgCopyFailed — "Copy complete. 0 titles saved, 1 failed." makemkvcon
+	// still exits zero, so this is the only signal that a rip which appeared to
+	// succeed produced nothing.
+	MsgCopyFailed = 5037
 )
 
 // IsSpuriousAACSSignature reports whether a scan result carries the fingerprint

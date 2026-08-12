@@ -28,7 +28,7 @@ func (b *blockingRipExecutor) release() {
 	close(b.block)
 }
 
-func (b *blockingRipExecutor) StartRip(ctx context.Context, _ makemkv.Source, _ int, outputDir string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
+func (b *blockingRipExecutor) StartRip(ctx context.Context, _ makemkv.Source, _ int, expectSource string, outputDir string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
 	atomic.AddInt32(&b.started, 1)
 
 	// Write a dummy file so any post-rip cleanup that expects output won't fail.

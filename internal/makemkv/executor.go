@@ -840,7 +840,7 @@ func (e *Executor) runEvents(ctx context.Context, onEvent func(Event), args ...s
 // Unlike scan operations, rips use the caller's context directly — no
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
-func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
+func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expectSource string, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -873,6 +873,17 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 		return fmt.Errorf("makemkv: start rip %s title %d: %w", target, titleID, err)
 	}
 
+	// Verify makemkvcon still numbers this title the way the scan did. It
+	// re-enumerates the disc every run and leaves out titles it cannot read, so
+	// an index captured at scan time can address a different title now.
+	guard := newTitleGuard(titleID, expectSource)
+	var guardErr error
+
+	// copyFailed records makemkvcon reporting that it saved nothing. It exits
+	// zero in that case, and without this the run is logged as a success that
+	// merely happened to leave no file behind.
+	copyFailed := false
+
 	// Stream output line-by-line for real-time progress updates.
 	progress := newProgressTracker()
 	scanner := bufio.NewScanner(stdout)
@@ -889,6 +900,28 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 		// the whole pipeline; if MakeMKV objects to the folder source, its
 		// complaint has to reach the log rather than only the progress bar.
 		logMakeMKVEvent(ev, "rip")
+
+		if ev.Type == "MSG" && ev.Message != nil && ev.Message.Code == MsgCopyFailed {
+			copyFailed = true
+		}
+
+		// Stop before the copy rather than after: once makemkvcon has written
+		// the file, the wrong title is already on disk under the right name.
+		if guardErr == nil {
+			guard.observe(ev)
+			if guard.readyToDecide() {
+				if verr := guard.verdict(); verr != nil {
+					guardErr = verr
+					slog.Error("makemkvcon: aborting rip, the title moved",
+						"source", target, "requested_index", titleID,
+						"expected", expectSource, "error", verr)
+					if cmd.Process != nil {
+						_ = cmd.Process.Kill()
+					}
+				}
+			}
+		}
+
 		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
 			pct := ev.Progress.Total * 100 / ev.Progress.Max
 			if progress.shouldLog(pct, time.Now()) {
@@ -904,9 +937,21 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, output
 		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
 	}
 
-	if err := cmd.Wait(); err != nil {
-		slog.Error("makemkvcon: rip command failed", "source", target, "title", titleID, "error", err)
-		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, err)
+	waitErr := cmd.Wait()
+
+	// The guard's verdict outranks the wait error: the process was killed on
+	// purpose, and "signal: killed" would describe the symptom rather than the
+	// reason.
+	if guardErr != nil {
+		return guardErr
+	}
+	if waitErr != nil {
+		slog.Error("makemkvcon: rip command failed", "source", target, "title", titleID, "error", waitErr)
+		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, waitErr)
+	}
+	if copyFailed {
+		slog.Error("makemkvcon: rip saved no titles", "source", target, "title", titleID)
+		return fmt.Errorf("makemkv: rip %s title %d: makemkvcon saved no titles — the drive could not read it", target, titleID)
 	}
 	slog.Info("makemkvcon: rip command completed successfully", "source", target, "title", titleID)
 	return nil
