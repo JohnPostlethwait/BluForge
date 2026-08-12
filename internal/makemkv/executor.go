@@ -876,17 +876,36 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// Verify makemkvcon still numbers this title the way the scan did. It
 	// re-enumerates the disc every run and leaves out titles it cannot read, so
 	// an index captured at scan time can address a different title now.
+	kill := func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	guardErr, copyFailed := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
+
+	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
+		return err
+	}
+	slog.Info("makemkvcon: rip command completed successfully", "source", target, "title", titleID)
+	return nil
+}
+
+// streamRip reads a rip's output, deciding as it goes whether the copy about to
+// start is the title that was asked for.
+//
+// Separated from process management so the decision can be tested: the guard's
+// own logic was covered while nothing checked that StartRip consulted it, which
+// is the same kind of unverified assumption that caused the bug it guards.
+//
+// Returns the guard's objection, if any, and whether makemkvcon reported that
+// it saved nothing.
+func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onEvent func(Event), target string) (error, bool) {
 	guard := newTitleGuard(titleID, expectSource)
 	var guardErr error
-
-	// copyFailed records makemkvcon reporting that it saved nothing. It exits
-	// zero in that case, and without this the run is logged as a success that
-	// merely happened to leave no file behind.
 	copyFailed := false
 
-	// Stream output line-by-line for real-time progress updates.
 	progress := newProgressTracker()
-	scanner := bufio.NewScanner(stdout)
+	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
 		if line == "" {
@@ -915,9 +934,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 					slog.Error("makemkvcon: aborting rip, the title moved",
 						"source", target, "requested_index", titleID,
 						"expected", expectSource, "error", verr)
-					if cmd.Process != nil {
-						_ = cmd.Process.Kill()
-					}
+					kill()
 				}
 			}
 		}
@@ -936,12 +953,16 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	if scanErr := scanner.Err(); scanErr != nil {
 		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
 	}
+	return guardErr, copyFailed
+}
 
-	waitErr := cmd.Wait()
-
-	// The guard's verdict outranks the wait error: the process was killed on
-	// purpose, and "signal: killed" would describe the symptom rather than the
-	// reason.
+// ripOutcome decides which of a rip's several failure signals to report.
+//
+// A killed process reports "signal: killed", which describes what the kernel
+// did rather than why. Twice in this project that sent an investigation after
+// cancellation bugs when the real answer was elsewhere.
+func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID int) error {
+	// The guard outranks the wait error: the process was killed on purpose.
 	if guardErr != nil {
 		return guardErr
 	}
@@ -949,10 +970,11 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		slog.Error("makemkvcon: rip command failed", "source", target, "title", titleID, "error", waitErr)
 		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, waitErr)
 	}
+	// makemkvcon exits zero after saving nothing, so without this the run reads
+	// as a success that merely left no file behind.
 	if copyFailed {
 		slog.Error("makemkvcon: rip saved no titles", "source", target, "title", titleID)
 		return fmt.Errorf("makemkv: rip %s title %d: makemkvcon saved no titles — the drive could not read it", target, titleID)
 	}
-	slog.Info("makemkvcon: rip command completed successfully", "source", target, "title", titleID)
 	return nil
 }
