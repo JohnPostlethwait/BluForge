@@ -39,6 +39,9 @@ document.addEventListener('alpine:init', () => {
 			active.progress = job.Progress
 			active.status = job.Status
 			active.startedAt = job.StartedAt
+			// Until MakeMKV starts copying, its progress describes an analysis
+			// pass and says nothing about bytes written.
+			active.phase = job.Phase || ''
 
 			// Move to completed when done.
 			if (job.Status === 'completed' || job.Status === 'failed') {
@@ -263,11 +266,15 @@ function formatDuration(secs) {
 									<span class="badge" :class="'badge-' + j.contentType" x-show="j.contentType" x-text="j.contentType"></span>
 								</div>
 								<div class="job-meta" x-show="j.sizeHuman || j.duration || (j.audioTracks && j.audioTracks.length) || (j.subtitleLanguages && j.subtitleLanguages.length)">
-									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeBytes && j.progress > 0 ? formatBytes(Math.round(j.sizeBytes * j.progress / 100)) + ' / ' + j.sizeHuman : j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
+									<span x-show="j.sizeHuman || j.duration" x-text="[j.sizeBytes && j.progress > 0 && j.phase === 'copying' ? formatBytes(Math.round(j.sizeBytes * j.progress / 100)) + ' / ' + j.sizeHuman : j.sizeHuman, j.duration].filter(Boolean).join(' · ')"></span>
 									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + (j.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
 									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + (j.subtitleLanguages || []).join(', ')"></span>
 								</div>
-								<div class="progress-row">
+								<div class="progress-row" x-show="j.phase === 'analyzing'">
+									<span class="spinner" aria-hidden="true"></span>
+									<span class="text-secondary">Reading the disc structure&hellip;</span>
+								</div>
+								<div class="progress-row" x-show="j.phase !== 'analyzing'">
 									<span class="text-secondary min-w-3ch" x-text="j.progress + '%'"></span>
 									@components.ProgressBarDynamic("j.progress", "flex:1;")
 								</div>
@@ -276,6 +283,9 @@ function formatDuration(secs) {
 									if (!now) return ''
 									const elapsed = Math.max(0, Math.floor((now - new Date(j.startedAt)) / 1000))
 									const elapsedStr = formatDuration(elapsed)
+									if (j.phase === 'analyzing') {
+										return elapsedStr + ' elapsed \u00b7 copying has not started yet'
+									}
 									if (j.progress >= 5) {
 										const total = elapsed / (j.progress / 100)
 										const remaining = Math.max(0, total - elapsed)

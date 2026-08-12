@@ -187,8 +187,18 @@ func (e *Engine) run(job *Job) {
 		}
 	}
 
+	// MakeMKV analyses the disc before it copies anything, reporting progress
+	// throughout. Until the copy starts, that percentage says nothing about how
+	// much of the title exists on disk.
+	job.SetPhase(PhaseAnalyzing)
+
 	var lastPct int
 	err := ripWithRetry(ctx, e.executor, job, func(ev makemkv.Event) {
+		// "Saving N titles into directory" is the copy starting.
+		if ev.Type == "MSG" && ev.Message != nil && ev.Message.Code == makemkv.MsgSavingTitles {
+			job.SetPhase(PhaseCopying)
+			e.notify(job)
+		}
 		if ev.Type == "PRGV" && ev.Progress != nil {
 			p := ev.Progress
 			if p.Max > 0 {
@@ -201,6 +211,11 @@ func (e *Engine) run(job *Job) {
 				// the new stage from zero.
 				if pct < lastPct-5 {
 					lastPct = pct
+					// Progress running 0 to 100 and restarting is the
+					// preliminary phase giving way to the copy. Kept as a
+					// fallback so a rip cannot report "analyzing" to the end if
+					// the save message never arrives.
+					job.SetPhase(PhaseCopying)
 				}
 				// Only update when progress advances within the
 				// current stage.

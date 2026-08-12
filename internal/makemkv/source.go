@@ -57,6 +57,9 @@ const (
 	MsgFailedToOpenDisc = 5010
 	// MsgNoUsableDrives — "The program can't find any usable optical drives".
 	MsgNoUsableDrives = 5042
+	// MsgSavingTitles — "Saving %1 titles into directory %2". The copy starting,
+	// and the point at which reported progress begins to mean bytes written.
+	MsgSavingTitles = 5014
 	// MsgCopyFailed — "Copy complete. 0 titles saved, 1 failed." makemkvcon
 	// still exits zero, so this is the only signal that a rip which appeared to
 	// succeed produced nothing.
