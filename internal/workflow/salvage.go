@@ -125,7 +125,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}); err != nil {
 		slog.Warn("salvage: backup did not complete; continuing with what it copied",
 			"drive_index", req.DriveIndex, "dir", dir, "error", err)
-		report("backing-up", lastPct, "The copy stopped at the damage, as expected")
+		report("backing-up", lastPct, "")
 	}
 
 	// 2. Read the disc as a filesystem so the damaged streams can be compared
@@ -308,7 +308,14 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 	if o.backupper == nil {
 		return fmt.Errorf("salvage: no backupper configured")
 	}
-	if !o.beginSalvage(driveIndex) {
+	// The context is made here rather than inside the goroutine so the cancel
+	// stored with the claim is the real one. A placeholder left a window where
+	// Pause found a no-op, reported success, and the salvage carried on — a
+	// silent lie, and the button is on screen for that whole window.
+	ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
+
+	if !o.beginSalvage(driveIndex, cancel) {
+		cancel()
 		return ErrSalvageInProgress
 	}
 
@@ -317,20 +324,18 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 		devicePath = loc.DevicePathForDrive(context.Background(), driveIndex)
 	}
 	discLabel := discLabelFor(context.Background(), o.scanner, driveIndex, "")
+	o.recoveredMu.Lock()
+	if o.salvageLabels == nil {
+		o.salvageLabels = make(map[int]string)
+	}
+	o.salvageLabels[driveIndex] = discLabel
+	o.recoveredMu.Unlock()
 
+	// Detached from any request: a salvage runs for hours and must not be killed
+	// by a browser giving up, nor run until the drive gives out.
 	go func() {
 		defer o.endSalvage(driveIndex)
-
-		// Detached from any request, with a ceiling of its own: a salvage runs
-		// for hours and must not be killed by a browser giving up, nor run
-		// until the drive gives out.
-		ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
 		defer cancel()
-
-		// Publish the cancel so a pause can reach this run.
-		o.recoveredMu.Lock()
-		o.salvaging[driveIndex] = cancel
-		o.recoveredMu.Unlock()
 
 		o.setDriveState(driveIndex, "salvaging")
 		defer o.setDriveState(driveIndex, "detected")
@@ -344,6 +349,14 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 				o.broadcastSalvage(driveIndex, phase, percent, message, 0)
 			},
 		})
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			// A pause, not a failure. Everything recovered stays on disk and the
+			// map file means the next run continues from here.
+			slog.Info("salvage: paused", "drive_index", driveIndex)
+			o.broadcastSalvage(driveIndex, "paused", 0,
+				"Paused. Everything recovered so far is kept.", 0)
+			return
+		}
 		if err != nil {
 			slog.Error("salvage: failed", "drive_index", driveIndex, "error", err)
 			o.broadcastSalvage(driveIndex, "failed", 0, err.Error(), 0)
@@ -364,7 +377,7 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 // beginSalvage claims the drive. A salvage and a recovery cannot run together:
 // both copy the whole disc, and two at once would race for the drive and the
 // scratch directory.
-func (o *Orchestrator) beginSalvage(driveIndex int) bool {
+func (o *Orchestrator) beginSalvage(driveIndex int, cancel context.CancelFunc) bool {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 	if o.recovering[driveIndex] || o.salvaging[driveIndex] != nil {
@@ -373,8 +386,7 @@ func (o *Orchestrator) beginSalvage(driveIndex int) bool {
 	if o.salvaging == nil {
 		o.salvaging = make(map[int]context.CancelFunc)
 	}
-	// Replaced with the real cancel once the salvage goroutine has a context.
-	o.salvaging[driveIndex] = func() {}
+	o.salvaging[driveIndex] = cancel
 	return true
 }
 
@@ -405,6 +417,9 @@ func (o *Orchestrator) broadcastSalvage(driveIndex int, phase string, percent in
 		"percent":     percent,
 		"message":     message,
 		"unrecovered": unrecovered,
+		// Whether a stopped salvage can be picked up, so the page can offer to
+		// resume without waiting for a reload to recompute it.
+		"resumable": o.salvageResumableUnlocked(driveIndex),
 	})
 	if err != nil {
 		slog.Error("salvage: could not marshal SSE payload", "error", err)
@@ -468,4 +483,16 @@ func (o *Orchestrator) CancelSalvage(driveIndex int) bool {
 	slog.Info("salvage: paused on request", "drive_index", driveIndex)
 	cancel()
 	return true
+}
+
+// salvageResumableUnlocked reports whether the disc being salvaged on this drive
+// has work on disk to resume from. Named for the lock it must not take: it is
+// called from broadcast paths that already hold recoveredMu.
+func (o *Orchestrator) salvageResumableUnlocked(driveIndex int) bool {
+	dir, ok := FindSalvageScratch(o.outputDir, o.salvageLabels[driveIndex])
+	if !ok {
+		return false
+	}
+	maps, _ := filepath.Glob(filepath.Join(dir, "*.map"))
+	return len(maps) > 0
 }

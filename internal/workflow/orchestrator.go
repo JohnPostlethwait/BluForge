@@ -90,7 +90,10 @@ type Orchestrator struct {
 	// partialScratch holds unfinished salvage copies restored from a previous
 	// run: protected from the startup sweep, not offered as rippable.
 	partialScratch []string
-	outputDir      string
+	// salvageLabels remembers which disc each drive is salvaging, so a progress
+	// broadcast can say whether there is work to resume from.
+	salvageLabels map[int]string
+	outputDir     string
 
 	// scanLocks serialises scans per drive. Guarded by scanLockMu.
 	scanLockMu sync.Mutex
