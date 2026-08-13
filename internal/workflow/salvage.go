@@ -23,6 +23,13 @@ var ErrSalvageInProgress = errors.New("a salvage is already running")
 // around them can legitimately differ between a disc and a backup of it.
 const streamDir = "BDMV/STREAM"
 
+// DriveLocker claims a drive for work that does not run through the MakeMKV
+// executor. Optional: a backupper without it simply competes with the poller.
+type DriveLocker interface {
+	LockDrive()
+	UnlockDrive()
+}
+
 // SalvageRequest describes a disc to recover from physical damage.
 type SalvageRequest struct {
 	DriveIndex int
@@ -119,6 +126,21 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 
 	// 3. Fill what the backup could not take.
+	//
+	// ddrescue is a separate process and does not go through the MakeMKV
+	// executor, so nothing otherwise stops the five-second drive poller reading
+	// the same drive underneath it. That contention took a rescue from 14 MB/s
+	// down to 2.4 MB/s, turning an hour into nine and a half.
+	if len(short) > 0 {
+		if locker, ok := o.backupper.(DriveLocker); ok {
+			locker.LockDrive()
+			defer locker.UnlockDrive()
+			slog.Info("salvage: holding the drive for the rescue", "files", len(short))
+		} else {
+			slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
+		}
+	}
+
 	var unrecovered int64
 	for _, s := range short {
 		name := filepath.Base(s.name)
