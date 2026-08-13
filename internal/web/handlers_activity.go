@@ -31,6 +31,9 @@ type activityJobJSON struct {
 	DriveIndex  int    `json:"driveIndex"`
 	FinishedAt  string `json:"finishedAt,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
+	// SalvageNote explains damage a salvaged rip knowingly contains. Empty for
+	// an ordinary rip.
+	SalvageNote string `json:"salvageNote,omitempty"`
 	// Salvageable marks a failure the disc might still be recovered from, which
 	// is what puts the offer on the card. Only ever an offer: a salvage
 	// produces damaged video and is the user's decision to make.
@@ -151,6 +154,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 			DriveIndex:        j.DriveIndex,
 			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
 			Salvageable:       salvageable(j.Status, j.ErrorMessage),
+			SalvageNote:       j.SalvageNote,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			Duration:          meta.Duration,
 			AudioTracks:       meta.AudioTracks,
@@ -212,6 +216,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 			Duration:          j.Duration,
 			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
 			Salvageable:       salvageable(j.Status, j.ErrorMessage),
+			SalvageNote:       j.SalvageNote,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,

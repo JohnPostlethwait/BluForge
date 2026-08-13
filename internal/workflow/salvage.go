@@ -144,6 +144,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 		Source:      src,
 		Dir:         dir,
 		Scan:        scan,
+		Salvaged:    true,
 		Unrecovered: unrecovered,
 	}, nil
 }

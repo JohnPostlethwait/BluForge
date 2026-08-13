@@ -9,27 +9,31 @@ import (
 
 const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
 	       output_path, status, progress, error_message, size_bytes, duration,
-	       created_at, updated_at, track_metadata, output_size_bytes`
+	       created_at, updated_at, track_metadata, output_size_bytes, salvage_note`
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
-	ID            int64
-	DriveIndex    int
-	DiscName      string
-	TitleIndex    int
-	TitleName     string
-	ContentType   string
-	OutputPath    string
-	Status        string
-	Progress      int
-	ErrorMessage  string
+	ID           int64
+	DriveIndex   int
+	DiscName     string
+	TitleIndex   int
+	TitleName    string
+	ContentType  string
+	OutputPath   string
+	Status       string
+	Progress     int
+	ErrorMessage string
 	// SizeBytes is MakeMKV's estimate for the title on the disc, taken when the
 	// job is created. It describes the disc, not the result.
 	SizeBytes int64
 	// OutputSizeBytes is the file that actually landed, measured after the move.
 	// Zero on jobs that predate the column, and on jobs that never finished.
 	OutputSizeBytes int64
-	Duration        string
+	// SalvageNote records that this rip came from a salvaged disc and what that
+	// cost. Empty for an ordinary rip. It is the only thing that will explain a
+	// glitch to whoever finds one later.
+	SalvageNote   string
+	Duration      string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	TrackMetadata string // raw JSON, may be empty
@@ -41,8 +45,8 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 		INSERT INTO rip_jobs
 			(drive_index, disc_name, title_index, title_name, content_type,
 			 output_path, status, progress, error_message, size_bytes, duration,
-			 track_metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			 track_metadata, salvage_note)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	status := job.Status
 	if status == "" {
@@ -53,7 +57,7 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 		job.DriveIndex, job.DiscName, job.TitleIndex, job.TitleName,
 		job.ContentType, job.OutputPath, status, job.Progress,
 		job.ErrorMessage, job.SizeBytes, job.Duration,
-		job.TrackMetadata,
+		job.TrackMetadata, job.SalvageNote,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create job: %w", err)
@@ -242,6 +246,7 @@ func scanJob(s scanner) (*RipJob, error) {
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
 		&job.CreatedAt, &job.UpdatedAt, &trackMeta, &job.OutputSizeBytes,
+		&job.SalvageNote,
 	)
 	if err != nil {
 		return nil, err

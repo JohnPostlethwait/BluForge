@@ -478,6 +478,14 @@ function formatDuration(secs) {
 									damaged video where the disc is unreadable — so it is offered
 									here and never taken without being asked for.
 								-->
+								<!--
+									A salvaged rip contains damage the file cannot explain for
+									itself. This is where someone finding a glitch months later
+									learns why it is there.
+								-->
+								<template x-if="r.salvageNote">
+									<div class="text-warning text-sm mt-1" x-text="r.salvageNote"></div>
+								</template>
 								<template x-if="r.salvageable">
 									<div class="mt-2">
 										<button class="btn btn-secondary btn-sm" x-on:click="salvageDisc(r.driveIndex)">

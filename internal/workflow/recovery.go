@@ -79,6 +79,9 @@ type RecoveredDisc struct {
 	Dir          string
 	Scan         *makemkv.DiscScan
 	DiagnosticID int64
+	// Salvaged marks a copy repaired from a physically damaged disc, whose
+	// content is knowingly imperfect.
+	Salvaged bool
 	// Unrecovered is how many bytes a salvage could not read and left blank.
 	// Zero for an ordinary recovery. It is what explains a glitch to someone
 	// looking at the file a year later.
@@ -598,10 +601,11 @@ func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{
-		source:    rec.Source,
-		dir:       rec.Dir,
-		ephemeral: rec.Ephemeral,
-		unmount:   rec.unmount,
+		source:      rec.Source,
+		dir:         rec.Dir,
+		ephemeral:   rec.Ephemeral,
+		unmount:     rec.unmount,
+		salvageNote: salvageNoteFor(rec),
 	}
 	if stale != nil && stale.dir != rec.Dir {
 		// A previous backup for this drive is no longer the current disc, but it
@@ -1149,4 +1153,21 @@ func backupPercent(written, needed int64) int {
 func dirSize(root string) int64 {
 	n, _ := treeSize(root)
 	return n
+}
+
+// salvageNoteFor describes what a salvaged copy cost, for the record kept
+// against every rip made from it.
+//
+// An ordinary recovery gets nothing: it produces a faithful copy, and a note
+// there would be noise. A salvage always gets one, including when it recovered
+// everything, because "salvaged" is itself worth knowing about a file.
+func salvageNoteFor(rec *RecoveredDisc) string {
+	if !rec.Salvaged {
+		return ""
+	}
+	if rec.Unrecovered <= 0 {
+		return "Salvaged from a damaged disc; everything was recovered"
+	}
+	return fmt.Sprintf("Salvaged from a damaged disc; %s could not be read and is blank in this file",
+		humanBytes(rec.Unrecovered))
 }

@@ -128,6 +128,9 @@ type recoveredDisc struct {
 	// ephemeral marks a symlink tree rather than a copy: there is nothing
 	// expensive to preserve, so it is always cleaned up and never persisted.
 	ephemeral bool
+	// salvageNote describes damage this copy carries, for the jobs ripped from
+	// it. Empty for an ordinary recovery.
+	salvageNote string
 	// unmount releases the disc mount a symlink tree depends on.
 	unmount func()
 }
@@ -290,6 +293,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		Status:        "ripping",
 		SizeBytes:     sel.SizeBytes,
 		TrackMetadata: string(metaJSON),
+		// A rip from a salvaged disc carries damage the file itself cannot
+		// explain. The job record is where that explanation lives.
+		SalvageNote: o.salvageNoteForDrive(params.DriveIndex),
 	})
 	if err != nil {
 		return TitleResult{
@@ -1121,6 +1127,31 @@ func largestFile(dir string) (string, int64) {
 		}
 	}
 	return best, bestSize
+}
+
+// salvageNoteForDrive returns the note for the copy a drive is ripping from,
+// or "" when it is ripping the disc itself.
+func (o *Orchestrator) salvageNoteForDrive(driveIndex int) string {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	if rec := o.recovered[driveIndex]; rec != nil {
+		return rec.salvageNote
+	}
+	return ""
+}
+
+// humanBytes renders a size for the notes and messages users read.
+func humanBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.
