@@ -31,6 +31,7 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').salvageStartedAt = 0
 	Alpine.store('activity').salvageDriveIndex = null
 	Alpine.store('activity').salvageResumable = false
+	Alpine.store('activity').salvageRun = 0
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -45,14 +46,20 @@ document.addEventListener('alpine:init', () => {
 	evtSource.addEventListener('disc_salvage', (e) => {
 		const update = JSON.parse(e.data)
 		const store = Alpine.store('activity')
+
+		// A cancelled run keeps reporting for a moment while its processes die.
+		// Those events landing on the run that replaced it made the spinner return
+		// seconds after a pause, and a resumed salvage pause itself.
+		const run = update.run || 0
+		if (run < (store.salvageRun || 0)) return
+		store.salvageRun = run
+
 		store.salvagePhase = update.phase
 		store.salvageMessage = update.message || ''
 		store.salvagePercent = update.percent || 0
 		store.salvageUnrecovered = update.unrecovered || 0
 		store.salvageResumable = !!update.resumable
 		if (update.drive_index !== undefined) store.salvageDriveIndex = update.drive_index
-		// Active means work is happening. Paused, done and failed all keep the
-		// panel on screen, because each of them needs an action or an explanation.
 		store.salvageActive = ['backing-up', 'rescuing', 'verifying'].includes(update.phase)
 		if (store.salvageActive && !store.salvageStartedAt) store.salvageStartedAt = Date.now()
 	})
@@ -135,18 +142,21 @@ document.addEventListener('alpine:init', () => {
 // pauseSalvage stops the run and keeps what it has. The word is "pause" because
 // that is what it is from the outside: resuming continues from the same place.
 async function pauseSalvage(driveIndex) {
+	const store = Alpine.store('activity')
+	// Show the pause immediately; the run's own trailing events are older and
+	// will be ignored.
+	store.salvageActive = false
+	store.salvagePhase = 'paused'
+	store.salvageMessage = 'Paused. Everything recovered so far is kept.'
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/salvage/pause', {
 			method: 'POST',
 			headers: { 'Accept': 'application/json' },
 		})
 		const info = await resp.json().catch(() => ({}))
-		const store = Alpine.store('activity')
-		store.salvageActive = false
-		store.salvagePhase = 'paused'
-		store.salvageMessage = info.message || 'Paused. Everything recovered so far is kept.'
+		if (info.message) store.salvageMessage = info.message
 	} catch (err) {
-		Alpine.store('activity').salvageMessage = 'Could not pause: ' + err.message
+		store.salvageMessage = 'Could not pause: ' + err.message
 	}
 }
 
@@ -171,15 +181,6 @@ async function resumeSalvage() {
 		store.salvagePhase = 'failed'
 		store.salvageMessage = 'Could not resume: ' + err.message
 	}
-}
-
-// dismissSalvage clears the panel. It changes nothing on disk: the copy stays
-// and can still be resumed from the failed rip below.
-function dismissSalvage() {
-	const store = Alpine.store('activity')
-	store.salvagePhase = ''
-	store.salvageMessage = ''
-	store.salvageActive = false
 }
 
 async function salvageDisc(driveIndex, discName) {
@@ -424,7 +425,6 @@ function formatDuration(secs) {
 				<button class="btn btn-primary btn-sm" x-on:click="resumeSalvage()">
 					<span x-text="$store.activity.salvageResumable ? 'Resume salvage' : 'Start salvage again'"></span>
 				</button>
-				<button class="btn btn-secondary btn-sm" x-on:click="dismissSalvage()">Dismiss</button>
 				<span class="text-muted text-sm" x-show="$store.activity.salvageResumable"> Continues from where it stopped</span>
 			</div>
 		</div>

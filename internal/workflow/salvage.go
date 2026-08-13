@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
@@ -16,6 +17,11 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 )
+
+// salvageRuns numbers salvage runs so their events can be told apart. A run
+// that has been cancelled keeps reporting while its processes die, and those
+// events must not be mistaken for the run that replaced it.
+var salvageRuns int64
 
 // ErrSalvageInProgress reports that a drive is already being salvaged.
 var ErrSalvageInProgress = errors.New("a salvage is already running")
@@ -318,6 +324,7 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 		cancel()
 		return ErrSalvageInProgress
 	}
+	runID := atomic.AddInt64(&salvageRuns, 1)
 
 	var devicePath string
 	if loc, ok := o.scanner.(DeviceLocator); ok {
@@ -346,26 +353,32 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 			DiscLabel:  discLabel,
 			OutputDir:  outputDir,
 			OnProgress: func(phase string, percent int, message string) {
-				o.broadcastSalvage(driveIndex, phase, percent, message, 0)
+				// Once cancelled, this run has nothing left to say. Without this
+				// the dying backup kept reporting progress and the page showed
+				// a salvage running that the user had just stopped.
+				if ctx.Err() != nil {
+					return
+				}
+				o.broadcastSalvage(runID, driveIndex, phase, percent, message, 0)
 			},
 		})
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			// A pause, not a failure. Everything recovered stays on disk and the
 			// map file means the next run continues from here.
 			slog.Info("salvage: paused", "drive_index", driveIndex)
-			o.broadcastSalvage(driveIndex, "paused", 0,
+			o.broadcastSalvage(runID, driveIndex, "paused", 0,
 				"Paused. Everything recovered so far is kept.", 0)
 			return
 		}
 		if err != nil {
 			slog.Error("salvage: failed", "drive_index", driveIndex, "error", err)
-			o.broadcastSalvage(driveIndex, "failed", 0, err.Error(), 0)
+			o.broadcastSalvage(runID, driveIndex, "failed", 0, err.Error(), 0)
 			return
 		}
 
 		o.registerRecovered(driveIndex, rec)
 		o.cacheScan(driveIndex, rec.Scan)
-		o.broadcastSalvage(driveIndex, "done", 100, "", rec.Unrecovered)
+		o.broadcastSalvage(runID, driveIndex, "done", 100, "", rec.Unrecovered)
 		slog.Info("salvage: disc is ready to rip",
 			"drive_index", driveIndex, "titles", len(rec.Scan.Titles),
 			"unrecovered_bytes", rec.Unrecovered)
@@ -407,11 +420,16 @@ func (o *Orchestrator) SalvageInProgress(driveIndex int) bool {
 }
 
 // broadcastSalvage pushes a salvage phase to the page.
-func (o *Orchestrator) broadcastSalvage(driveIndex int, phase string, percent int, message string, unrecovered int64) {
+func (o *Orchestrator) broadcastSalvage(runID int64, driveIndex int, phase string, percent int, message string, unrecovered int64) {
 	if o.onBroadcast == nil {
 		return
 	}
 	data, err := json.Marshal(map[string]any{
+		// A cancelled run keeps reporting for a moment while its processes die,
+		// and those events used to land on top of the run that replaced it: the
+		// spinner returned seconds after a pause, and a resumed salvage paused
+		// itself. The page ignores anything from a run it has moved on from.
+		"run":         runID,
 		"drive_index": driveIndex,
 		"phase":       phase,
 		"percent":     percent,
