@@ -46,7 +46,11 @@ type ScanFinding struct {
 // ScanDiagnosis is a reading of a scan's messages in terms of what the user
 // lost, rather than in terms of what the drive reported.
 type ScanDiagnosis struct {
-	// Summary is the one-line headline. Empty when the scan was clean.
+	// Headline names what kind of trouble this is. A disc that will not read
+	// and a container missing a dependency are not the same problem, and one
+	// heading for both told users their disc was damaged when it was not.
+	Headline string `json:"headline"`
+	// Summary is the one-line summary. Empty when the scan was clean.
 	Summary  string        `json:"summary"`
 	Findings []ScanFinding `json:"findings"`
 	// TotalReadErrors is MakeMKV's own total when it reported one, otherwise
@@ -93,6 +97,22 @@ func errorTotal(m Message) (int, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// bdJavaURL appears in the message MakeMKV emits when a disc carries BD-Java
+// programs and no java binary is installed. Matching the URL rather than the
+// prose keeps it working on a localized install: URLs are not translated.
+const bdJavaURL = "makemkv.com/bdjava"
+
+// suppressedMessage reports a message that says nothing to the person reading
+// the notice.
+//
+// The BD-Java warning describes BluForge's own container, which the user cannot
+// install anything into. It belongs in the log, where whoever packages the image
+// will see it, and nowhere else: showing it under a heading about the disc sent
+// people looking for damage that was not there.
+func suppressedMessage(m Message) bool {
+	return strings.Contains(m.Text+" "+strings.Join(m.Params, " "), bdJavaURL)
 }
 
 // isDiscPath distinguishes a file on the disc from the drive itself. MakeMKV
@@ -147,6 +167,9 @@ func Diagnose(messages []Message) ScanDiagnosis {
 			continue
 		}
 		if routineScanMessages[m.Code] {
+			continue
+		}
+		if suppressedMessage(m) {
 			continue
 		}
 		if notesSeen[m.Text] {
@@ -208,6 +231,9 @@ func Diagnose(messages []Message) ScanDiagnosis {
 	}
 
 	if len(d.Findings) > 0 {
+		// The heading follows whatever actually cost the user something. A
+		// missing runtime is worth saying; it is not a disc that will not read.
+		d.Headline = "The disc did not read cleanly"
 		d.Summary = summarize(lost, damaged, d.TotalReadErrors)
 	}
 	return d

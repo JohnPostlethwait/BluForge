@@ -28,8 +28,15 @@ ENV MAKEMKV_VERSION=${MAKEMKV_VERSION}
 # gddrescue provides ddrescue, which recovers what is still readable from a
 # scratched disc. MakeMKV abandons a title on an unrecoverable read; ddrescue
 # zero-fills it so the read succeeds and the film survives with a glitch.
+#
+# default-jre-headless is for BD-Java. Blu-rays can carry Java programs that
+# hold track metadata, select playlists, and on some discs take part in the
+# copy protection. Without a java binary MakeMKV warns on every such disc, gets
+# track names wrong, cannot open discs using fake-playlist protection or
+# Soft-KCD at all, and has been reported to save segments out of order.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates gddrescue \
+    default-jre-headless \
     libssl3 libexpat1 \
     libcurl4t64 zlib1g lsscsi \
     gosu \

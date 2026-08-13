@@ -43,7 +43,9 @@ func ScanWarnings(messages []Message) []ScanWarning {
 	index := make(map[string]int, len(messages))
 
 	for _, m := range messages {
-		if routineScanMessages[m.Code] {
+		// Suppressed messages are logged and never shown: they describe this
+		// installation rather than the disc in the drive.
+		if routineScanMessages[m.Code] || suppressedMessage(m) {
 			continue
 		}
 		key := m.Text

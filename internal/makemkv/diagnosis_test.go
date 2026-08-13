@@ -253,3 +253,61 @@ func TestDiagnoseUsesMessageParametersNotProse(t *testing.T) {
 		t.Errorf("Kind = %q, want %q", f.Kind, FindingTitleUnreadable)
 	}
 }
+
+// A missing Java runtime describes BluForge's container, not the disc, and the
+// person reading the notice cannot install anything into it. Showing it under
+// "the disc did not read cleanly" sent someone looking for damage that was not
+// there. It is logged and never displayed.
+func TestDiagnoseSaysNothingAboutAMissingJavaRuntime(t *testing.T) {
+	d := Diagnose([]Message{
+		{Code: 1005, Text: "MakeMKV started"},
+		{
+			Code:   5081,
+			Text:   "This disc requires Java runtime (JRE), but none was found. Certain functions will fail, please install Java. See http://www.makemkv.com/bdjava/ for details.",
+			Format: "This disc requires Java runtime (JRE), but none was found. Certain functions will fail, please install Java. See %1 for details.",
+			Params: []string{"http://www.makemkv.com/bdjava/"},
+		},
+	})
+
+	if len(d.Findings) != 0 {
+		t.Errorf("the notice appeared for a missing runtime: %+v", d.Findings)
+	}
+	if d.Summary != "" {
+		t.Errorf("summary = %q, want nothing said at all", d.Summary)
+	}
+	// The raw disclosure would put it back on screen under the same heading.
+	for _, w := range d.Details {
+		if strings.Contains(w.Text, "bdjava") {
+			t.Errorf("the message survived into the details list: %q", w.Text)
+		}
+	}
+}
+
+// Real damage still reads as damage.
+func TestDiagnoseStillBlamesTheDiscForReadErrors(t *testing.T) {
+	d := Diagnose(policeStory2Messages())
+
+	if !strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline = %q, want it to name the disc", d.Headline)
+	}
+}
+
+// A disc carrying both real damage and a suppressed message still reports the
+// damage, which is the part that costs content.
+func TestDiagnoseStillReportsDamageAlongsideASuppressedMessage(t *testing.T) {
+	msgs := append(policeStory2Messages(), Message{
+		Code:   5081,
+		Text:   "This disc requires Java runtime (JRE), but none was found. See http://www.makemkv.com/bdjava/ for details.",
+		Params: []string{"http://www.makemkv.com/bdjava/"},
+	})
+
+	d := Diagnose(msgs)
+	if !strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline = %q, want the disc damage reported", d.Headline)
+	}
+	for _, f := range d.Findings {
+		if strings.Contains(f.Text, "Java") {
+			t.Errorf("the suppressed message reappeared: %q", f.Text)
+		}
+	}
+}

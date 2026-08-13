@@ -896,8 +896,13 @@ function applyScanResults(titles) {
 				x-cloak
 				class="card scan-warnings"
 			>
-				<h2 class="section-title">The disc did not read cleanly</h2>
-				<p class="text-muted" x-text="($store.drive.scanDiagnosis || {}).summary"></p>
+				<!--
+					The heading comes from the diagnosis: a disc that will not read and a
+					container missing a dependency are not the same problem, and one
+					heading for both told users their disc was damaged when it was not.
+				-->
+				<h2 class="section-title" x-text="($store.drive.scanDiagnosis || {}).headline || 'The disc did not read cleanly'"></h2>
+				<p class="text-muted" x-show="($store.drive.scanDiagnosis || {}).summary" x-text="($store.drive.scanDiagnosis || {}).summary"></p>
 				<ul class="scan-warning-list">
 					<template x-for="f in ((($store.drive.scanDiagnosis || {}).findings) || [])" x-bind:key="f.kind + (f.target || '') + f.text">
 						<li x-bind:class="'scan-finding scan-finding-' + f.kind">
