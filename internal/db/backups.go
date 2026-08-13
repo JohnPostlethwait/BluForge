@@ -18,23 +18,29 @@ type DiscBackup struct {
 	DiscLabel  string
 	BackupDir  string
 	SourceArg  string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Partial marks a copy that is not finished and not yet rippable — a
+	// salvage still running. It is protected from the startup sweep so a
+	// restart cannot delete hours of work, but never restored as a disc ready
+	// to rip.
+	Partial   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // SaveDiscBackup records a backup, replacing any earlier record of the same
 // directory.
 func (s *Store) SaveDiscBackup(b DiscBackup) (int64, error) {
 	const q = `
-		INSERT INTO disc_backups (drive_index, disc_label, backup_dir, source_arg)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO disc_backups (drive_index, disc_label, backup_dir, source_arg, partial)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(backup_dir) DO UPDATE SET
 			drive_index = excluded.drive_index,
 			disc_label  = excluded.disc_label,
 			source_arg  = excluded.source_arg,
+			partial     = excluded.partial,
 			updated_at  = CURRENT_TIMESTAMP`
 
-	res, err := s.db.Exec(q, b.DriveIndex, b.DiscLabel, b.BackupDir, b.SourceArg)
+	res, err := s.db.Exec(q, b.DriveIndex, b.DiscLabel, b.BackupDir, b.SourceArg, b.Partial)
 	if err != nil {
 		return 0, fmt.Errorf("save disc backup: %w", err)
 	}
@@ -48,7 +54,7 @@ func (s *Store) SaveDiscBackup(b DiscBackup) (int64, error) {
 // ListDiscBackups returns every recorded backup, oldest first.
 func (s *Store) ListDiscBackups() ([]DiscBackup, error) {
 	const q = `
-		SELECT id, drive_index, disc_label, backup_dir, source_arg, created_at, updated_at
+		SELECT id, drive_index, disc_label, backup_dir, source_arg, partial, created_at, updated_at
 		FROM disc_backups ORDER BY id`
 
 	rows, err := s.db.Query(q)
@@ -61,7 +67,7 @@ func (s *Store) ListDiscBackups() ([]DiscBackup, error) {
 	for rows.Next() {
 		var b DiscBackup
 		if err := rows.Scan(&b.ID, &b.DriveIndex, &b.DiscLabel, &b.BackupDir,
-			&b.SourceArg, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			&b.SourceArg, &b.Partial, &b.CreatedAt, &b.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("list disc backups scan: %w", err)
 		}
 		out = append(out, b)
