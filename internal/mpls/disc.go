@@ -2,7 +2,9 @@ package mpls
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -40,8 +42,19 @@ func ReadDiscLanguages(devicePath string, sourceFiles []string) (map[string]Play
 func OpenDiscRoot(devicePath string) (string, func(), error) {
 	mp, err := findMountPoint(devicePath)
 	if err == nil {
-		slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
-		return mp, func() {}, nil
+		// A mount entry is not proof of a readable disc. A drive that is reset
+		// -- which a USB drive under sustained error handling does -- can leave
+		// its entry in /proc/mounts pointing at a directory with nothing in it,
+		// and returning that sent a salvage walking into an empty /mnt/sr0 and
+		// failing two steps later about a path the user had never seen.
+		if err := hasContent(mp); err != nil {
+			slog.Warn("mpls: mount point is not a readable disc, remounting",
+				"device", devicePath, "mount_point", mp, "error", err)
+			_ = exec.Command("umount", mp).Run()
+		} else {
+			slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
+			return mp, func() {}, nil
+		}
 	}
 
 	// Device not mounted — try to mount it temporarily. This relies on fstab
@@ -51,6 +64,13 @@ func OpenDiscRoot(devicePath string) (string, func(), error) {
 	mp, cleanup, mountErr := tryMount(devicePath)
 	if mountErr != nil {
 		return "", func() {}, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
+	}
+	// The same check after mounting: a mount that reports success without
+	// giving a readable disc is worse than one that fails, because everything
+	// downstream then blames the disc for being empty.
+	if err := hasContent(mp); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("mpls: mounted %s at %s but %w", devicePath, mp, err)
 	}
 	slog.Info("mpls: auto-mounted disc", "device", devicePath, "mount_point", mp)
 	return mp, cleanup, nil
@@ -258,4 +278,27 @@ func parseMPLSFromDir(playlistDir string, sourceFiles []string) map[string]PlayI
 		result[fn] = items[0]
 	}
 	return result
+}
+
+// hasContent reports whether a mount point holds anything at all.
+//
+// An optical disc always has content. An empty directory is a mountpoint with
+// no disc behind it: either never mounted, or left over from a device that went
+// away. Catching that here means the caller gets "this is not a disc" rather
+// than a confusing failure further down about a missing BDMV directory.
+func hasContent(root string) error {
+	f, err := os.Open(root)
+	if err != nil {
+		return fmt.Errorf("cannot be read: %w", err)
+	}
+	defer f.Close()
+
+	names, err := f.Readdirnames(1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("cannot be listed: %w", err)
+	}
+	if len(names) == 0 {
+		return errors.New("it is empty (no disc mounted there)")
+	}
+	return nil
 }
