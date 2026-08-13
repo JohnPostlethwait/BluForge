@@ -254,11 +254,11 @@ func TestDiagnoseUsesMessageParametersNotProse(t *testing.T) {
 	}
 }
 
-// A missing Java runtime says nothing about the disc: BD-Java is a dependency
-// of the container, and the user reading the notice cannot install anything
-// into it. Filing it under "the disc did not read cleanly" blamed the disc for
-// our own packaging.
-func TestDiagnoseSeparatesEnvironmentProblemsFromDiscDamage(t *testing.T) {
+// A missing Java runtime describes BluForge's container, not the disc, and the
+// person reading the notice cannot install anything into it. Showing it under
+// "the disc did not read cleanly" sent someone looking for damage that was not
+// there. It is logged and never displayed.
+func TestDiagnoseSaysNothingAboutAMissingJavaRuntime(t *testing.T) {
 	d := Diagnose([]Message{
 		{Code: 1005, Text: "MakeMKV started"},
 		{
@@ -269,17 +269,17 @@ func TestDiagnoseSeparatesEnvironmentProblemsFromDiscDamage(t *testing.T) {
 		},
 	})
 
-	if len(d.Findings) != 1 {
-		t.Fatalf("got %d findings, want 1: %+v", len(d.Findings), d.Findings)
+	if len(d.Findings) != 0 {
+		t.Errorf("the notice appeared for a missing runtime: %+v", d.Findings)
 	}
-	if d.Findings[0].Kind != FindingEnvironment {
-		t.Errorf("Kind = %q, want %q", d.Findings[0].Kind, FindingEnvironment)
+	if d.Summary != "" {
+		t.Errorf("summary = %q, want nothing said at all", d.Summary)
 	}
-	if strings.Contains(strings.ToLower(d.Headline), "did not read") {
-		t.Errorf("headline blames the disc: %q", d.Headline)
-	}
-	if strings.Contains(strings.ToLower(d.Summary), "read error") {
-		t.Errorf("summary claims read errors: %q", d.Summary)
+	// The raw disclosure would put it back on screen under the same heading.
+	for _, w := range d.Details {
+		if strings.Contains(w.Text, "bdjava") {
+			t.Errorf("the message survived into the details list: %q", w.Text)
+		}
 	}
 }
 
@@ -292,15 +292,22 @@ func TestDiagnoseStillBlamesTheDiscForReadErrors(t *testing.T) {
 	}
 }
 
-// A disc with both gets the headline for the one that costs content.
-func TestDiagnosePrefersDiscDamageInTheHeadline(t *testing.T) {
+// A disc carrying both real damage and a suppressed message still reports the
+// damage, which is the part that costs content.
+func TestDiagnoseStillReportsDamageAlongsideASuppressedMessage(t *testing.T) {
 	msgs := append(policeStory2Messages(), Message{
 		Code:   5081,
 		Text:   "This disc requires Java runtime (JRE), but none was found. See http://www.makemkv.com/bdjava/ for details.",
 		Params: []string{"http://www.makemkv.com/bdjava/"},
 	})
 
-	if d := Diagnose(msgs); !strings.Contains(strings.ToLower(d.Headline), "did not read") {
-		t.Errorf("headline = %q, want the disc damage to win", d.Headline)
+	d := Diagnose(msgs)
+	if !strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline = %q, want the disc damage reported", d.Headline)
+	}
+	for _, f := range d.Findings {
+		if strings.Contains(f.Text, "Java") {
+			t.Errorf("the suppressed message reappeared: %q", f.Text)
+		}
 	}
 }

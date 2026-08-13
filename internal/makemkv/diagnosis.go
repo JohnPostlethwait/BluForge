@@ -20,10 +20,6 @@ const (
 	// FindingDiscReadErrors covers reads against the drive rather than a file:
 	// the disc structure, not any one title.
 	FindingDiscReadErrors = "disc-read-errors"
-	// FindingEnvironment is a problem with the machine BluForge runs on rather
-	// than with the disc. Nobody reading the notice can act on it, and blaming
-	// the disc for it sends them looking for damage that is not there.
-	FindingEnvironment = "environment"
 	// FindingNote is a message that did not match a known shape, kept verbatim.
 	FindingNote = "note"
 )
@@ -108,18 +104,15 @@ func errorTotal(m Message) (int, bool) {
 // prose keeps it working on a localized install: URLs are not translated.
 const bdJavaURL = "makemkv.com/bdjava"
 
-// environmentFinding recognises a message about the host rather than the disc.
-func environmentFinding(m Message) (ScanFinding, bool) {
-	haystack := m.Text + " " + strings.Join(m.Params, " ")
-	if !strings.Contains(haystack, bdJavaURL) {
-		return ScanFinding{}, false
-	}
-	return ScanFinding{
-		Kind: FindingEnvironment,
-		Text: "This disc uses BD-Java, and this installation has no Java runtime. " +
-			"Track names may be wrong, and some discs will not open at all. " +
-			"It is a missing dependency in BluForge's container, not a fault in the disc.",
-	}, true
+// suppressedMessage reports a message that says nothing to the person reading
+// the notice.
+//
+// The BD-Java warning describes BluForge's own container, which the user cannot
+// install anything into. It belongs in the log, where whoever packages the image
+// will see it, and nowhere else: showing it under a heading about the disc sent
+// people looking for damage that was not there.
+func suppressedMessage(m Message) bool {
+	return strings.Contains(m.Text+" "+strings.Join(m.Params, " "), bdJavaURL)
 }
 
 // isDiscPath distinguishes a file on the disc from the drive itself. MakeMKV
@@ -146,7 +139,6 @@ func Diagnose(messages []Message) ScanDiagnosis {
 	readErrors := 0
 	reportedTotal := 0
 	var notes []ScanFinding
-	var environment []ScanFinding
 	notesSeen := make(map[string]bool)
 
 	for _, m := range messages {
@@ -177,11 +169,7 @@ func Diagnose(messages []Message) ScanDiagnosis {
 		if routineScanMessages[m.Code] {
 			continue
 		}
-		if f, ok := environmentFinding(m); ok {
-			if !notesSeen[f.Text] {
-				notesSeen[f.Text] = true
-				environment = append(environment, f)
-			}
+		if suppressedMessage(m) {
 			continue
 		}
 		if notesSeen[m.Text] {
@@ -235,7 +223,6 @@ func Diagnose(messages []Message) ScanDiagnosis {
 		})
 	}
 
-	d.Findings = append(d.Findings, environment...)
 	d.Findings = append(d.Findings, notes...)
 
 	d.TotalReadErrors = reportedTotal
@@ -246,14 +233,8 @@ func Diagnose(messages []Message) ScanDiagnosis {
 	if len(d.Findings) > 0 {
 		// The heading follows whatever actually cost the user something. A
 		// missing runtime is worth saying; it is not a disc that will not read.
-		discTrouble := lost > 0 || damaged > 0 || discErrors > 0 || len(notes) > 0
-		if discTrouble {
-			d.Headline = "The disc did not read cleanly"
-			d.Summary = summarize(lost, damaged, d.TotalReadErrors)
-		} else {
-			d.Headline = "Worth knowing about this disc"
-			d.Summary = ""
-		}
+		d.Headline = "The disc did not read cleanly"
+		d.Summary = summarize(lost, damaged, d.TotalReadErrors)
 	}
 	return d
 }
