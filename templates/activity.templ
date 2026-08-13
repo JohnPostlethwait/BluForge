@@ -30,8 +30,23 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').salvageUnrecovered = 0
 	Alpine.store('activity').salvageStartedAt = 0
 	Alpine.store('activity').salvageDriveIndex = null
+	Alpine.store('activity').salvageDisc = ''
 	Alpine.store('activity').salvageResumable = false
 	Alpine.store('activity').salvageRun = 0
+	// A page loaded during a salvage has seen no events. The server says what is
+	// running so the panel is there immediately rather than after the next
+	// update, which during a quiet phase can be minutes away.
+	{
+		const cur = Alpine.store('activity').salvage || {}
+		if (cur.active) {
+			Alpine.store('activity').salvageActive = true
+			Alpine.store('activity').salvagePhase = 'backing-up'
+			Alpine.store('activity').salvageDriveIndex = cur.driveIndex
+			Alpine.store('activity').salvageDisc = cur.discLabel || ''
+			Alpine.store('activity').salvageResumable = !!cur.resumable
+			Alpine.store('activity').salvageStartedAt = Date.now()
+		}
+	}
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -172,7 +187,8 @@ async function resumeSalvage() {
 	store.salvagePercent = 0
 	store.salvageStartedAt = Date.now()
 	try {
-		await fetch('/drives/' + idx + '/salvage', {
+		const disc = store.salvageDisc || ''
+		await fetch('/drives/' + idx + '/salvage' + (disc ? '?disc=' + encodeURIComponent(disc) : ''), {
 			method: 'POST',
 			headers: { 'Accept': 'application/json' },
 		})
@@ -203,6 +219,7 @@ async function salvageDisc(driveIndex, discName) {
 	store.salvagePercent = 0
 	store.salvageStartedAt = Date.now()
 	store.salvageDriveIndex = driveIndex
+	store.salvageDisc = discName || ''
 
 	try {
 		// The disc, not the drive number: a drive that re-enumerated between the

@@ -437,7 +437,7 @@ func (o *Orchestrator) broadcastSalvage(runID int64, driveIndex int, phase strin
 		"unrecovered": unrecovered,
 		// Whether a stopped salvage can be picked up, so the page can offer to
 		// resume without waiting for a reload to recompute it.
-		"resumable": o.salvageResumableUnlocked(driveIndex),
+		"resumable": o.salvageResumableFor(driveIndex),
 	})
 	if err != nil {
 		slog.Error("salvage: could not marshal SSE payload", "error", err)
@@ -503,14 +503,56 @@ func (o *Orchestrator) CancelSalvage(driveIndex int) bool {
 	return true
 }
 
-// salvageResumableUnlocked reports whether the disc being salvaged on this drive
-// has work on disk to resume from. Named for the lock it must not take: it is
-// called from broadcast paths that already hold recoveredMu.
-func (o *Orchestrator) salvageResumableUnlocked(driveIndex int) bool {
-	dir, ok := FindSalvageScratch(o.outputDir, o.salvageLabels[driveIndex])
+// salvageResumableFor reports whether the disc being salvaged on this drive has
+// work on disk to resume from.
+//
+// It takes the lock itself: it is called from the broadcast path, which does
+// not hold one, and it reads state the salvage goroutine writes. Assuming a
+// caller's lock here was a data race that tests never hit, because they always
+// happened to write before the reader started.
+func (o *Orchestrator) salvageResumableFor(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	outputDir, label := o.outputDir, o.salvageLabels[driveIndex]
+	o.recoveredMu.Unlock()
+
+	dir, ok := FindSalvageScratch(outputDir, label)
 	if !ok {
 		return false
 	}
 	maps, _ := filepath.Glob(filepath.Join(dir, "*.map"))
 	return len(maps) > 0
+}
+
+// SalvageState is what a page needs to draw the salvage panel without having
+// seen any events.
+//
+// A reload or a dropped connection during a salvage left the panel blank until
+// the next event, which during a quiet phase can be minutes.
+type SalvageState struct {
+	Active     bool   `json:"active"`
+	DriveIndex int    `json:"driveIndex"`
+	DiscLabel  string `json:"discLabel"`
+	Resumable  bool   `json:"resumable"`
+}
+
+// CurrentSalvage reports a salvage in progress, if there is one.
+func (o *Orchestrator) CurrentSalvage() SalvageState {
+	o.recoveredMu.Lock()
+	var driveIndex = -1
+	for idx := range o.salvaging {
+		driveIndex = idx
+		break
+	}
+	label := o.salvageLabels[driveIndex]
+	o.recoveredMu.Unlock()
+
+	if driveIndex < 0 {
+		return SalvageState{}
+	}
+	return SalvageState{
+		Active:     true,
+		DriveIndex: driveIndex,
+		DiscLabel:  label,
+		Resumable:  o.salvageResumableFor(driveIndex),
+	}
 }
