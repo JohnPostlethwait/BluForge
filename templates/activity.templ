@@ -30,6 +30,7 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').salvageUnrecovered = 0
 	Alpine.store('activity').salvageStartedAt = 0
 	Alpine.store('activity').salvageDriveIndex = null
+	Alpine.store('activity').salvageResumable = false
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -47,14 +48,13 @@ document.addEventListener('alpine:init', () => {
 		store.salvagePhase = update.phase
 		store.salvageMessage = update.message || ''
 		store.salvagePercent = update.percent || 0
-		if (update.drive_index !== undefined) store.salvageDriveIndex = update.drive_index
 		store.salvageUnrecovered = update.unrecovered || 0
-		if (!store.salvageStartedAt) store.salvageStartedAt = Date.now()
-		if (update.phase === 'done' || update.phase === 'failed') {
-			store.salvageActive = false
-		} else {
-			store.salvageActive = true
-		}
+		store.salvageResumable = !!update.resumable
+		if (update.drive_index !== undefined) store.salvageDriveIndex = update.drive_index
+		// Active means work is happening. Paused, done and failed all keep the
+		// panel on screen, because each of them needs an action or an explanation.
+		store.salvageActive = ['backing-up', 'rescuing', 'verifying'].includes(update.phase)
+		if (store.salvageActive && !store.salvageStartedAt) store.salvageStartedAt = Date.now()
 	})
 
 	evtSource.addEventListener('rip-update', (e) => {
@@ -144,10 +144,42 @@ async function pauseSalvage(driveIndex) {
 		const store = Alpine.store('activity')
 		store.salvageActive = false
 		store.salvagePhase = 'paused'
-		store.salvageMessage = info.message || 'Paused.'
+		store.salvageMessage = info.message || 'Paused. Everything recovered so far is kept.'
 	} catch (err) {
 		Alpine.store('activity').salvageMessage = 'Could not pause: ' + err.message
 	}
+}
+
+// resumeSalvage restarts the salvage for the drive the panel is about. ddrescue
+// continues from its map, so this picks up rather than starting over.
+async function resumeSalvage() {
+	const store = Alpine.store('activity')
+	const idx = store.salvageDriveIndex
+	if (idx === null || idx === undefined) return
+	store.salvagePhase = 'backing-up'
+	store.salvageActive = true
+	store.salvageMessage = ''
+	store.salvagePercent = 0
+	store.salvageStartedAt = Date.now()
+	try {
+		await fetch('/drives/' + idx + '/salvage', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+	} catch (err) {
+		store.salvageActive = false
+		store.salvagePhase = 'failed'
+		store.salvageMessage = 'Could not resume: ' + err.message
+	}
+}
+
+// dismissSalvage clears the panel. It changes nothing on disk: the copy stays
+// and can still be resumed from the failed rip below.
+function dismissSalvage() {
+	const store = Alpine.store('activity')
+	store.salvagePhase = ''
+	store.salvageMessage = ''
+	store.salvageActive = false
 }
 
 async function salvageDisc(driveIndex, discName) {
@@ -340,11 +372,21 @@ function formatDuration(secs) {
 
 		<!-- ═══════════ Active & Queued Tab ═══════════ -->
 		<!--
-			A salvage takes hours. Without this the page shows a failed rip and
-			nothing else, which is how the last long operation looked hung.
+			Every state a salvage can be in, because it takes hours and the page is
+			the only place the user can see it: copying, patching, checking, paused,
+			finished, failed. Showing only some of them left the panel vanishing
+			mid-operation with no way back to it.
 		-->
-		<div x-data x-show="$store.activity.salvageActive || $store.activity.salvagePhase === 'done'" x-cloak class="card scan-warnings">
-			<h2 class="section-title">Salvaging this disc</h2>
+		<div x-data x-show="$store.activity.salvagePhase" x-cloak class="card scan-warnings">
+			<h2 class="section-title" x-text="({
+				'backing-up': 'Salvaging this disc',
+				'rescuing': 'Salvaging this disc',
+				'verifying': 'Salvaging this disc',
+				'paused': 'Salvage paused',
+				'done': 'Salvage finished',
+				'failed': 'Salvage failed'
+			})[$store.activity.salvagePhase] || 'Salvaging this disc'"></h2>
+
 			<div class="flex items-center gap-2" x-show="$store.activity.salvageActive">
 				<span class="spinner" aria-hidden="true"></span>
 				<span x-text="({
@@ -354,24 +396,37 @@ function formatDuration(secs) {
 				})[$store.activity.salvagePhase] || 'Working'"></span>
 				<span class="text-secondary min-w-3ch" x-show="$store.activity.salvagePercent > 0" x-text="$store.activity.salvagePercent + '%'"></span>
 			</div>
+
 			<div class="progress-row" x-show="$store.activity.salvageActive && $store.activity.salvagePercent > 0">
 				@components.ProgressBarDynamic("$store.activity.salvagePercent", "flex:1;")
 			</div>
+
 			<p class="text-muted text-sm" x-show="$store.activity.salvageActive && $store.activity.salvageStartedAt" x-text="(() => {
 				const now = $store.activity.now
 				if (!now || !$store.activity.salvageStartedAt) return ''
 				return formatDuration(Math.max(0, Math.floor((now - $store.activity.salvageStartedAt) / 1000))) + ' elapsed'
 			})()"></p>
+
 			<p class="text-muted scan-operation" x-show="$store.activity.salvageMessage" x-text="$store.activity.salvageMessage"></p>
-			<!--
-				Pausing keeps everything recovered so far: ddrescue's map survives, so
-				resuming continues rather than re-reading the disc from the start.
-			-->
+
+			<p class="text-muted" x-show="$store.activity.salvagePhase === 'done'" x-text="$store.activity.salvageUnrecovered > 0 ? 'Done. ' + formatBytes($store.activity.salvageUnrecovered) + ' could not be read and is blank in the result. The disc is ready to rip.' : 'Done. Everything was recovered. The disc is ready to rip.'"></p>
+
 			<div class="mt-2" x-show="$store.activity.salvageActive">
 				<button class="btn btn-secondary btn-sm" x-on:click="pauseSalvage($store.activity.salvageDriveIndex)">Pause</button>
-				<span class="text-muted text-sm"> Keeps what has been recovered; resuming continues from here</span>
+				<span class="text-muted text-sm"> Stops the operation and keeps everything recovered so far</span>
 			</div>
-			<p class="text-muted" x-show="$store.activity.salvagePhase === 'done'" x-text="$store.activity.salvageUnrecovered > 0 ? 'Done. ' + formatBytes($store.activity.salvageUnrecovered) + ' could not be read and is blank in the result. The disc is ready to rip.' : 'Done. Everything was recovered. The disc is ready to rip.'"></p>
+
+			<!--
+				Paused and failed both leave work on disk that a resume continues from,
+				so both offer it. Without this the panel was a dead end.
+			-->
+			<div class="mt-2" x-show="$store.activity.salvagePhase === 'paused' || $store.activity.salvagePhase === 'failed'">
+				<button class="btn btn-primary btn-sm" x-on:click="resumeSalvage()">
+					<span x-text="$store.activity.salvageResumable ? 'Resume salvage' : 'Start salvage again'"></span>
+				</button>
+				<button class="btn btn-secondary btn-sm" x-on:click="dismissSalvage()">Dismiss</button>
+				<span class="text-muted text-sm" x-show="$store.activity.salvageResumable"> Continues from where it stopped</span>
+			</div>
 		</div>
 		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak class="flex flex-col gap-5">
 			<!-- Active Jobs -->
