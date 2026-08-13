@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
@@ -86,6 +87,23 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, fmt.Errorf("salvage: create backup dir %s: %w", dir, err)
+	}
+
+	// Record it now, not on success. The startup sweep deletes any scratch the
+	// database does not know about, and a salvage runs for hours: a restart
+	// partway through deleted a backup and 11.8GB of rescued data on the first
+	// real run, because nothing was written down until the very end.
+	if o.store != nil {
+		if _, err := o.store.SaveDiscBackup(db.DiscBackup{
+			DriveIndex: req.DriveIndex,
+			DiscLabel:  req.DiscLabel,
+			BackupDir:  dir,
+			SourceArg:  makemkv.FileSource(dir).Arg(),
+			Partial:    true,
+		}); err != nil {
+			slog.Warn("salvage: could not record the scratch copy; a restart could delete it",
+				"dir", dir, "error", err)
+		}
 	}
 
 	// 1. Back up what the disc will give. A backup that dies partway is not a

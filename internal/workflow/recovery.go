@@ -665,6 +665,17 @@ func (o *Orchestrator) RestoreBackups() error {
 			continue
 		}
 
+		if b.Partial {
+			// A salvage that was interrupted. Worth protecting from the sweep
+			// and worth resuming, but not a disc that can be ripped yet.
+			o.recoveredMu.Lock()
+			o.partialScratch = append(o.partialScratch, b.BackupDir)
+			o.recoveredMu.Unlock()
+			slog.Info("recovery: keeping an unfinished salvage copy for resuming",
+				"disc", b.DiscLabel, "dir", b.BackupDir)
+			continue
+		}
+
 		o.recoveredMu.Lock()
 		o.recovered[b.DriveIndex] = &recoveredDisc{
 			source: makemkv.FileSource(b.BackupDir),
@@ -684,10 +695,13 @@ func (o *Orchestrator) TrackedBackupDirs() []string {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 
-	dirs := make([]string, 0, len(o.recovered))
+	dirs := make([]string, 0, len(o.recovered)+len(o.partialScratch))
 	for _, rec := range o.recovered {
 		dirs = append(dirs, rec.dir)
 	}
+	// Unfinished salvages count as tracked: they are hours of work, and the
+	// sweep exists to remove debris rather than work in progress.
+	dirs = append(dirs, o.partialScratch...)
 	return dirs
 }
 

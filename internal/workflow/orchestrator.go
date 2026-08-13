@@ -87,7 +87,10 @@ type Orchestrator struct {
 	// that pauses it. Mutually exclusive with recovering: both copy the whole
 	// disc. Guarded by recoveredMu.
 	salvaging map[int]context.CancelFunc
-	outputDir string
+	// partialScratch holds unfinished salvage copies restored from a previous
+	// run: protected from the startup sweep, not offered as rippable.
+	partialScratch []string
+	outputDir      string
 
 	// scanLocks serialises scans per drive. Guarded by scanLockMu.
 	scanLockMu sync.Mutex
