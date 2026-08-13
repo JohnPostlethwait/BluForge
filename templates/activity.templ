@@ -39,13 +39,20 @@ document.addEventListener('alpine:init', () => {
 	// update, which during a quiet phase can be minutes away.
 	{
 		const cur = Alpine.store('activity').salvage || {}
-		if (cur.active) {
-			Alpine.store('activity').salvageActive = true
-			Alpine.store('activity').salvagePhase = 'backing-up'
+		if (cur.active || cur.paused) {
 			Alpine.store('activity').salvageDriveIndex = cur.driveIndex
 			Alpine.store('activity').salvageDisc = cur.discLabel || ''
 			Alpine.store('activity').salvageResumable = !!cur.resumable
+		}
+		if (cur.active) {
+			Alpine.store('activity').salvageActive = true
+			Alpine.store('activity').salvagePhase = 'backing-up'
 			Alpine.store('activity').salvageStartedAt = Date.now()
+		} else if (cur.paused) {
+			// A salvage stopped with work on disk. The page must offer to
+			// resume it, whether it was paused a minute ago or before a restart.
+			Alpine.store('activity').salvagePhase = 'paused'
+			Alpine.store('activity').salvageMessage = 'Paused. Everything recovered so far is kept.'
 		}
 	}
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards

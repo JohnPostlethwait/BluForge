@@ -529,16 +529,26 @@ func (o *Orchestrator) salvageResumableFor(driveIndex int) bool {
 // A reload or a dropped connection during a salvage left the panel blank until
 // the next event, which during a quiet phase can be minutes.
 type SalvageState struct {
-	Active     bool   `json:"active"`
+	Active bool `json:"active"`
+	// Paused reports a salvage that was stopped and has work waiting on disk.
+	// It is derived from what is recorded rather than remembered in a browser:
+	// a reload used to lose the paused state entirely, leaving no way back to
+	// hours of recovered data.
+	Paused     bool   `json:"paused"`
 	DriveIndex int    `json:"driveIndex"`
 	DiscLabel  string `json:"discLabel"`
 	Resumable  bool   `json:"resumable"`
 }
 
-// CurrentSalvage reports a salvage in progress, if there is one.
+// CurrentSalvage reports a salvage in progress, or one that is paused with work
+// waiting to be resumed.
+//
+// Both come from what is recorded rather than from what a page happens to
+// remember. A reload during a pause used to show nothing at all, stranding
+// hours of recovered data behind a button that offered to start over.
 func (o *Orchestrator) CurrentSalvage() SalvageState {
 	o.recoveredMu.Lock()
-	var driveIndex = -1
+	driveIndex := -1
 	for idx := range o.salvaging {
 		driveIndex = idx
 		break
@@ -546,13 +556,53 @@ func (o *Orchestrator) CurrentSalvage() SalvageState {
 	label := o.salvageLabels[driveIndex]
 	o.recoveredMu.Unlock()
 
-	if driveIndex < 0 {
-		return SalvageState{}
+	if driveIndex >= 0 {
+		return SalvageState{
+			Active:     true,
+			DriveIndex: driveIndex,
+			DiscLabel:  label,
+			Resumable:  o.salvageResumableFor(driveIndex),
+		}
 	}
-	return SalvageState{
-		Active:     true,
-		DriveIndex: driveIndex,
-		DiscLabel:  label,
-		Resumable:  o.salvageResumableFor(driveIndex),
+
+	// Nothing running. An unfinished copy on disk means a salvage was stopped
+	// and can be picked up.
+	if paused, ok := o.pausedSalvage(); ok {
+		return paused
 	}
+	return SalvageState{}
+}
+
+// pausedSalvage finds a salvage that was stopped with work left on disk.
+//
+// The record survives a restart, which the browser's idea of "paused" does not:
+// this is what lets the page offer to resume after a reload, a reconnect, or a
+// redeploy.
+func (o *Orchestrator) pausedSalvage() (SalvageState, bool) {
+	if o.store == nil {
+		return SalvageState{}, false
+	}
+	backups, err := o.store.ListDiscBackups()
+	if err != nil {
+		slog.Warn("salvage: could not look for a paused salvage", "error", err)
+		return SalvageState{}, false
+	}
+	for _, b := range backups {
+		if !b.Partial {
+			continue
+		}
+		if _, statErr := os.Stat(b.BackupDir); statErr != nil {
+			continue
+		}
+		// Resumable either way: with a map file the rescue continues from where
+		// it stopped, and without one the backup already on disk is still worth
+		// continuing from rather than re-reading.
+		return SalvageState{
+			Paused:     true,
+			DriveIndex: b.DriveIndex,
+			DiscLabel:  b.DiscLabel,
+			Resumable:  true,
+		}, true
+	}
+	return SalvageState{}, false
 }
