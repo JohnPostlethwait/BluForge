@@ -13,6 +13,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/contribute"
 	"github.com/johnpostlethwait/bluforge/internal/db"
+	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
@@ -64,6 +65,9 @@ type Orchestrator struct {
 	// checkSpace verifies the scratch volume can hold a disc backup. Injected
 	// so the early-failure path can be tested without filling a disk.
 	checkSpace func(path string, needBytes int64) error
+	// rescuer runs ddrescue over the streams a damaged disc will not give up.
+	// Injected so salvage can be tested without a scratched disc.
+	rescuer ddrescue.Runner
 
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
@@ -79,7 +83,10 @@ type Orchestrator struct {
 	// recovering guards against a second backup being started for a drive that
 	// is already being recovered — two ~100GB copies racing each other.
 	recovering map[int]bool
-	outputDir  string
+	// salvaging tracks drives being recovered from physical damage. Mutually
+	// exclusive with recovering: both copy the whole disc.
+	salvaging map[int]bool
+	outputDir string
 
 	// scanLocks serialises scans per drive. Guarded by scanLockMu.
 	scanLockMu sync.Mutex
@@ -121,6 +128,9 @@ type recoveredDisc struct {
 	// ephemeral marks a symlink tree rather than a copy: there is nothing
 	// expensive to preserve, so it is always cleaned up and never persisted.
 	ephemeral bool
+	// salvageNote describes damage this copy carries, for the jobs ripped from
+	// it. Empty for an ordinary recovery.
+	salvageNote string
 	// unmount releases the disc mount a symlink tree depends on.
 	unmount func()
 }
@@ -143,9 +153,11 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		openDiscRoot: openRoot,
 		onDriveState: deps.OnDriveState,
 		checkSpace:   ripper.CheckDiskSpace,
+		rescuer:      ddrescue.ExecRunner{},
 		scanCache:    make(map[string]*makemkv.DiscScan),
 		recovered:    make(map[int]*recoveredDisc),
 		recovering:   make(map[int]bool),
+		salvaging:    make(map[int]bool),
 		scanLocks:    make(map[int]*sync.Mutex),
 	}
 }
@@ -281,6 +293,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		Status:        "ripping",
 		SizeBytes:     sel.SizeBytes,
 		TrackMetadata: string(metaJSON),
+		// A rip from a salvaged disc carries damage the file itself cannot
+		// explain. The job record is where that explanation lives.
+		SalvageNote: o.salvageNoteForDrive(params.DriveIndex),
 	})
 	if err != nil {
 		return TitleResult{
@@ -333,13 +348,23 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
 		}
 		if ripErr != nil {
-			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
-			o.broadcastJobUpdate(job.ID, "failed")
+			// Look before deleting, and say what was there. Whether makemkvcon
+			// leaves its partial output behind or removes it itself was unknown
+			// because this path called RemoveAll without ever opening the
+			// directory. The file itself is no use -- an MKV cannot be fed back
+			// into a rip or a salvage -- so it still goes, but the fact is
+			// recorded rather than destroyed unseen.
+			if partial, size := largestFile(job.OutputDir); partial != "" {
+				slog.Warn("rip failed after writing a partial file; discarding it",
+					"job_id", job.ID, "path", partial, "bytes", size)
+			}
 			if job.OutputDir != "" {
 				if err := os.RemoveAll(job.OutputDir); err != nil {
 					slog.Warn("failed to remove temp output dir", "dir", job.OutputDir, "err", err)
 				}
 			}
+			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
+			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
 
@@ -1071,6 +1096,62 @@ func langInList(langs []string, code string) bool {
 		}
 	}
 	return false
+}
+
+// largestFile returns the biggest non-empty file in dir and its size, or ""
+// when the directory is missing, empty, or holds nothing with any bytes in it.
+//
+// makemkvcon may or may not remove its own partial output when a rip fails; we
+// were deleting the directory without looking, so nobody knew which. Asking is
+// cheaper than assuming.
+func largestFile(dir string) (string, int64) {
+	if dir == "" {
+		return "", 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0
+	}
+	var best string
+	var bestSize int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		if info.Size() > bestSize {
+			best, bestSize = filepath.Join(dir, e.Name()), info.Size()
+		}
+	}
+	return best, bestSize
+}
+
+// salvageNoteForDrive returns the note for the copy a drive is ripping from,
+// or "" when it is ripping the disc itself.
+func (o *Orchestrator) salvageNoteForDrive(driveIndex int) string {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+	if rec := o.recovered[driveIndex]; rec != nil {
+		return rec.salvageNote
+	}
+	return ""
+}
+
+// humanBytes renders a size for the notes and messages users read.
+func humanBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }
 
 // findMKVFile returns the path to the first .mkv file in dir.

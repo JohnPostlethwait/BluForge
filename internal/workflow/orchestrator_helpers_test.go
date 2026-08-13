@@ -70,6 +70,15 @@ func setupOrchestratorWithScanner(t *testing.T, scanner DiscScanner) (*Orchestra
 	return setupOrchestratorWithScannerAndBroadcast(t, scanner, func(string, string) {})
 }
 
+// setupOrchestratorWithRipExecutor builds an orchestrator whose rips behave the
+// way the given executor decides, for exercising the failure paths.
+func setupOrchestratorWithRipExecutor(t *testing.T, exec ripper.RipExecutor) (*Orchestrator, *db.Store, string) {
+	t.Helper()
+	orch, store, outputDir := setupOrchestratorWithScanner(t, &mockDriveExecutor{})
+	orch.engine = ripper.NewEngine(exec)
+	return orch, store, outputDir
+}
+
 func setupOrchestratorWithScannerAndBroadcast(t *testing.T, scanner DiscScanner, broadcast func(string, string)) (*Orchestrator, *db.Store, string) {
 	t.Helper()
 

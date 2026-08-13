@@ -29,6 +29,21 @@ document.addEventListener('alpine:init', () => {
 
 	const evtSource = new EventSource('/events')
 
+	// A salvage runs for hours and produces a file MakeMKV would refuse to make.
+	// Nothing here happens without the user reading what that means and agreeing.
+	evtSource.addEventListener('disc_salvage', (e) => {
+		const update = JSON.parse(e.data)
+		const store = Alpine.store('activity')
+		store.salvagePhase = update.phase
+		store.salvageMessage = update.message || ''
+		store.salvageUnrecovered = update.unrecovered || 0
+		if (update.phase === 'done' || update.phase === 'failed') {
+			store.salvageActive = false
+		} else {
+			store.salvageActive = true
+		}
+	})
+
 	evtSource.addEventListener('rip-update', (e) => {
 		const job = JSON.parse(e.data)
 		const store = Alpine.store('activity')
@@ -100,6 +115,47 @@ document.addEventListener('alpine:init', () => {
 		store.contributionDiscName = d.disc_name
 	})
 })
+
+// salvageDisc asks before doing anything, because a salvage is a deliberate
+// departure from how MakeMKV behaves: it writes a file containing damaged video
+// rather than refusing to write one at all.
+async function salvageDisc(driveIndex) {
+	const agreed = confirm(
+		'Salvage this disc?\n\n' +
+		'BluForge will copy what the drive can still read and leave the unreadable ' +
+		'parts blank. MakeMKV normally refuses to rip a disc it cannot read ' +
+		'completely — this deliberately overrides that.\n\n' +
+		'The result will contain DAMAGED VIDEO wherever the disc is unreadable. ' +
+		'You will not know how much until it finishes.\n\n' +
+		'This takes a few hours and needs roughly twice the disc size in free space.\n\n' +
+		'Leave the disc in the drive until it completes.'
+	)
+	if (!agreed) return
+
+	const store = Alpine.store('activity')
+	store.salvageActive = true
+	store.salvagePhase = 'backing-up'
+	store.salvageMessage = 'Starting'
+
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/salvage', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		const info = await resp.json().catch(() => ({}))
+		if (!resp.ok) {
+			store.salvageActive = false
+			store.salvagePhase = 'failed'
+			store.salvageMessage = info.message || ('Salvage could not start (HTTP ' + resp.status + ')')
+			return
+		}
+		store.salvageMessage = info.message || ''
+	} catch (err) {
+		store.salvageActive = false
+		store.salvagePhase = 'failed'
+		store.salvageMessage = 'Salvage request failed: ' + err.message
+	}
+}
 
 async function cancelJob(jobId, btn) {
 	if (btn) btn.disabled = true
@@ -245,6 +301,23 @@ function formatDuration(secs) {
 		</div>
 
 		<!-- ═══════════ Active & Queued Tab ═══════════ -->
+		<!--
+			A salvage takes hours. Without this the page shows a failed rip and
+			nothing else, which is how the last long operation looked hung.
+		-->
+		<div x-data x-show="$store.activity.salvageActive || $store.activity.salvagePhase === 'done'" x-cloak class="card scan-warnings">
+			<h2 class="section-title">Salvaging this disc</h2>
+			<div class="flex items-center gap-2" x-show="$store.activity.salvageActive">
+				<span class="spinner" aria-hidden="true"></span>
+				<span x-text="({
+					'backing-up': 'Copying everything the disc will give',
+					'rescuing': 'Recovering the parts it would not',
+					'verifying': 'Checking what can be ripped'
+				})[$store.activity.salvagePhase] || 'Working'"></span>
+			</div>
+			<p class="text-muted scan-operation" x-show="$store.activity.salvageMessage" x-text="$store.activity.salvageMessage"></p>
+			<p class="text-muted" x-show="$store.activity.salvagePhase === 'done'" x-text="$store.activity.salvageUnrecovered > 0 ? 'Done. ' + formatBytes($store.activity.salvageUnrecovered) + ' could not be read and is blank in the result. The disc is ready to rip.' : 'Done. Everything was recovered. The disc is ready to rip.'"></p>
+		</div>
 		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak class="flex flex-col gap-5">
 			<!-- Active Jobs -->
 			<div class="card mb-4">
@@ -399,6 +472,28 @@ function formatDuration(secs) {
 										<span class="text-error"> · <span x-text="r.error"></span></span>
 									</template>
 								</div>
+								<!--
+									A rip that read the disc and came away with nothing is what a
+									scratch looks like. Salvage can get past it, at the cost of
+									damaged video where the disc is unreadable — so it is offered
+									here and never taken without being asked for.
+								-->
+								<!--
+									A salvaged rip contains damage the file cannot explain for
+									itself. This is where someone finding a glitch months later
+									learns why it is there.
+								-->
+								<template x-if="r.salvageNote">
+									<div class="text-warning text-sm mt-1" x-text="r.salvageNote"></div>
+								</template>
+								<template x-if="r.salvageable">
+									<div class="mt-2">
+										<button class="btn btn-secondary btn-sm" x-on:click="salvageDisc(r.driveIndex)">
+											Salvage this disc&hellip;
+										</button>
+										<span class="text-muted text-sm"> Recover what is still readable, accepting damaged video</span>
+									</div>
+								</template>
 							</div>
 						</template>
 					</div>

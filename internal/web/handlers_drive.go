@@ -129,6 +129,10 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	// unreadable sectors yields a shorter title list and nothing else to show
 	// for it, which reads as success.
 	if s.orchestrator != nil {
+		driveStore.SalvageActive = s.orchestrator.SalvageInProgress(idx)
+	}
+
+	if s.orchestrator != nil {
 		if st := s.orchestrator.ScanStatus(idx); st.Active {
 			driveStore.ScanActive = true
 			driveStore.ScanOperation = st.Operation
@@ -477,6 +481,45 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	titles = scanToTitleJSON(scan)
 	slog.Info("scan completed", "drive_index", idx, "title_count", len(titles))
 	return c.JSON(http.StatusOK, titles)
+}
+
+// handleDriveSalvage starts a salvage of a physically damaged disc.
+//
+// Never automatic: a salvage produces a file MakeMKV would refuse to make,
+// containing damaged video wherever the disc could not be read. The user is
+// told what that means and chooses, and this is the endpoint that choice hits.
+func (s *Server) handleDriveSalvage(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "salvage not configured")
+	}
+	if s.driveMgr.GetDrive(idx) == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	slog.Info("salvage requested", "drive_index", idx)
+
+	err = s.orchestrator.StartSalvage(idx)
+	if errors.Is(err, workflow.ErrSalvageInProgress) {
+		// Not a failure: the salvage the caller wanted is already running.
+		return c.JSON(http.StatusAccepted, map[string]any{
+			"status":  "salvaging",
+			"message": "This disc is already being salvaged.",
+		})
+	}
+	if err != nil {
+		slog.Error("could not start salvage", "drive_index", idx, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusAccepted, map[string]any{
+		"status": "salvaging",
+		"message": "Copying what the drive can still read. This takes a few hours; " +
+			"progress is shown on this page.",
+	})
 }
 
 // handleDiscardBackup deletes a drive's recovery scratch copy on request.

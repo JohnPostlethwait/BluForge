@@ -25,8 +25,11 @@ ENV MAKEMKV_VERSION=${MAKEMKV_VERSION}
 # lsscsi:      drive detection via SCSI bus scanning.
 # build-essential, pkg-config, wget, *-dev: required to compile MakeMKV from source
 #              at container startup (see entrypoint.sh).
+# gddrescue provides ddrescue, which recovers what is still readable from a
+# scratched disc. MakeMKV abandons a title on an unrecoverable read; ddrescue
+# zero-fills it so the read succeeds and the film survives with a glitch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates \
+    ffmpeg ca-certificates gddrescue \
     libssl3 libexpat1 \
     libcurl4t64 zlib1g lsscsi \
     gosu \

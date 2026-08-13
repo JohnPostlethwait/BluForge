@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -30,6 +31,13 @@ type activityJobJSON struct {
 	DriveIndex  int    `json:"driveIndex"`
 	FinishedAt  string `json:"finishedAt,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
+	// SalvageNote explains damage a salvaged rip knowingly contains. Empty for
+	// an ordinary rip.
+	SalvageNote string `json:"salvageNote,omitempty"`
+	// Salvageable marks a failure the disc might still be recovered from, which
+	// is what puts the offer on the card. Only ever an offer: a salvage
+	// produces damaged video and is the user's decision to make.
+	Salvageable bool `json:"salvageable,omitempty"`
 	// Phase is "analyzing" or "copying" for a running rip. Progress advances
 	// through both, but only means bytes written during the copy.
 	Phase             string              `json:"phase,omitempty"`
@@ -145,6 +153,8 @@ func (s *Server) handleActivity(c echo.Context) error {
 			Error:             j.ErrorMessage,
 			DriveIndex:        j.DriveIndex,
 			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
+			Salvageable:       salvageable(j.Status, j.ErrorMessage),
+			SalvageNote:       j.SalvageNote,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			Duration:          meta.Duration,
 			AudioTracks:       meta.AudioTracks,
@@ -205,6 +215,8 @@ func (s *Server) handleActivity(c echo.Context) error {
 			OutputPath:        j.OutputPath,
 			Duration:          j.Duration,
 			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
+			Salvageable:       salvageable(j.Status, j.ErrorMessage),
+			SalvageNote:       j.SalvageNote,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,
@@ -322,4 +334,27 @@ func deliveredSize(outputBytes int64, estimate string) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(outputBytes)/float64(div), "kMGTPE"[exp])
+}
+
+// salvageable reports whether a failure is one a salvage could get past.
+//
+// The signature is a rip that read the disc and came away with nothing, which
+// is what a scratch does: MakeMKV abandons the title rather than writing a file
+// with a gap in it. Offering salvage for every failure would put a two-hour
+// operation in front of a user whose real problem is a full disk.
+func salvageable(status, errMessage string) bool {
+	if status != "failed" {
+		return false
+	}
+	msg := strings.ToLower(errMessage)
+	for _, sign := range []string{
+		"saved no titles",   // makemkvcon copied nothing and said so
+		"could not read it", // our own phrasing of the same
+		"no .mkv file found",
+	} {
+		if strings.Contains(msg, sign) {
+			return true
+		}
+	}
+	return false
 }
