@@ -91,6 +91,15 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 	defer cleanup()
 
+	// A mountpoint that exists but holds no BDMV is not the disc. The container
+	// creates an empty /mnt/<dev> for every optical device it finds, and reading
+	// one of those produced "no such file or directory" two steps later, naming
+	// a path the user had never heard of.
+	if _, err := os.Stat(filepath.Join(root, streamDir)); err != nil {
+		return nil, fmt.Errorf("salvage: %s does not look like a disc: no %s in it "+
+			"(is the disc in this drive?)", root, streamDir)
+	}
+
 	short, err := incompleteStreams(root, dir)
 	if err != nil {
 		return nil, err

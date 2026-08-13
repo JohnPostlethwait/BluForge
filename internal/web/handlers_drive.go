@@ -500,6 +500,21 @@ func (s *Server) handleDriveSalvage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
 	}
 
+	// The drive number on a failed job was recorded when the rip ran. Optical
+	// devices renumber -- a USB drive that re-enumerated moved Rambo from index
+	// 0 to index 1 -- so salvaging by that number ran against an empty drive and
+	// failed in four seconds. The disc is what identifies the work.
+	if disc := c.QueryParam("disc"); disc != "" {
+		if found, ok := s.driveHoldingDisc(disc); ok && found != idx {
+			slog.Info("salvage: the disc has moved drives since the rip",
+				"recorded_index", idx, "actual_index", found, "disc", disc)
+			idx = found
+		} else if !ok {
+			return echo.NewHTTPError(http.StatusConflict,
+				fmt.Sprintf("%s is not in any drive. Insert it and try again.", disc))
+		}
+	}
+
 	slog.Info("salvage requested", "drive_index", idx)
 
 	err = s.orchestrator.StartSalvage(idx)
@@ -520,6 +535,25 @@ func (s *Server) handleDriveSalvage(c echo.Context) error {
 		"message": "Copying what the drive can still read. This takes a few hours; " +
 			"progress is shown on this page.",
 	})
+}
+
+// driveHoldingDisc reports which drive currently holds the named disc.
+//
+// Drive numbers are not stable across sessions: they follow device enumeration,
+// and a USB drive that reconnects can take a different one. Anything acting on
+// a number recorded earlier has to check.
+func (s *Server) driveHoldingDisc(discName string) (int, bool) {
+	// An empty name would otherwise match every empty drive, which is how a
+	// salvage would end up pointed at a drive with nothing in it.
+	if discName == "" {
+		return 0, false
+	}
+	for _, d := range s.driveMgr.GetAllDrives() {
+		if d.DiscName() == discName {
+			return d.Index(), true
+		}
+	}
+	return 0, false
 }
 
 // handleDiscardBackup deletes a drive's recovery scratch copy on request.
