@@ -13,6 +13,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/organizer"
 )
 
 // ErrSalvageInProgress reports that a drive is already being salvaged.
@@ -22,6 +23,13 @@ var ErrSalvageInProgress = errors.New("a salvage is already running")
 // files: they are where damage costs the user something, and the smaller files
 // around them can legitimately differ between a disc and a backup of it.
 const streamDir = "BDMV/STREAM"
+
+// DriveLocker claims a drive for work that does not run through the MakeMKV
+// executor. Optional: a backupper without it simply competes with the poller.
+type DriveLocker interface {
+	LockDrive()
+	UnlockDrive()
+}
 
 // SalvageRequest describes a disc to recover from physical damage.
 type SalvageRequest struct {
@@ -66,7 +74,16 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	if err := os.MkdirAll(scratchRoot, 0o777); err != nil {
 		return nil, fmt.Errorf("salvage: create scratch root %s: %w", scratchRoot, err)
 	}
-	dir := filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath))
+	// Prefer a scratch this disc already has. The slug hashes the device path,
+	// and optical devices renumber -- Rambo moved from sr1 to sr2 mid-session --
+	// so computing a fresh one would orphan an hour of recovered data and start
+	// the disc over.
+	dir, resuming := FindSalvageScratch(req.OutputDir, req.DiscLabel)
+	if !resuming {
+		dir = filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath))
+	} else {
+		slog.Info("salvage: resuming into an existing copy", "dir", dir)
+	}
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, fmt.Errorf("salvage: create backup dir %s: %w", dir, err)
 	}
@@ -74,13 +91,23 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	// 1. Back up what the disc will give. A backup that dies partway is not a
 	// failure here — it is the starting point, and its partial tree is exactly
 	// what ddrescue is about to finish.
-	report("backing-up", 0, "Copying everything the disc will give")
+	report("backing-up", 0, "")
+	lastPct := -1
 	if err := o.backupper.Backup(ctx, req.DriveIndex, dir, func(ev makemkv.Event) {
 		logSalvageEvent(ev)
+		// MakeMKV reports progress throughout a copy that runs for the better
+		// part of an hour. Discarding it left a spinner and a sentence, which
+		// is indistinguishable from a stall.
+		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
+			if pct := ev.Progress.Total * 100 / ev.Progress.Max; pct != lastPct {
+				lastPct = pct
+				report("backing-up", pct, "")
+			}
+		}
 	}); err != nil {
 		slog.Warn("salvage: backup did not complete; continuing with what it copied",
 			"drive_index", req.DriveIndex, "dir", dir, "error", err)
-		report("backing-up", 0, "The copy stopped at the damage, as expected")
+		report("backing-up", lastPct, "The copy stopped at the damage, as expected")
 	}
 
 	// 2. Read the disc as a filesystem so the damaged streams can be compared
@@ -109,10 +136,26 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 
 	// 3. Fill what the backup could not take.
+	//
+	// ddrescue is a separate process and does not go through the MakeMKV
+	// executor, so nothing otherwise stops the five-second drive poller reading
+	// the same drive underneath it. That contention took a rescue from 14 MB/s
+	// down to 2.4 MB/s, turning an hour into nine and a half.
+	if len(short) > 0 {
+		if locker, ok := o.backupper.(DriveLocker); ok {
+			locker.LockDrive()
+			defer locker.UnlockDrive()
+			slog.Info("salvage: holding the drive for the rescue", "files", len(short))
+		} else {
+			slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
+		}
+	}
+
 	var unrecovered int64
-	for i, s := range short {
-		report("rescuing", percentOf(i, len(short)),
-			fmt.Sprintf("Recovering %s", filepath.Base(s.name)))
+	for _, s := range short {
+		name := filepath.Base(s.name)
+		report("rescuing", 0, fmt.Sprintf("Patching %s", name))
+		lastRescuePct := -1
 
 		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
 			Source:      filepath.Join(root, s.name),
@@ -126,6 +169,17 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 			}
 			if p.Line != "" {
 				slog.Info("salvage: rescuing", "file", s.name, "status", p.Line)
+			}
+			// ddrescue reports what it has recovered; turning that into a
+			// percentage of the file is the only honest measure of how far
+			// through an hour-long rescue it is.
+			if p.BytesRescued > 0 && s.want > 0 {
+				pct := int(p.BytesRescued * 100 / s.want)
+				if pct != lastRescuePct {
+					lastRescuePct = pct
+					report("rescuing", pct, fmt.Sprintf("Patching %s — %s of %s recovered",
+						name, humanBytes(p.BytesRescued), humanBytes(s.want)))
+				}
 			}
 		})
 		if err != nil {
@@ -205,13 +259,6 @@ func incompleteStreams(discRoot, backupDir string) ([]shortStream, error) {
 	return short, nil
 }
 
-func percentOf(i, n int) int {
-	if n <= 0 {
-		return 0
-	}
-	return i * 100 / n
-}
-
 // logSalvageEvent records MakeMKV's own account of the backup, which is the
 // only running commentary on an operation that takes the better part of an hour.
 func logSalvageEvent(ev makemkv.Event) {
@@ -262,6 +309,11 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 		ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
 		defer cancel()
 
+		// Publish the cancel so a pause can reach this run.
+		o.recoveredMu.Lock()
+		o.salvaging[driveIndex] = cancel
+		o.recoveredMu.Unlock()
+
 		o.setDriveState(driveIndex, "salvaging")
 		defer o.setDriveState(driveIndex, "detected")
 
@@ -297,13 +349,14 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 func (o *Orchestrator) beginSalvage(driveIndex int) bool {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	if o.recovering[driveIndex] || o.salvaging[driveIndex] {
+	if o.recovering[driveIndex] || o.salvaging[driveIndex] != nil {
 		return false
 	}
 	if o.salvaging == nil {
-		o.salvaging = make(map[int]bool)
+		o.salvaging = make(map[int]context.CancelFunc)
 	}
-	o.salvaging[driveIndex] = true
+	// Replaced with the real cancel once the salvage goroutine has a context.
+	o.salvaging[driveIndex] = func() {}
 	return true
 }
 
@@ -320,7 +373,7 @@ func (o *Orchestrator) endSalvage(driveIndex int) {
 func (o *Orchestrator) SalvageInProgress(driveIndex int) bool {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	return o.salvaging[driveIndex]
+	return o.salvaging[driveIndex] != nil
 }
 
 // broadcastSalvage pushes a salvage phase to the page.
@@ -340,4 +393,61 @@ func (o *Orchestrator) broadcastSalvage(driveIndex int, phase string, percent in
 		return
 	}
 	o.onBroadcast("disc_salvage", string(data))
+}
+
+// FindSalvageScratch returns a scratch directory this disc has already been
+// salvaged into, if one exists.
+//
+// Resuming matters: ddrescue keeps a map of what it has recovered, so a rescue
+// that stopped an hour in continues rather than re-reading the disc. Matching on
+// the disc label rather than the full slug is deliberate — the slug hashes the
+// device path, and a drive that re-enumerates would otherwise strand the copy.
+func FindSalvageScratch(outputDir, discLabel string) (string, bool) {
+	if discLabel == "" || outputDir == "" {
+		return "", false
+	}
+	prefix := organizer.SanitizeFilename(discLabel)
+	if prefix == "" {
+		return "", false
+	}
+	entries, err := os.ReadDir(filepath.Join(outputDir, ScratchDirName))
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		return filepath.Join(outputDir, ScratchDirName, e.Name()), true
+	}
+	return "", false
+}
+
+// SalvageResumable reports whether a stopped salvage of this disc can be picked
+// up where it left off, which is what lets the page offer to resume rather than
+// to start again.
+func (o *Orchestrator) SalvageResumable(discLabel string) bool {
+	dir, ok := FindSalvageScratch(o.currentOutputDir(), discLabel)
+	if !ok {
+		return false
+	}
+	// A map file is what makes it a resume rather than a restart.
+	maps, _ := filepath.Glob(filepath.Join(dir, "*.map"))
+	return len(maps) > 0
+}
+
+// CancelSalvage stops a running salvage, keeping everything it has recovered.
+//
+// Presented as a pause because that is what it is from the outside: ddrescue's
+// map file survives, so starting again continues from the same place.
+func (o *Orchestrator) CancelSalvage(driveIndex int) bool {
+	o.recoveredMu.Lock()
+	cancel := o.salvaging[driveIndex]
+	o.recoveredMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	slog.Info("salvage: paused on request", "drive_index", driveIndex)
+	cancel()
+	return true
 }

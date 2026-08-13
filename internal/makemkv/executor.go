@@ -152,6 +152,24 @@ type DiscScan struct {
 // list of drives reported via DRV lines.
 //
 // --cache=1 minimizes memory allocation for this lightweight operation.
+// LockDrive claims the drive for work that does not go through this executor.
+//
+// Everything makemkvcon does is serialised on one mutex because makemkvcon
+// cannot share a drive. A salvage also runs ddrescue, which is a separate
+// process outside that lock — and the drive poller, running every five seconds,
+// contends with it for the same drive. Left unlocked, a rescue that should read
+// at 14 MB/s managed 2.4 MB/s and reported nine and a half hours remaining.
+//
+// The caller must always call UnlockDrive.
+func (e *Executor) LockDrive() {
+	e.mu.Lock()
+}
+
+// UnlockDrive releases the claim taken by LockDrive.
+func (e *Executor) UnlockDrive() {
+	e.mu.Unlock()
+}
+
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

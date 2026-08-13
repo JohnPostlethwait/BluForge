@@ -537,6 +537,33 @@ func (s *Server) handleDriveSalvage(c echo.Context) error {
 	})
 }
 
+// handleDriveSalvagePause stops a running salvage without discarding what it
+// has recovered.
+//
+// Presented as a pause because that is what it is from the outside: ddrescue's
+// map survives, so starting again continues from the same place rather than
+// re-reading the disc.
+func (s *Server) handleDriveSalvagePause(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "salvage not configured")
+	}
+
+	if !s.orchestrator.CancelSalvage(idx) {
+		return c.JSON(http.StatusOK, map[string]any{
+			"status":  "idle",
+			"message": "No salvage was running.",
+		})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"status":  "paused",
+		"message": "Paused. Everything recovered so far is kept; resuming continues from here.",
+	})
+}
+
 // driveHoldingDisc reports which drive currently holds the named disc.
 //
 // Drive numbers are not stable across sessions: they follow device enumeration,

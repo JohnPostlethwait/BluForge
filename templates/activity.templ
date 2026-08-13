@@ -36,7 +36,10 @@ document.addEventListener('alpine:init', () => {
 		const store = Alpine.store('activity')
 		store.salvagePhase = update.phase
 		store.salvageMessage = update.message || ''
+		store.salvagePercent = update.percent || 0
+		if (update.drive_index !== undefined) store.salvageDriveIndex = update.drive_index
 		store.salvageUnrecovered = update.unrecovered || 0
+		if (!store.salvageStartedAt) store.salvageStartedAt = Date.now()
 		if (update.phase === 'done' || update.phase === 'failed') {
 			store.salvageActive = false
 		} else {
@@ -119,6 +122,24 @@ document.addEventListener('alpine:init', () => {
 // salvageDisc asks before doing anything, because a salvage is a deliberate
 // departure from how MakeMKV behaves: it writes a file containing damaged video
 // rather than refusing to write one at all.
+// pauseSalvage stops the run and keeps what it has. The word is "pause" because
+// that is what it is from the outside: resuming continues from the same place.
+async function pauseSalvage(driveIndex) {
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/salvage/pause', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		const info = await resp.json().catch(() => ({}))
+		const store = Alpine.store('activity')
+		store.salvageActive = false
+		store.salvagePhase = 'paused'
+		store.salvageMessage = info.message || 'Paused.'
+	} catch (err) {
+		Alpine.store('activity').salvageMessage = 'Could not pause: ' + err.message
+	}
+}
+
 async function salvageDisc(driveIndex, discName) {
 	const agreed = confirm(
 		'Salvage this disc?\n\n' +
@@ -135,7 +156,10 @@ async function salvageDisc(driveIndex, discName) {
 	const store = Alpine.store('activity')
 	store.salvageActive = true
 	store.salvagePhase = 'backing-up'
-	store.salvageMessage = 'Starting'
+	store.salvageMessage = ''
+	store.salvagePercent = 0
+	store.salvageStartedAt = Date.now()
+	store.salvageDriveIndex = driveIndex
 
 	try {
 		// The disc, not the drive number: a drive that re-enumerated between the
@@ -314,12 +338,29 @@ function formatDuration(secs) {
 			<div class="flex items-center gap-2" x-show="$store.activity.salvageActive">
 				<span class="spinner" aria-hidden="true"></span>
 				<span x-text="({
-					'backing-up': 'Copying everything the disc will give',
-					'rescuing': 'Recovering the parts it would not',
+					'backing-up': 'Copying the disc',
+					'rescuing': 'Patching the damaged sections of the copy',
 					'verifying': 'Checking what can be ripped'
 				})[$store.activity.salvagePhase] || 'Working'"></span>
+				<span class="text-secondary min-w-3ch" x-show="$store.activity.salvagePercent > 0" x-text="$store.activity.salvagePercent + '%'"></span>
 			</div>
+			<div class="progress-row" x-show="$store.activity.salvageActive && $store.activity.salvagePercent > 0">
+				@components.ProgressBarDynamic("$store.activity.salvagePercent", "flex:1;")
+			</div>
+			<p class="text-muted text-sm" x-show="$store.activity.salvageActive && $store.activity.salvageStartedAt" x-text="(() => {
+				const now = $store.activity.now
+				if (!now || !$store.activity.salvageStartedAt) return ''
+				return formatDuration(Math.max(0, Math.floor((now - $store.activity.salvageStartedAt) / 1000))) + ' elapsed'
+			})()"></p>
 			<p class="text-muted scan-operation" x-show="$store.activity.salvageMessage" x-text="$store.activity.salvageMessage"></p>
+			<!--
+				Pausing keeps everything recovered so far: ddrescue's map survives, so
+				resuming continues rather than re-reading the disc from the start.
+			-->
+			<div class="mt-2" x-show="$store.activity.salvageActive">
+				<button class="btn btn-secondary btn-sm" x-on:click="pauseSalvage($store.activity.salvageDriveIndex)">Pause</button>
+				<span class="text-muted text-sm"> Keeps what has been recovered; resuming continues from here</span>
+			</div>
 			<p class="text-muted" x-show="$store.activity.salvagePhase === 'done'" x-text="$store.activity.salvageUnrecovered > 0 ? 'Done. ' + formatBytes($store.activity.salvageUnrecovered) + ' could not be read and is blank in the result. The disc is ready to rip.' : 'Done. Everything was recovered. The disc is ready to rip.'"></p>
 		</div>
 		<div id="tab-panel-active" role="tabpanel" aria-label="Active and queued jobs" x-data x-show="$store.activityTab === 'active'" x-cloak class="flex flex-col gap-5">
@@ -492,10 +533,17 @@ function formatDuration(secs) {
 								</template>
 								<template x-if="r.salvageable">
 									<div class="mt-2">
-										<button class="btn btn-secondary btn-sm" x-on:click="salvageDisc(r.driveIndex, r.discName)">
-											Salvage this disc&hellip;
+										<!--
+											One salvage at a time: the server refuses a second, and a
+											button that cannot do anything should not invite a click.
+										-->
+										<button class="btn btn-secondary btn-sm"
+											x-bind:disabled="$store.activity.salvageActive"
+											x-on:click="salvageDisc(r.driveIndex, r.discName)">
+											<span x-text="r.salvageResumable ? 'Resume salvage…' : 'Salvage this disc…'"></span>
 										</button>
-										<span class="text-muted text-sm"> Recover what is still readable, accepting damaged video</span>
+										<span class="text-muted text-sm" x-show="!$store.activity.salvageActive" x-text="r.salvageResumable ? ' Continues from where the last attempt stopped' : ' Recover what is still readable, accepting damaged video'"></span>
+										<span class="text-muted text-sm" x-show="$store.activity.salvageActive"> A salvage is already running</span>
 									</div>
 								</template>
 							</div>
