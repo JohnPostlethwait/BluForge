@@ -36,7 +36,9 @@ document.addEventListener('alpine:init', () => {
 		const store = Alpine.store('activity')
 		store.salvagePhase = update.phase
 		store.salvageMessage = update.message || ''
+		store.salvagePercent = update.percent || 0
 		store.salvageUnrecovered = update.unrecovered || 0
+		if (!store.salvageStartedAt) store.salvageStartedAt = Date.now()
 		if (update.phase === 'done' || update.phase === 'failed') {
 			store.salvageActive = false
 		} else {
@@ -135,7 +137,9 @@ async function salvageDisc(driveIndex, discName) {
 	const store = Alpine.store('activity')
 	store.salvageActive = true
 	store.salvagePhase = 'backing-up'
-	store.salvageMessage = 'Starting'
+	store.salvageMessage = ''
+	store.salvagePercent = 0
+	store.salvageStartedAt = Date.now()
 
 	try {
 		// The disc, not the drive number: a drive that re-enumerated between the
@@ -314,11 +318,20 @@ function formatDuration(secs) {
 			<div class="flex items-center gap-2" x-show="$store.activity.salvageActive">
 				<span class="spinner" aria-hidden="true"></span>
 				<span x-text="({
-					'backing-up': 'Copying everything the disc will give',
-					'rescuing': 'Recovering the parts it would not',
+					'backing-up': 'Copying the disc',
+					'rescuing': 'Recovering the unreadable parts',
 					'verifying': 'Checking what can be ripped'
 				})[$store.activity.salvagePhase] || 'Working'"></span>
+				<span class="text-secondary min-w-3ch" x-show="$store.activity.salvagePercent > 0" x-text="$store.activity.salvagePercent + '%'"></span>
 			</div>
+			<div class="progress-row" x-show="$store.activity.salvageActive && $store.activity.salvagePercent > 0">
+				@components.ProgressBarDynamic("$store.activity.salvagePercent", "flex:1;")
+			</div>
+			<p class="text-muted text-sm" x-show="$store.activity.salvageActive && $store.activity.salvageStartedAt" x-text="(() => {
+				const now = $store.activity.now
+				if (!now || !$store.activity.salvageStartedAt) return ''
+				return formatDuration(Math.max(0, Math.floor((now - $store.activity.salvageStartedAt) / 1000))) + ' elapsed'
+			})()"></p>
 			<p class="text-muted scan-operation" x-show="$store.activity.salvageMessage" x-text="$store.activity.salvageMessage"></p>
 			<p class="text-muted" x-show="$store.activity.salvagePhase === 'done'" x-text="$store.activity.salvageUnrecovered > 0 ? 'Done. ' + formatBytes($store.activity.salvageUnrecovered) + ' could not be read and is blank in the result. The disc is ready to rip.' : 'Done. Everything was recovered. The disc is ready to rip.'"></p>
 		</div>

@@ -74,13 +74,23 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	// 1. Back up what the disc will give. A backup that dies partway is not a
 	// failure here — it is the starting point, and its partial tree is exactly
 	// what ddrescue is about to finish.
-	report("backing-up", 0, "Copying everything the disc will give")
+	report("backing-up", 0, "")
+	lastPct := -1
 	if err := o.backupper.Backup(ctx, req.DriveIndex, dir, func(ev makemkv.Event) {
 		logSalvageEvent(ev)
+		// MakeMKV reports progress throughout a copy that runs for the better
+		// part of an hour. Discarding it left a spinner and a sentence, which
+		// is indistinguishable from a stall.
+		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
+			if pct := ev.Progress.Total * 100 / ev.Progress.Max; pct != lastPct {
+				lastPct = pct
+				report("backing-up", pct, "")
+			}
+		}
 	}); err != nil {
 		slog.Warn("salvage: backup did not complete; continuing with what it copied",
 			"drive_index", req.DriveIndex, "dir", dir, "error", err)
-		report("backing-up", 0, "The copy stopped at the damage, as expected")
+		report("backing-up", lastPct, "The copy stopped at the damage, as expected")
 	}
 
 	// 2. Read the disc as a filesystem so the damaged streams can be compared
@@ -110,9 +120,10 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 
 	// 3. Fill what the backup could not take.
 	var unrecovered int64
-	for i, s := range short {
-		report("rescuing", percentOf(i, len(short)),
-			fmt.Sprintf("Recovering %s", filepath.Base(s.name)))
+	for _, s := range short {
+		name := filepath.Base(s.name)
+		report("rescuing", 0, fmt.Sprintf("Recovering %s", name))
+		lastRescuePct := -1
 
 		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
 			Source:      filepath.Join(root, s.name),
@@ -126,6 +137,17 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 			}
 			if p.Line != "" {
 				slog.Info("salvage: rescuing", "file", s.name, "status", p.Line)
+			}
+			// ddrescue reports what it has recovered; turning that into a
+			// percentage of the file is the only honest measure of how far
+			// through an hour-long rescue it is.
+			if p.BytesRescued > 0 && s.want > 0 {
+				pct := int(p.BytesRescued * 100 / s.want)
+				if pct != lastRescuePct {
+					lastRescuePct = pct
+					report("rescuing", pct, fmt.Sprintf("Recovering %s — %s of %s",
+						name, humanBytes(p.BytesRescued), humanBytes(s.want)))
+				}
 			}
 		})
 		if err != nil {
@@ -203,13 +225,6 @@ func incompleteStreams(discRoot, backupDir string) ([]shortStream, error) {
 			"file", name, "have", have, "want", info.Size())
 	}
 	return short, nil
-}
-
-func percentOf(i, n int) int {
-	if n <= 0 {
-		return 0
-	}
-	return i * 100 / n
 }
 
 // logSalvageEvent records MakeMKV's own account of the backup, which is the
