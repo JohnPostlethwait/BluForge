@@ -139,6 +139,14 @@ func main() {
 	} else if err := workflow.SweepScratch(cfg.OutputDir, tracked); err != nil {
 		slog.Warn("could not sweep untracked disc backups", "error", err)
 	}
+	// Rip temp directories outlive only the process that made them, so any left
+	// here are from a run that was killed mid-rip. The keep list is consulted
+	// first: a rip that finished but could not be moved is still in one of them.
+	if keep, err := orch.PreservedRipDirs(); err != nil {
+		slog.Warn("skipping the rip temp dir sweep: cannot tell which are still needed", "error", err)
+	} else if err := workflow.SweepRipDirs(cfg.OutputDir, keep); err != nil {
+		slog.Warn("could not sweep rip temp dirs", "error", err)
+	}
 	slog.Info("disc backup housekeeping complete", "took", time.Since(restoreStart).String())
 
 	// Report a container that cannot see its optical drives.
