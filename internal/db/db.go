@@ -16,27 +16,29 @@ type Store struct {
 	db *sql.DB
 }
 
+// dsn builds a connection string carrying the pragmas every connection needs.
+//
+// A plain path is accepted for ":memory:" and for callers that already pass a
+// file: URI; anything else is wrapped so the pragmas can be appended.
+func dsn(dbPath string) string {
+	const pragmas = "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)"
+	if strings.Contains(dbPath, "?") {
+		return dbPath + "&" + pragmas
+	}
+	return dbPath + "?" + pragmas
+}
+
 // Open opens (or creates) the SQLite database at dbPath, enables WAL mode,
 // and runs all pending migrations. Use ":memory:" for in-memory databases.
 func Open(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Pragmas go in the DSN so every pooled connection gets them. Setting them
+	// with db.Exec applies to whichever single connection happened to serve the
+	// call: the pool opens more on demand, and those got a busy timeout of zero.
+	// A rip writing its status while the activity page queried was then enough
+	// to produce "database is locked", losing the update outright.
+	db, err := sql.Open("sqlite", dsn(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
-	}
-
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable WAL mode: %w", err)
-	}
-
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("set busy timeout: %w", err)
-	}
-
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
 	store := &Store{db: db}
