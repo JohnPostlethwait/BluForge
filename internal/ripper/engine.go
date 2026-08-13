@@ -2,6 +2,7 @@ package ripper
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -110,24 +111,51 @@ func (e *Engine) QueuedJobs() []*Job {
 	return jobs
 }
 
+// ErrRemovedFromQueue is the reason reported for a job cancelled before its
+// rip ever started.
+var ErrRemovedFromQueue = errors.New("cancelled before the rip started")
+
 // RemoveQueued removes a pending job from the per-drive queue by job ID.
 // Returns true if the job was found and removed.
+//
+// The removed job still gets its OnComplete callback. A queued job that is
+// dropped never reaches run, so this is the only place that can settle it, and
+// the caller relies on that: the orchestrator's WaitGroup only drops to zero
+// once every submitted job has completed. Without this the goroutine waiting on
+// it blocks forever, the batch's parent .rip- temp directory is never removed,
+// the DB row stays at "ripping", and any claim the job held on a scratch disc
+// backup is never released.
 func (e *Engine) RemoveQueued(jobID int64) bool {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
+	var removed *Job
+search:
 	for driveIdx, q := range e.queued {
 		for i, j := range q {
 			if j.ID == jobID {
+				removed = j
 				e.queued[driveIdx] = append(q[:i], q[i+1:]...)
 				if len(e.queued[driveIdx]) == 0 {
 					delete(e.queued, driveIdx)
 				}
-				return true
+				break search
 			}
 		}
 	}
-	return false
+	e.mu.Unlock()
+
+	if removed == nil {
+		return false
+	}
+
+	// Settle the job outside the lock: OnComplete writes to the database,
+	// broadcasts, and releases backup claims, any of which can re-enter the
+	// engine.
+	removed.Fail(ErrRemovedFromQueue.Error())
+	e.notify(removed)
+	if removed.OnComplete != nil {
+		removed.OnComplete(removed, ErrRemovedFromQueue)
+	}
+	return true
 }
 
 // notify calls the onUpdate callback if one has been registered.
