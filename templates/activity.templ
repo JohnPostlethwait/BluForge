@@ -20,6 +20,16 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').contributionId = null
 	Alpine.store('activity').contributionDiscName = ''
 	Alpine.store('activity').now = Date.now()
+	// Salvage state is client-side until an event arrives. Without defaults the
+	// store has undefined where the banner and the buttons expect values, and
+	// the page renders inert controls with empty labels.
+	Alpine.store('activity').salvageActive = false
+	Alpine.store('activity').salvagePhase = ''
+	Alpine.store('activity').salvageMessage = ''
+	Alpine.store('activity').salvagePercent = 0
+	Alpine.store('activity').salvageUnrecovered = 0
+	Alpine.store('activity').salvageStartedAt = 0
+	Alpine.store('activity').salvageDriveIndex = null
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
