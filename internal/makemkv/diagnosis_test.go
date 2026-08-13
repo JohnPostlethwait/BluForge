@@ -253,3 +253,54 @@ func TestDiagnoseUsesMessageParametersNotProse(t *testing.T) {
 		t.Errorf("Kind = %q, want %q", f.Kind, FindingTitleUnreadable)
 	}
 }
+
+// A missing Java runtime says nothing about the disc: BD-Java is a dependency
+// of the container, and the user reading the notice cannot install anything
+// into it. Filing it under "the disc did not read cleanly" blamed the disc for
+// our own packaging.
+func TestDiagnoseSeparatesEnvironmentProblemsFromDiscDamage(t *testing.T) {
+	d := Diagnose([]Message{
+		{Code: 1005, Text: "MakeMKV started"},
+		{
+			Code:   5081,
+			Text:   "This disc requires Java runtime (JRE), but none was found. Certain functions will fail, please install Java. See http://www.makemkv.com/bdjava/ for details.",
+			Format: "This disc requires Java runtime (JRE), but none was found. Certain functions will fail, please install Java. See %1 for details.",
+			Params: []string{"http://www.makemkv.com/bdjava/"},
+		},
+	})
+
+	if len(d.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1: %+v", len(d.Findings), d.Findings)
+	}
+	if d.Findings[0].Kind != FindingEnvironment {
+		t.Errorf("Kind = %q, want %q", d.Findings[0].Kind, FindingEnvironment)
+	}
+	if strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline blames the disc: %q", d.Headline)
+	}
+	if strings.Contains(strings.ToLower(d.Summary), "read error") {
+		t.Errorf("summary claims read errors: %q", d.Summary)
+	}
+}
+
+// Real damage still reads as damage.
+func TestDiagnoseStillBlamesTheDiscForReadErrors(t *testing.T) {
+	d := Diagnose(policeStory2Messages())
+
+	if !strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline = %q, want it to name the disc", d.Headline)
+	}
+}
+
+// A disc with both gets the headline for the one that costs content.
+func TestDiagnosePrefersDiscDamageInTheHeadline(t *testing.T) {
+	msgs := append(policeStory2Messages(), Message{
+		Code:   5081,
+		Text:   "This disc requires Java runtime (JRE), but none was found. See http://www.makemkv.com/bdjava/ for details.",
+		Params: []string{"http://www.makemkv.com/bdjava/"},
+	})
+
+	if d := Diagnose(msgs); !strings.Contains(strings.ToLower(d.Headline), "did not read") {
+		t.Errorf("headline = %q, want the disc damage to win", d.Headline)
+	}
+}

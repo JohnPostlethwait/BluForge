@@ -1274,6 +1274,12 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   color: var(--warning);
 }
 
+/* An environment problem is not the disc's fault and not the user's to fix,
+   so it reads as information rather than as damage. */
+.scan-finding-environment {
+  color: var(--text-secondary);
+}
+
 .scan-warning-details {
   margin-top: 1rem;
 }

@@ -20,6 +20,10 @@ const (
 	// FindingDiscReadErrors covers reads against the drive rather than a file:
 	// the disc structure, not any one title.
 	FindingDiscReadErrors = "disc-read-errors"
+	// FindingEnvironment is a problem with the machine BluForge runs on rather
+	// than with the disc. Nobody reading the notice can act on it, and blaming
+	// the disc for it sends them looking for damage that is not there.
+	FindingEnvironment = "environment"
 	// FindingNote is a message that did not match a known shape, kept verbatim.
 	FindingNote = "note"
 )
@@ -46,7 +50,11 @@ type ScanFinding struct {
 // ScanDiagnosis is a reading of a scan's messages in terms of what the user
 // lost, rather than in terms of what the drive reported.
 type ScanDiagnosis struct {
-	// Summary is the one-line headline. Empty when the scan was clean.
+	// Headline names what kind of trouble this is. A disc that will not read
+	// and a container missing a dependency are not the same problem, and one
+	// heading for both told users their disc was damaged when it was not.
+	Headline string `json:"headline"`
+	// Summary is the one-line summary. Empty when the scan was clean.
 	Summary  string        `json:"summary"`
 	Findings []ScanFinding `json:"findings"`
 	// TotalReadErrors is MakeMKV's own total when it reported one, otherwise
@@ -95,6 +103,25 @@ func errorTotal(m Message) (int, bool) {
 	return n, true
 }
 
+// bdJavaURL appears in the message MakeMKV emits when a disc carries BD-Java
+// programs and no java binary is installed. Matching the URL rather than the
+// prose keeps it working on a localized install: URLs are not translated.
+const bdJavaURL = "makemkv.com/bdjava"
+
+// environmentFinding recognises a message about the host rather than the disc.
+func environmentFinding(m Message) (ScanFinding, bool) {
+	haystack := m.Text + " " + strings.Join(m.Params, " ")
+	if !strings.Contains(haystack, bdJavaURL) {
+		return ScanFinding{}, false
+	}
+	return ScanFinding{
+		Kind: FindingEnvironment,
+		Text: "This disc uses BD-Java, and this installation has no Java runtime. " +
+			"Track names may be wrong, and some discs will not open at all. " +
+			"It is a missing dependency in BluForge's container, not a fault in the disc.",
+	}, true
+}
+
 // isDiscPath distinguishes a file on the disc from the drive itself. MakeMKV
 // reports reads of the disc structure against the drive's model string.
 func isDiscPath(target string) bool {
@@ -119,6 +146,7 @@ func Diagnose(messages []Message) ScanDiagnosis {
 	readErrors := 0
 	reportedTotal := 0
 	var notes []ScanFinding
+	var environment []ScanFinding
 	notesSeen := make(map[string]bool)
 
 	for _, m := range messages {
@@ -147,6 +175,13 @@ func Diagnose(messages []Message) ScanDiagnosis {
 			continue
 		}
 		if routineScanMessages[m.Code] {
+			continue
+		}
+		if f, ok := environmentFinding(m); ok {
+			if !notesSeen[f.Text] {
+				notesSeen[f.Text] = true
+				environment = append(environment, f)
+			}
 			continue
 		}
 		if notesSeen[m.Text] {
@@ -200,6 +235,7 @@ func Diagnose(messages []Message) ScanDiagnosis {
 		})
 	}
 
+	d.Findings = append(d.Findings, environment...)
 	d.Findings = append(d.Findings, notes...)
 
 	d.TotalReadErrors = reportedTotal
@@ -208,7 +244,16 @@ func Diagnose(messages []Message) ScanDiagnosis {
 	}
 
 	if len(d.Findings) > 0 {
-		d.Summary = summarize(lost, damaged, d.TotalReadErrors)
+		// The heading follows whatever actually cost the user something. A
+		// missing runtime is worth saying; it is not a disc that will not read.
+		discTrouble := lost > 0 || damaged > 0 || discErrors > 0 || len(notes) > 0
+		if discTrouble {
+			d.Headline = "The disc did not read cleanly"
+			d.Summary = summarize(lost, damaged, d.TotalReadErrors)
+		} else {
+			d.Headline = "Worth knowing about this disc"
+			d.Summary = ""
+		}
 	}
 	return d
 }
