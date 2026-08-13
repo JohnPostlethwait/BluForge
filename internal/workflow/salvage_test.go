@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
@@ -22,7 +23,9 @@ type salvageBackupper struct {
 	// their hash check.
 	backupErr error
 	// titles is what a scan of the repaired tree finds.
-	titles   int
+	titles int
+	// scanMu guards scanned: a salvage per drive means more than one writer.
+	scanMu   sync.Mutex
 	scanned  []string
 	discRoot string
 }
@@ -46,7 +49,9 @@ func (b *salvageBackupper) Backup(_ context.Context, _ int, destDir string, _ fu
 }
 
 func (b *salvageBackupper) ScanSource(_ context.Context, src makemkv.Source) (*makemkv.DiscScan, error) {
+	b.scanMu.Lock()
 	b.scanned = append(b.scanned, src.Arg())
+	b.scanMu.Unlock()
 	scan := &makemkv.DiscScan{DiscName: "RAMBO_DISC2"}
 	for i := 0; i < b.titles; i++ {
 		scan.Titles = append(scan.Titles, makemkv.TitleInfo{
@@ -59,6 +64,9 @@ func (b *salvageBackupper) ScanSource(_ context.Context, src makemkv.Source) (*m
 // fakeRescuer writes the destination file at full length, as ddrescue does when
 // it fills what it cannot read.
 type fakeRescuer struct {
+	// Two drives can be salvaged at once, so the record of what was rescued is
+	// written from more than one goroutine.
+	mu       sync.Mutex
 	rescued  []string
 	badBytes int64
 	err      error
@@ -71,7 +79,9 @@ func (f *fakeRescuer) Run(_ context.Context, args []string, onLine func(string))
 	}
 	// The last three arguments are source, destination and map file.
 	dest := args[len(args)-2]
+	f.mu.Lock()
 	f.rescued = append(f.rescued, dest)
+	f.mu.Unlock()
 	_ = os.MkdirAll(filepath.Dir(dest), 0o777)
 	_ = os.WriteFile(dest, make([]byte, f.size), 0o644)
 	if onLine != nil && f.badBytes > 0 {
