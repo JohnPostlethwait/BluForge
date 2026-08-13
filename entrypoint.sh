@@ -74,7 +74,11 @@ install_makemkv() {
 # Defaults matching Unraid's nobody:users
 USER_ID="${USER_ID:-99}"
 GROUP_ID="${GROUP_ID:-100}"
-UMASK="${UMASK:-0000}"
+# 0002 gives owner and group full rights and everyone else read-only: 0775 on
+# directories, 0664 on files. GROUP_ID is the share's group (100/users on
+# Unraid, which is also what SMB maps clients to), so group-write is what keeps
+# media deletable over the share without making the whole library world-writable.
+UMASK="${UMASK:-0002}"
 
 # Apply umask
 umask "$UMASK"

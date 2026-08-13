@@ -18,6 +18,8 @@ services:
       - BLUFORGE_AUTO_RIP=false
       - USER_ID=99
       - GROUP_ID=100
-      - UMASK=0000
+      # 0775 dirs / 0664 files: writable by GROUP_ID (users), read-only to
+      # everyone else. Set 0000 only if your SMB clients map to a different GID.
+      - UMASK=0002
       # - BLUFORGE_DUPLICATE_ACTION=skip
       # - BLUFORGE_MIN_TITLE_LENGTH=120

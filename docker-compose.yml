@@ -18,4 +18,6 @@ services:
       - BLUFORGE_AUTO_RIP=false
       - USER_ID=1000
       - GROUP_ID=1000
-      - UMASK=0022
+      # 0775 dirs / 0664 files. 0022 would deny group write and break deletes
+      # over an SMB share whose clients map to GROUP_ID.
+      - UMASK=0002

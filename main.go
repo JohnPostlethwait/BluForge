@@ -18,6 +18,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
@@ -29,6 +30,11 @@ func main() {
 	// 1. Structured JSON logging to stdout.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	// 1b. Capture the umask before anything else starts a goroutine. Reading it
+	// means briefly setting it to 0, so this has to happen while the process is
+	// still single-threaded; see fsutil.CaptureUmask.
+	slog.Info("umask captured", "umask", fmt.Sprintf("%04o", fsutil.CaptureUmask()))
 
 	// 2. Load config.
 	cfg, err := config.Load("/config/config.yaml")

@@ -15,6 +15,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
@@ -194,7 +195,7 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 
 	// Create one parent temp directory for all titles in this rip session.
 	// Individual per-title subdirs are created lazily when each job starts.
-	parentTempDir, err := os.MkdirTemp(params.OutputDir, ".rip-")
+	parentTempDir, err := fsutil.MkdirTemp(params.OutputDir, ".rip-")
 	if err != nil {
 		slog.Error("failed to create parent temp dir", "error", err)
 		for _, sel := range params.Titles {
@@ -359,7 +360,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 
 	// OnStart: create the per-title subdir inside the shared parent temp dir.
 	ripJob.OnStart = func(job *ripper.Job) error {
-		titleDir, err := os.MkdirTemp(parentTempDir, fmt.Sprintf("t%d-", sel.TitleIndex))
+		titleDir, err := fsutil.MkdirTemp(parentTempDir, fmt.Sprintf("t%d-", sel.TitleIndex))
 		if err != nil {
 			return fmt.Errorf("create title temp dir: %w", err)
 		}
