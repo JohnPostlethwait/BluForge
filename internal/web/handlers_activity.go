@@ -55,12 +55,24 @@ type activityJobJSON struct {
 
 // activityStoreJSON is the Alpine.store('activity') shape.
 type activityStoreJSON struct {
+	// Salvage lets a page that just loaded, or reconnected, draw the salvage
+	// panel without having seen any events. A salvage runs for hours and can be
+	// quiet for minutes at a time.
+	Salvage   salvageStateJSON  `json:"salvage"`
 	Active    []activityJobJSON `json:"active"`
 	Pending   []activityJobJSON `json:"pending"`
 	Completed []activityJobJSON `json:"completed"`
 	History   []activityJobJSON `json:"history"`
 	Page      int               `json:"page"`
 	HasMore   bool              `json:"hasMore"`
+}
+
+// salvageStateJSON mirrors workflow.SalvageState for the page.
+type salvageStateJSON struct {
+	Active     bool   `json:"active"`
+	DriveIndex int    `json:"driveIndex"`
+	DiscLabel  string `json:"discLabel"`
+	Resumable  bool   `json:"resumable"`
 }
 
 // parseTrackMetadata deserializes a raw JSON track_metadata string from the DB.
@@ -129,6 +141,16 @@ func (s *Server) handleActivity(c echo.Context) error {
 				AudioTracks:       j.TrackMetadata.AudioTracks,
 				SubtitleLanguages: j.TrackMetadata.SubtitleLanguages,
 			})
+		}
+	}
+
+	if s.orchestrator != nil {
+		cur := s.orchestrator.CurrentSalvage()
+		store.Salvage = salvageStateJSON{
+			Active:     cur.Active,
+			DriveIndex: cur.DriveIndex,
+			DiscLabel:  cur.DiscLabel,
+			Resumable:  cur.Resumable,
 		}
 	}
 
