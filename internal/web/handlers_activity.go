@@ -34,6 +34,9 @@ type activityJobJSON struct {
 	// SalvageNote explains damage a salvaged rip knowingly contains. Empty for
 	// an ordinary rip.
 	SalvageNote string `json:"salvageNote,omitempty"`
+	// SalvageResumable marks a disc with a half-finished salvage on disk, so the
+	// offer reads "resume" rather than inviting an hour of re-reading.
+	SalvageResumable bool `json:"salvageResumable,omitempty"`
 	// Salvageable marks a failure the disc might still be recovered from, which
 	// is what puts the offer on the card. Only ever an offer: a salvage
 	// produces damaged video and is the user's decision to make.
@@ -154,6 +157,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 			DriveIndex:        j.DriveIndex,
 			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
 			Salvageable:       salvageable(j.Status, j.ErrorMessage),
+			SalvageResumable:  s.salvageResumable(j.Status, j.ErrorMessage, j.DiscName),
 			SalvageNote:       j.SalvageNote,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			Duration:          meta.Duration,
@@ -357,4 +361,13 @@ func salvageable(status, errMessage string) bool {
 		}
 	}
 	return false
+}
+
+// salvageResumable reports whether this disc has a half-finished salvage that
+// would be continued rather than started over.
+func (s *Server) salvageResumable(status, errMessage, discName string) bool {
+	if !salvageable(status, errMessage) || s.orchestrator == nil {
+		return false
+	}
+	return s.orchestrator.SalvageResumable(discName)
 }
