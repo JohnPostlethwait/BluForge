@@ -122,7 +122,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	var unrecovered int64
 	for _, s := range short {
 		name := filepath.Base(s.name)
-		report("rescuing", 0, fmt.Sprintf("Recovering %s", name))
+		report("rescuing", 0, fmt.Sprintf("Patching %s", name))
 		lastRescuePct := -1
 
 		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
@@ -145,7 +145,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 				pct := int(p.BytesRescued * 100 / s.want)
 				if pct != lastRescuePct {
 					lastRescuePct = pct
-					report("rescuing", pct, fmt.Sprintf("Recovering %s — %s of %s",
+					report("rescuing", pct, fmt.Sprintf("Patching %s — %s of %s recovered",
 						name, humanBytes(p.BytesRescued), humanBytes(s.want)))
 				}
 			}
