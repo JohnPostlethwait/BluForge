@@ -409,8 +409,24 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		// Move the ripped file to its final organized destination.
 		slog.Info("organizing ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest)
 		if moveErr := organizer.AtomicMove(srcPath, fullDest); moveErr != nil {
-			slog.Error("failed to organize ripped file", "job_id", job.ID, "src", srcPath, "dest", fullDest, "error", moveErr)
-			o.setJobStatus(job.ID, "failed", 100, fmt.Sprintf("organize: %v", moveErr))
+			// The rip itself succeeded. srcPath is a complete title that cost
+			// however long the disc took to read, and only the move failed --
+			// a full, read-only or unwritable destination, all of which the user
+			// can fix and then retry. Deleting the directory here would throw
+			// the film away over a problem outside it, so the file stays put and
+			// the job records where it is. That record is also what keeps
+			// SweepRipDirs from removing the directory on the next start.
+			var size int64
+			if fi, statErr := os.Stat(srcPath); statErr == nil {
+				size = fi.Size()
+			}
+			slog.Error("rip finished but could not be moved to its destination; keeping the file",
+				"job_id", job.ID, "src", srcPath, "dest", fullDest, "bytes", size, "error", moveErr)
+			if dbErr := o.store.UpdateJobOutput(job.ID, srcPath, size); dbErr != nil {
+				slog.Error("could not record where the rip was kept", "job_id", job.ID, "path", srcPath, "error", dbErr)
+			}
+			o.setJobStatus(job.ID, "failed", 100,
+				fmt.Sprintf("organize: %v; the ripped file was kept at %s", moveErr, srcPath))
 			o.broadcastJobUpdate(job.ID, "failed")
 			return
 		}
