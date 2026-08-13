@@ -308,7 +308,14 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 	if o.backupper == nil {
 		return fmt.Errorf("salvage: no backupper configured")
 	}
-	if !o.beginSalvage(driveIndex) {
+	// The context is made here rather than inside the goroutine so the cancel
+	// stored with the claim is the real one. A placeholder left a window where
+	// Pause found a no-op, reported success, and the salvage carried on — a
+	// silent lie, and the button is on screen for that whole window.
+	ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
+
+	if !o.beginSalvage(driveIndex, cancel) {
+		cancel()
 		return ErrSalvageInProgress
 	}
 
@@ -324,19 +331,11 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 	o.salvageLabels[driveIndex] = discLabel
 	o.recoveredMu.Unlock()
 
+	// Detached from any request: a salvage runs for hours and must not be killed
+	// by a browser giving up, nor run until the drive gives out.
 	go func() {
 		defer o.endSalvage(driveIndex)
-
-		// Detached from any request, with a ceiling of its own: a salvage runs
-		// for hours and must not be killed by a browser giving up, nor run
-		// until the drive gives out.
-		ctx, cancel := context.WithTimeout(context.Background(), salvageDeadline)
 		defer cancel()
-
-		// Publish the cancel so a pause can reach this run.
-		o.recoveredMu.Lock()
-		o.salvaging[driveIndex] = cancel
-		o.recoveredMu.Unlock()
 
 		o.setDriveState(driveIndex, "salvaging")
 		defer o.setDriveState(driveIndex, "detected")
@@ -378,7 +377,7 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 // beginSalvage claims the drive. A salvage and a recovery cannot run together:
 // both copy the whole disc, and two at once would race for the drive and the
 // scratch directory.
-func (o *Orchestrator) beginSalvage(driveIndex int) bool {
+func (o *Orchestrator) beginSalvage(driveIndex int, cancel context.CancelFunc) bool {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 	if o.recovering[driveIndex] || o.salvaging[driveIndex] != nil {
@@ -387,8 +386,7 @@ func (o *Orchestrator) beginSalvage(driveIndex int) bool {
 	if o.salvaging == nil {
 		o.salvaging = make(map[int]context.CancelFunc)
 	}
-	// Replaced with the real cancel once the salvage goroutine has a context.
-	o.salvaging[driveIndex] = func() {}
+	o.salvaging[driveIndex] = cancel
 	return true
 }
 
