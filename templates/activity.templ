@@ -33,18 +33,26 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('activity').salvageDisc = ''
 	Alpine.store('activity').salvageResumable = false
 	Alpine.store('activity').salvageRun = 0
+	Alpine.store('activity').salvageStoppingRun = -1
 	// A page loaded during a salvage has seen no events. The server says what is
 	// running so the panel is there immediately rather than after the next
 	// update, which during a quiet phase can be minutes away.
 	{
 		const cur = Alpine.store('activity').salvage || {}
-		if (cur.active) {
-			Alpine.store('activity').salvageActive = true
-			Alpine.store('activity').salvagePhase = 'backing-up'
+		if (cur.active || cur.paused) {
 			Alpine.store('activity').salvageDriveIndex = cur.driveIndex
 			Alpine.store('activity').salvageDisc = cur.discLabel || ''
 			Alpine.store('activity').salvageResumable = !!cur.resumable
+		}
+		if (cur.active) {
+			Alpine.store('activity').salvageActive = true
+			Alpine.store('activity').salvagePhase = 'backing-up'
 			Alpine.store('activity').salvageStartedAt = Date.now()
+		} else if (cur.paused) {
+			// A salvage stopped with work on disk. The page must offer to
+			// resume it, whether it was paused a minute ago or before a restart.
+			Alpine.store('activity').salvagePhase = 'paused'
+			Alpine.store('activity').salvageMessage = 'Paused. Everything recovered so far is kept.'
 		}
 	}
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
@@ -68,6 +76,15 @@ document.addEventListener('alpine:init', () => {
 		const run = update.run || 0
 		if (run < (store.salvageRun || 0)) return
 		store.salvageRun = run
+
+		// A run that has been told to stop keeps reporting for a moment: its
+		// progress messages are already in flight when Pause is clicked, and they
+		// carry the current run number, so a filter on older runs does not catch
+		// them. They arrived after the pause and set the state back to running,
+		// which is why a paused salvage appeared to start itself again. Only the
+		// run's own ending is worth hearing once it has been stopped.
+		const terminal = ['paused', 'failed', 'done'].includes(update.phase)
+		if (run === store.salvageStoppingRun && !terminal) return
 
 		store.salvagePhase = update.phase
 		store.salvageMessage = update.message || ''
@@ -158,8 +175,9 @@ document.addEventListener('alpine:init', () => {
 // that is what it is from the outside: resuming continues from the same place.
 async function pauseSalvage(driveIndex) {
 	const store = Alpine.store('activity')
-	// Show the pause immediately; the run's own trailing events are older and
-	// will be ignored.
+	// Show the pause immediately, and stop believing anything this run says
+	// except how it ends: its progress messages are already on their way.
+	store.salvageStoppingRun = store.salvageRun
 	store.salvageActive = false
 	store.salvagePhase = 'paused'
 	store.salvageMessage = 'Paused. Everything recovered so far is kept.'
@@ -186,6 +204,7 @@ async function resumeSalvage() {
 	store.salvageMessage = ''
 	store.salvagePercent = 0
 	store.salvageStartedAt = Date.now()
+	store.salvageStoppingRun = -1
 	try {
 		const disc = store.salvageDisc || ''
 		await fetch('/drives/' + idx + '/salvage' + (disc ? '?disc=' + encodeURIComponent(disc) : ''), {
@@ -218,6 +237,7 @@ async function salvageDisc(driveIndex, discName) {
 	store.salvageMessage = ''
 	store.salvagePercent = 0
 	store.salvageStartedAt = Date.now()
+	store.salvageStoppingRun = -1
 	store.salvageDriveIndex = driveIndex
 	store.salvageDisc = discName || ''
 

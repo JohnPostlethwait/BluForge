@@ -70,6 +70,7 @@ type activityStoreJSON struct {
 // salvageStateJSON mirrors workflow.SalvageState for the page.
 type salvageStateJSON struct {
 	Active     bool   `json:"active"`
+	Paused     bool   `json:"paused"`
 	DriveIndex int    `json:"driveIndex"`
 	DiscLabel  string `json:"discLabel"`
 	Resumable  bool   `json:"resumable"`
@@ -148,6 +149,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 		cur := s.orchestrator.CurrentSalvage()
 		store.Salvage = salvageStateJSON{
 			Active:     cur.Active,
+			Paused:     cur.Paused,
 			DriveIndex: cur.DriveIndex,
 			DiscLabel:  cur.DiscLabel,
 			Resumable:  cur.Resumable,
