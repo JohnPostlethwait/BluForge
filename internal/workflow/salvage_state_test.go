@@ -82,36 +82,42 @@ func TestSalvageResumableIsSafeUnderConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-// Two drives can be salvaged at once. Neither may be reported as the other.
-func TestSalvageTracksEachDriveSeparately(t *testing.T) {
-	root := discFixture(t, 16)
-	orch, _, outputDir := setupOrchestratorWithScanner(t, &mockDriveExecutor{})
-	b := &blockingBackupper{release: make(chan struct{}), started: make(chan struct{})}
-	orch.backupper = b
-	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
-	orch.outputDir = outputDir
+// Two drives can be salvaged at once, and the claims must be independent. This
+// exercises the claim directly rather than running two full salvages: the point
+// is the bookkeeping, and two concurrent salvages sharing test fakes proved
+// only that the fakes were not thread-safe.
+func TestSalvageClaimsAreIndependentPerDrive(t *testing.T) {
+	orch, _, _ := setupOrchestratorWithScanner(t, &mockDriveExecutor{})
 
-	if err := orch.StartSalvage(0); err != nil {
-		t.Fatalf("StartSalvage(0): %v", err)
+	var firstCancelled, secondCancelled bool
+	if !orch.beginSalvage(0, func() { firstCancelled = true }) {
+		t.Fatal("could not claim drive 0")
 	}
-	<-b.started
-
-	// Drive 1 is a different claim and must be allowed.
-	if err := orch.StartSalvage(1); err != nil {
-		t.Fatalf("StartSalvage(1) was refused: %v", err)
+	if !orch.beginSalvage(1, func() { secondCancelled = true }) {
+		t.Fatal("claiming drive 1 was refused while drive 0 was busy")
 	}
-	if !orch.SalvageInProgress(0) || !orch.SalvageInProgress(1) {
-		t.Error("both drives should report a salvage in progress")
+	if orch.beginSalvage(0, func() {}) {
+		t.Error("drive 0 was claimed twice")
 	}
 
-	// Stopping one must not stop the other.
-	orch.CancelSalvage(0)
+	if !orch.CancelSalvage(0) {
+		t.Error("cancelling drive 0 found nothing")
+	}
+	if !firstCancelled {
+		t.Error("drive 0's cancel was not called")
+	}
+	if secondCancelled {
+		t.Error("cancelling drive 0 also cancelled drive 1")
+	}
 	if !orch.SalvageInProgress(1) {
-		t.Error("cancelling drive 0 stopped drive 1")
+		t.Error("drive 1 stopped when drive 0 was cancelled")
 	}
-	orch.CancelSalvage(1)
-	close(b.release)
+
+	orch.endSalvage(0)
+	orch.endSalvage(1)
+	if orch.SalvageInProgress(0) || orch.SalvageInProgress(1) {
+		t.Error("a released claim still reports a salvage in progress")
+	}
 }
 
 var _ = context.Canceled
