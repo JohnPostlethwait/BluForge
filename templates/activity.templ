@@ -505,10 +505,17 @@ function formatDuration(secs) {
 								</template>
 								<template x-if="r.salvageable">
 									<div class="mt-2">
-										<button class="btn btn-secondary btn-sm" x-on:click="salvageDisc(r.driveIndex, r.discName)">
+										<!--
+											One salvage at a time: the server refuses a second, and a
+											button that cannot do anything should not invite a click.
+										-->
+										<button class="btn btn-secondary btn-sm"
+											x-bind:disabled="$store.activity.salvageActive"
+											x-on:click="salvageDisc(r.driveIndex, r.discName)">
 											Salvage this disc&hellip;
 										</button>
-										<span class="text-muted text-sm"> Recover what is still readable, accepting damaged video</span>
+										<span class="text-muted text-sm" x-show="!$store.activity.salvageActive"> Recover what is still readable, accepting damaged video</span>
+										<span class="text-muted text-sm" x-show="$store.activity.salvageActive"> A salvage is already running</span>
 									</div>
 								</template>
 							</div>
