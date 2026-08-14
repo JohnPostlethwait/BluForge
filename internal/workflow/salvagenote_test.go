@@ -10,7 +10,7 @@ import (
 // A salvaged file carries damage nothing about the file itself explains. The
 // job record is the only place that explanation can live.
 func TestSalvageNoteNamesWhatWasLost(t *testing.T) {
-	note := salvageNoteFor(&RecoveredDisc{Salvaged: true, Unrecovered: 168000})
+	note := salvageNoteFor(&RecoveredDisc{Salvaged: true, Measured: true, Unrecovered: 168000})
 
 	if !strings.Contains(note, "168.0 kB") {
 		t.Errorf("note does not say how much was lost: %q", note)
@@ -23,7 +23,7 @@ func TestSalvageNoteNamesWhatWasLost(t *testing.T) {
 // A salvage that recovered everything is still worth recording: "this came off
 // a damaged disc" is information about the file.
 func TestSalvageNoteIsWrittenEvenWhenNothingWasLost(t *testing.T) {
-	note := salvageNoteFor(&RecoveredDisc{Salvaged: true})
+	note := salvageNoteFor(&RecoveredDisc{Salvaged: true, Measured: true})
 	if note == "" {
 		t.Error("a clean salvage left no note at all")
 	}
@@ -45,6 +45,7 @@ func TestJobsRippedFromASalvageCarryTheNote(t *testing.T) {
 		Dir:         outputDir,
 		Ephemeral:   true,
 		Salvaged:    true,
+		Measured:    true,
 		Unrecovered: 168000,
 	})
 

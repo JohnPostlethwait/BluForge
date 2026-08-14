@@ -118,7 +118,10 @@ func (s *Server) handleActivity(c echo.Context) error {
 				// A page loaded mid-rip has seen no events, so the phase has to
 				// come from the engine or the byte counter starts out lying
 				// again until the next update arrives.
-				Phase:             j.CurrentPhase(),
+				Phase: j.CurrentPhase(),
+				// A rip from a salvaged copy carries damage, and the card you
+				// watch for twenty minutes said nothing about it.
+				SalvageNote:       s.salvageNoteForJob(j.ID),
 				SizeBytes:         j.TrackMetadata.SizeBytes,
 				SizeHuman:         j.TrackMetadata.SizeHuman,
 				Duration:          j.TrackMetadata.Duration,
@@ -394,4 +397,19 @@ func (s *Server) salvageResumable(status, errMessage, discName string) bool {
 		return false
 	}
 	return s.orchestrator.SalvageResumable(discName)
+}
+
+// salvageNoteForJob returns the salvage note recorded against a running job.
+//
+// Active jobs come from the engine, which does not carry the note; it lives on
+// the database record written when the job was created.
+func (s *Server) salvageNoteForJob(id int64) string {
+	if s.store == nil {
+		return ""
+	}
+	job, err := s.store.GetJob(id)
+	if err != nil || job == nil {
+		return ""
+	}
+	return job.SalvageNote
 }

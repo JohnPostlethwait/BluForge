@@ -82,6 +82,9 @@ type RecoveredDisc struct {
 	// Salvaged marks a copy repaired from a physically damaged disc, whose
 	// content is knowingly imperfect.
 	Salvaged bool
+	// Measured reports that this run actually rescued something, and so knows
+	// what it lost. A resume that found nothing short has no figure to give.
+	Measured bool
 	// Unrecovered is how many bytes a salvage could not read and left blank.
 	// Zero for an ordinary recovery. It is what explains a glitch to someone
 	// looking at the file a year later.
@@ -1178,6 +1181,9 @@ func dirSize(root string) int64 {
 func salvageNoteFor(rec *RecoveredDisc) string {
 	if !rec.Salvaged {
 		return ""
+	}
+	if !rec.Measured {
+		return "Salvaged from a damaged disc"
 	}
 	if rec.Unrecovered <= 0 {
 		return "Salvaged from a damaged disc; everything was recovered"
