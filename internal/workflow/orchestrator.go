@@ -1155,7 +1155,7 @@ func largestFile(dir string) (string, int64) {
 func (o *Orchestrator) salvageNoteForDrive(driveIndex int) string {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	if rec := o.recovered[driveIndex]; rec != nil {
+	if rec := o.currentFor(driveIndex); rec != nil {
 		return rec.salvageNote
 	}
 	return ""

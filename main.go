@@ -162,6 +162,13 @@ func main() {
 			orch.InvalidateScan(ev.DriveIndex)
 		}
 
+		// A repaired copy is bound to a drive, and the drive outlives the disc.
+		// Tell the orchestrator what is actually in there now, or a second disc
+		// would keep being read from the first one's copy.
+		if ev.Type == drivemanager.EventDiscInserted {
+			orch.SetDriveDisc(ev.DriveIndex, ev.DiscName)
+		}
+
 		// Clear drive session on eject so stale selection state doesn't persist.
 		if ev.Type == drivemanager.EventDiscEjected && srv != nil {
 			srv.ClearDriveSession(ev.DriveIndex)

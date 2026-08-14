@@ -586,8 +586,8 @@ func (o *Orchestrator) currentOutputDir() string {
 func (o *Orchestrator) RecoveredSource(driveIndex int) *makemkv.Source {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	rec, ok := o.recovered[driveIndex]
-	if !ok {
+	rec := o.currentFor(driveIndex)
+	if rec == nil {
 		return nil
 	}
 	src := rec.source
@@ -598,7 +598,7 @@ func (o *Orchestrator) RecoveredSource(driveIndex int) *makemkv.Source {
 func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	if rec, ok := o.recovered[driveIndex]; ok {
+	if rec := o.currentFor(driveIndex); rec != nil {
 		return rec.dir
 	}
 	return ""
@@ -829,8 +829,8 @@ func (o *Orchestrator) retainRecovered(driveIndex int) *recoveredDisc {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 
-	rec, ok := o.recovered[driveIndex]
-	if !ok {
+	rec := o.currentFor(driveIndex)
+	if rec == nil {
 		return nil
 	}
 	rec.refCount++
@@ -903,6 +903,48 @@ func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
 	if rec, ok := o.recovered[driveIndex]; ok {
 		rec.retired = true
 	}
+}
+
+// SetDriveDisc tells the orchestrator which disc a drive currently holds, and
+// unbinds any copy that was made from a different one.
+//
+// A copy is bound to a drive index, and the drive outlives the disc. Putting a
+// second disc in the same drive left it bound to the first: the page announced
+// that a completely unrelated disc was being read from a repaired copy, and a
+// scan would have been served that copy's titles rather than the disc's.
+//
+// Unbinding is not deleting. The copy stays on disk and stays discardable — it
+// simply stops being what this drive reads.
+func (o *Orchestrator) SetDriveDisc(driveIndex int, discLabel string) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	rec, ok := o.recovered[driveIndex]
+	if !ok || rec.retired {
+		return
+	}
+	// An empty label is a drive reporting no disc, or reporting one it has not
+	// identified yet. Neither is evidence the copy is wrong, and unbinding on
+	// it would drop the copy during the gap after a salvage finishes.
+	if discLabel == "" || slices.Contains(rec.discLabels, discLabel) {
+		return
+	}
+
+	rec.retired = true
+	slog.Info("recovery: a different disc is in this drive, so its copy is no longer being read",
+		"drive_index", driveIndex, "disc", discLabel, "copy_of", rec.discLabels, "dir", rec.dir)
+}
+
+// currentFor returns the copy a drive should be read from, or nil.
+//
+// Retired copies are excluded: they are kept on disk so they can be resumed or
+// discarded, but they are no longer what the drive holds.
+func (o *Orchestrator) currentFor(driveIndex int) *recoveredDisc {
+	rec, ok := o.recovered[driveIndex]
+	if !ok || rec.retired {
+		return nil
+	}
+	return rec
 }
 
 func removeBackupDir(dir string) {
