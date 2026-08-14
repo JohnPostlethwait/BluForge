@@ -28,6 +28,12 @@ func dsn(dbPath string) string {
 	return dbPath + "?" + pragmas
 }
 
+// isInMemory reports whether dbPath names an in-memory database rather than a
+// file on disk.
+func isInMemory(dbPath string) bool {
+	return dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:")
+}
+
 // Open opens (or creates) the SQLite database at dbPath, enables WAL mode,
 // and runs all pending migrations. Use ":memory:" for in-memory databases.
 func Open(dbPath string) (*Store, error) {
@@ -39,6 +45,31 @@ func Open(dbPath string) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+
+	if isInMemory(dbPath) {
+		// Every connection to ":memory:" opens its own private, empty database,
+		// so a query answered by a second one cannot see the migrated schema.
+		// One connection is the only way to make the pool coherent, and an
+		// in-memory database is only ever used by tests, where serialising it
+		// costs nothing.
+		db.SetMaxOpenConns(1)
+	} else {
+		// WAL is what lets a reader and a writer coexist, and it is requested in
+		// the DSN -- but a filesystem that cannot support it leaves SQLite in
+		// rollback-journal mode without complaining, and the first sign is
+		// contention nobody can account for. Read it back so that arrives as a
+		// startup failure instead. An in-memory database is exempt: it reports
+		// "memory" and can be nothing else.
+		var mode string
+		if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("open sqlite at %s: %w", dbPath, err)
+		}
+		if !strings.EqualFold(mode, "wal") {
+			db.Close()
+			return nil, fmt.Errorf("journal mode at %s is %q, want WAL", dbPath, mode)
+		}
 	}
 
 	store := &Store{db: db}
