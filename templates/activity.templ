@@ -430,7 +430,7 @@ function formatDuration(secs) {
 				<span x-text="({
 					'backing-up': 'Copying the disc',
 					'rescuing': 'Patching the damaged sections of the copy',
-					'verifying': 'Checking what can be ripped'
+					'verifying': 'Reading the repaired copy'
 				})[$store.activity.salvagePhase] || 'Working'"></span>
 				<span class="text-secondary min-w-3ch" x-show="$store.activity.salvagePercent > 0" x-text="$store.activity.salvagePercent + '%'"></span>
 			</div>
