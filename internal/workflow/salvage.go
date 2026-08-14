@@ -238,6 +238,9 @@ func incompleteFiles(discRoot, backupDir string) ([]shortStream, error) {
 		if err != nil {
 			return nil
 		}
+		if !rescuableFile(rel) {
+			return nil
+		}
 
 		var have int64
 		if st, statErr := os.Stat(filepath.Join(backupDir, rel)); statErr == nil {
@@ -619,9 +622,15 @@ func (o *Orchestrator) rescueStreams(
 		lastRescuePct := -1
 
 		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
-			Source:      filepath.Join(root, s.name),
-			Dest:        filepath.Join(dir, s.name),
-			MapFile:     filepath.Join(dir, name+".map"),
+			Source: filepath.Join(root, s.name),
+			Dest:   filepath.Join(dir, s.name),
+			// Mirror the file's own path. Naming maps by basename collided:
+			// BDMV/PLAYLIST/00800.mpls and BDMV/BACKUP/PLAYLIST/00800.mpls
+			// shared one, so the second read the first's map, concluded it was
+			// already rescued, copied nothing, and left a zero-byte file. Every
+			// structural file on a Blu-ray has a duplicate under BACKUP/, so
+			// every one of them was wiped.
+			MapFile:     filepath.Join(dir, salvageMapDir, s.name+".map"),
 			StartOffset: s.have,
 			Retries:     req.Retries,
 		}, func(p ddrescue.Progress) {
@@ -645,4 +654,26 @@ func (o *Orchestrator) rescueStreams(
 		}
 	}
 	return unrecovered, nil
+}
+
+// salvageMapDir holds ddrescue's maps, mirroring the disc's own layout so two
+// files with the same name never share one.
+const salvageMapDir = ".salvage-maps"
+
+// rescuableFile reports whether a file may be copied from the disc into a
+// backup.
+//
+// Only the video tree. MakeMKV's backup writes the protection-related files —
+// AACS, CERTIFICATE, discatt.dat — in the form it wants them, which is not the
+// raw form they take on the disc. Copying the disc's versions over them fed
+// makemkvcon a 134MB MKB_RO.inf where it expected a few kilobytes, and it
+// crashed reading the result.
+func rescuableFile(rel string) bool {
+	return strings.HasPrefix(filepath.ToSlash(rel), "BDMV/")
+}
+
+// FindSalvageScratch and the sweep must not mistake the map directory for disc
+// content; it lives inside the scratch and is ours.
+func isSalvageMap(rel string) bool {
+	return strings.HasPrefix(filepath.ToSlash(rel), salvageMapDir+"/")
 }
