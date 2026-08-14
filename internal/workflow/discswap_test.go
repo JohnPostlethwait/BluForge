@@ -70,6 +70,27 @@ func TestAnUnboundCopyIsStillOnDiskAndStillDiscardable(t *testing.T) {
 	}
 }
 
+// Swapping a disc out and back in must not send the drive to read the damaged
+// original — repairing it is the whole reason the copy exists.
+func TestTheOriginalDiscComingBackIsReadFromItsCopyAgain(t *testing.T) {
+	orch := NewOrchestrator(OrchestratorDeps{Store: storeForTest(t)})
+	dir := registerCopy(t, orch, 1, "RAMBO_DISC2")
+
+	orch.SetDriveDisc(1, "INVICTUS")
+	if orch.RecoveredDir(1) != "" {
+		t.Fatal("the copy was still bound while another disc was in the drive")
+	}
+
+	orch.SetDriveDisc(1, "RAMBO_DISC2")
+
+	if got := orch.RecoveredDir(1); got != dir {
+		t.Errorf("RecoveredDir = %q, want the copy back at %q", got, dir)
+	}
+	if claim := orch.retainRecovered(1); claim == nil {
+		t.Error("a rip would read the damaged disc rather than its repaired copy")
+	}
+}
+
 // A drive that never had a copy is unaffected.
 func TestSettingTheDiscOnAPlainDriveDoesNothing(t *testing.T) {
 	orch := NewOrchestrator(OrchestratorDeps{Store: storeForTest(t)})

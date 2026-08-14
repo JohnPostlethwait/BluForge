@@ -31,7 +31,11 @@ func TestAnUnfinishedSalvageSurvivesTheSweep(t *testing.T) {
 	if err := orch.RestoreBackups(); err != nil {
 		t.Fatalf("RestoreBackups: %v", err)
 	}
-	if err := SweepScratch(outputDir, orch.TrackedBackupDirs()); err != nil {
+	tracked, err := orch.TrackedBackupDirs()
+	if err != nil {
+		t.Fatalf("TrackedBackupDirs: %v", err)
+	}
+	if err := SweepScratch(outputDir, tracked); err != nil {
 		t.Fatalf("SweepScratch: %v", err)
 	}
 

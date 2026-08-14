@@ -703,10 +703,12 @@ func (o *Orchestrator) RestoreBackups() error {
 
 // TrackedBackupDirs lists the backup directories currently accounted for, so a
 // sweep can distinguish them from debris.
-func (o *Orchestrator) TrackedBackupDirs() []string {
+//
+// An error means the list is incomplete, and the caller must not sweep on it.
+// SweepScratch deletes everything it is not told to keep, so an empty list is
+// not "nothing to protect" — it is an instruction to delete every copy on disk.
+func (o *Orchestrator) TrackedBackupDirs() ([]string, error) {
 	o.recoveredMu.Lock()
-	defer o.recoveredMu.Unlock()
-
 	dirs := make([]string, 0, len(o.recovered)+len(o.partialScratch))
 	for _, rec := range o.recovered {
 		dirs = append(dirs, rec.dir)
@@ -714,7 +716,31 @@ func (o *Orchestrator) TrackedBackupDirs() []string {
 	// Unfinished salvages count as tracked: they are hours of work, and the
 	// sweep exists to remove debris rather than work in progress.
 	dirs = append(dirs, o.partialScratch...)
-	return dirs
+	o.recoveredMu.Unlock()
+
+	if o.store == nil {
+		return dirs, nil
+	}
+
+	// Every copy the database still records counts too, whether or not it is
+	// the one its drive currently holds.
+	//
+	// The in-memory map is keyed by drive index, so a second copy made on the
+	// same drive displaces the first. The first is still on disk and still
+	// recorded — but it was no longer named here, and the sweep deletes
+	// anything it is not told about, which is hours of work gone on the next
+	// restart. The record is the authority for what to keep: it is written when
+	// a copy is made and dropped only when one is discarded.
+	backups, err := o.store.ListDiscBackups()
+	if err != nil {
+		return nil, fmt.Errorf("list recorded disc copies: %w", err)
+	}
+	for _, b := range backups {
+		if !slices.Contains(dirs, b.BackupDir) {
+			dirs = append(dirs, b.BackupDir)
+		}
+	}
+	return dirs, nil
 }
 
 // DiscardBackup deletes a drive's scratch copy on request.
@@ -920,19 +946,33 @@ func (o *Orchestrator) SetDriveDisc(driveIndex int, discLabel string) {
 	defer o.recoveredMu.Unlock()
 
 	rec, ok := o.recovered[driveIndex]
-	if !ok || rec.retired {
+	if !ok {
 		return
 	}
 	// An empty label is a drive reporting no disc, or reporting one it has not
-	// identified yet. Neither is evidence the copy is wrong, and unbinding on
-	// it would drop the copy during the gap after a salvage finishes.
-	if discLabel == "" || slices.Contains(rec.discLabels, discLabel) {
+	// identified yet. Neither is evidence about the copy, and acting on it would
+	// drop the copy during the gap right after a salvage finishes.
+	if discLabel == "" {
 		return
 	}
 
-	rec.retired = true
-	slog.Info("recovery: a different disc is in this drive, so its copy is no longer being read",
-		"drive_index", driveIndex, "disc", discLabel, "copy_of", rec.discLabels, "dir", rec.dir)
+	if slices.Contains(rec.discLabels, discLabel) {
+		// The copy's own disc. If it was set aside for another disc, it comes
+		// back — otherwise swapping a disc out and back in would send the drive
+		// to read the damaged original that needed repairing in the first place.
+		if rec.retired {
+			rec.retired = false
+			slog.Info("recovery: this disc's repaired copy is being read again",
+				"drive_index", driveIndex, "disc", discLabel, "dir", rec.dir)
+		}
+		return
+	}
+
+	if !rec.retired {
+		rec.retired = true
+		slog.Info("recovery: a different disc is in this drive, so its copy is no longer being read",
+			"drive_index", driveIndex, "disc", discLabel, "copy_of", rec.discLabels, "dir", rec.dir)
+	}
 }
 
 // currentFor returns the copy a drive should be read from, or nil.

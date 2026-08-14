@@ -125,7 +125,12 @@ func main() {
 	if err := orch.RestoreBackups(); err != nil {
 		slog.Warn("could not restore disc backups", "error", err)
 	}
-	if err := workflow.SweepScratch(cfg.OutputDir, orch.TrackedBackupDirs()); err != nil {
+	// Only sweep on a complete list. The sweep deletes every scratch directory
+	// it is not told to keep, so an incomplete list destroys copies worth hours.
+	if tracked, err := orch.TrackedBackupDirs(); err != nil {
+		slog.Error("skipping the scratch sweep: could not tell which disc copies are live",
+			"error", err)
+	} else if err := workflow.SweepScratch(cfg.OutputDir, tracked); err != nil {
 		slog.Warn("could not sweep untracked disc backups", "error", err)
 	}
 	slog.Info("disc backup housekeeping complete", "took", time.Since(restoreStart).String())
