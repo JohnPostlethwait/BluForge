@@ -265,18 +265,19 @@ func TestSalvageResumesAPartiallyCopiedStream(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	short, err := incompleteStreams(root, dir)
+	short, err := incompleteFiles(root, dir)
 	if err != nil {
 		t.Fatalf("incompleteStreams: %v", err)
 	}
+	// Both streams are missing from an empty backup directory.
 	if len(short) != 2 {
-		t.Fatalf("found %d short streams, want 2", len(short))
+		t.Fatalf("found %d short files, want 2", len(short))
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, streamDir, "00000.m2ts"), make([]byte, 1024), 0o644); err != nil {
 		t.Fatalf("write partial: %v", err)
 	}
-	short, err = incompleteStreams(root, dir)
+	short, err = incompleteFiles(root, dir)
 	if err != nil {
 		t.Fatalf("incompleteStreams: %v", err)
 	}

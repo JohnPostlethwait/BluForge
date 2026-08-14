@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -112,26 +113,36 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 		}
 	}
 
-	// 1. Back up what the disc will give. A backup that dies partway is not a
-	// failure here — it is the starting point, and its partial tree is exactly
-	// what ddrescue is about to finish.
-	report("backing-up", 0, "")
-	lastPct := -1
-	if err := o.backupper.Backup(ctx, req.DriveIndex, dir, func(ev makemkv.Event) {
-		logSalvageEvent(ev)
-		// MakeMKV reports progress throughout a copy that runs for the better
-		// part of an hour. Discarding it left a spinner and a sentence, which
-		// is indistinguishable from a stall.
-		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
-			if pct := ev.Progress.Total * 100 / ev.Progress.Max; pct != lastPct {
-				lastPct = pct
-				report("backing-up", pct, "")
+	// 1. Back up what the disc will give, unless a copy is already here. A
+	// resumed salvage must never re-run this: the backup rewrites the stream
+	// files, including the one ddrescue spent three hours patching, and would
+	// fail on it again and take the recovery with it.
+	//
+	// A partial tree is not a reason to copy again either. Whatever it is
+	// missing is exactly what the rescue below fills in.
+	if resuming {
+		slog.Info("salvage: a copy of this disc is already here; continuing rather than copying again",
+			"dir", dir)
+		report("rescuing", 0, "")
+	} else {
+		report("backing-up", 0, "")
+		lastPct := -1
+		if err := o.backupper.Backup(ctx, req.DriveIndex, dir, func(ev makemkv.Event) {
+			logSalvageEvent(ev)
+			// MakeMKV reports progress throughout a copy that runs for the better
+			// part of an hour. Discarding it left a spinner and a sentence, which
+			// is indistinguishable from a stall.
+			if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
+				if pct := ev.Progress.Total * 100 / ev.Progress.Max; pct != lastPct {
+					lastPct = pct
+					report("backing-up", pct, "")
+				}
 			}
+		}); err != nil {
+			slog.Warn("salvage: backup did not complete; continuing with what it copied",
+				"drive_index", req.DriveIndex, "dir", dir, "error", err)
+			report("backing-up", lastPct, "")
 		}
-	}); err != nil {
-		slog.Warn("salvage: backup did not complete; continuing with what it copied",
-			"drive_index", req.DriveIndex, "dir", dir, "error", err)
-		report("backing-up", lastPct, "")
 	}
 
 	// 2. Read the disc as a filesystem so the damaged streams can be compared
@@ -151,7 +162,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 			"(is the disc in this drive?)", root, streamDir)
 	}
 
-	short, err := incompleteStreams(root, dir)
+	short, err := incompleteFiles(root, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -200,39 +211,48 @@ type shortStream struct {
 	want int64
 }
 
-// incompleteStreams compares the disc's stream files against the backup's.
+// incompleteFiles compares every file on the disc against the backup's copy.
 //
-// Deriving the work from the two trees rather than from a record of which reads
-// failed means a backup that died early is handled the same as one that
-// finished with holes: anything short gets rescued, whatever the reason.
-func incompleteStreams(discRoot, backupDir string) ([]shortStream, error) {
-	streams := filepath.Join(discRoot, streamDir)
-	entries, err := os.ReadDir(streams)
-	if err != nil {
-		return nil, fmt.Errorf("salvage: read %s: %w", streams, err)
-	}
-
+// It used to look only at BDMV/STREAM, because that is where the damage was on
+// the disc that prompted all this. A backup that stopped early leaves the small
+// structural files short too — a playlist, a clip info file — and MakeMKV then
+// cannot parse the disc at all: it opens the folder and fails immediately,
+// enumerating nothing, however perfect the streams are.
+func incompleteFiles(discRoot, backupDir string) ([]shortStream, error) {
 	var short []shortStream
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".m2ts") {
-			continue
-		}
-		info, err := e.Info()
+
+	err := filepath.WalkDir(discRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			continue
+			// A file the disc will not even list is not one we can rescue.
+			slog.Warn("salvage: skipping an unreadable entry", "path", path, "error", err)
+			return nil
 		}
-		name := filepath.Join(streamDir, e.Name())
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(discRoot, path)
+		if err != nil {
+			return nil
+		}
 
 		var have int64
-		if st, err := os.Stat(filepath.Join(backupDir, name)); err == nil {
+		if st, statErr := os.Stat(filepath.Join(backupDir, rel)); statErr == nil {
 			have = st.Size()
 		}
 		if have >= info.Size() {
-			continue
+			return nil
 		}
-		short = append(short, shortStream{name: name, have: have, want: info.Size()})
-		slog.Info("salvage: stream is short in the backup",
-			"file", name, "have", have, "want", info.Size())
+		short = append(short, shortStream{name: rel, have: have, want: info.Size()})
+		slog.Info("salvage: file is short in the backup",
+			"file", rel, "have", have, "want", info.Size())
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("salvage: read %s: %w", discRoot, err)
 	}
 	return short, nil
 }
