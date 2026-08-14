@@ -478,6 +478,30 @@ function formatElapsed(seconds) {
 
 // scanDisc asks for a scan. It returns as soon as the scan is under way: the
 // result arrives as a disc_scan event, because a scan can outlast any request.
+// discardBackup deletes the repaired copy and returns the drive to reading the
+// disc itself. The endpoint has existed since recovery was built; nothing ever
+// called it, so a copy could only be removed with a shell.
+async function discardBackup(driveIndex) {
+	const agreed = confirm(
+		'Discard the repaired copy?\n\n' +
+		'The recovered files are deleted and BluForge goes back to reading the disc. ' +
+		'Salvaging again would mean repeating the whole recovery.'
+	)
+	if (!agreed) return
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/discard-backup', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		if (resp.ok) {
+			Alpine.store('drive').hasBackup = false
+			resyncDriveState()
+		}
+	} catch (err) {
+		Alpine.store('drive').scanError = 'Could not discard the copy: ' + err.message
+	}
+}
+
 async function scanDisc(driveIndex) {
 	const store = Alpine.store('drive')
 	store.scanning = true
@@ -890,6 +914,23 @@ function applyScanResults(titles) {
 				silently loses content, so whatever MakeMKV complained about is shown
 				here rather than only in the container log.
 			-->
+			<!--
+				A disc served from a repaired copy behaves like any other, and nothing
+				said so: scans returned instantly and rips never touched the drive,
+				with no explanation anywhere on the page.
+			-->
+			<div x-data x-show="$store.drive.hasBackup" x-cloak class="card scan-warnings">
+				<h2 class="section-title">Reading a repaired copy of this disc</h2>
+				<p class="text-muted">
+					This disc was salvaged, and BluForge is reading the copy on disk rather
+					than the disc itself. Scans and rips will not touch the drive, and the
+					result may contain damaged video where the disc could not be read.
+				</p>
+				<div class="mt-2">
+					@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the copy</button>`, data.DriveIndex))
+					<span class="text-muted text-sm"> Frees the space and goes back to reading the disc</span>
+				</div>
+			</div>
 			<div
 				x-data
 				x-show="((($store.drive.scanDiagnosis || {}).findings) || []).length > 0"

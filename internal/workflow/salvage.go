@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -714,23 +715,25 @@ func (o *Orchestrator) ripAfterSalvage(driveIndex int, discLabel, outputDir stri
 		return 0
 	}
 
+	mine := latestFailedBatch(failed, discLabel)
+	if len(mine) == 0 {
+		slog.Info("salvage: nothing was waiting to be ripped for this disc", "disc", discLabel)
+		return 0
+	}
+
 	var titles []TitleSelection
 	var mediaTitle string
 	var opts *makemkv.SelectionOpts
 
-	for _, j := range failed {
-		if j.DiscName != discLabel {
-			continue
-		}
-		sel := TitleSelection{
+	for _, j := range mine {
+		titles = append(titles, TitleSelection{
 			TitleIndex:    j.TitleIndex,
 			TitleName:     j.TitleName,
 			SourceFile:    j.SourceFile,
 			SizeBytes:     j.SizeBytes,
 			ContentType:   j.ContentType,
 			TrackMetadata: parseTrackMeta(j.TrackMetadata),
-		}
-		titles = append(titles, sel)
+		})
 
 		// The names were settled before the failure: <output>/<media>/<title>.mkv.
 		// Taking the media directory back off the path reproduces them exactly.
@@ -774,4 +777,51 @@ func parseTrackMeta(raw string) ripper.TrackMetadata {
 		_ = json.Unmarshal([]byte(raw), &m)
 	}
 	return m
+}
+
+// batchWindow is how far apart two failures can be and still count as one
+// attempt. A rip submits its titles together, so they land within moments.
+const batchWindow = 5 * time.Minute
+
+// latestFailedBatch narrows a disc's failures to the most recent attempt, one
+// entry per title.
+//
+// Every attempt on a disc leaves its failures behind, and a salvage that took
+// all of them re-ripped seven titles from a night of retries instead of the one
+// the user had actually chosen.
+func latestFailedBatch(failed []db.RipJob, discLabel string) []db.RipJob {
+	var mine []db.RipJob
+	for _, j := range failed {
+		if j.DiscName == discLabel {
+			mine = append(mine, j)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+
+	// Newest first, so the most recent attempt at a title is the one kept.
+	sort.SliceStable(mine, func(i, k int) bool {
+		return mine[i].CreatedAt.After(mine[k].CreatedAt)
+	})
+
+	newest := mine[0].CreatedAt
+	seen := make(map[string]bool, len(mine))
+	var batch []db.RipJob
+	for _, j := range mine {
+		if newest.Sub(j.CreatedAt) > batchWindow {
+			break
+		}
+		// A title chosen twice in one attempt is still one title.
+		key := j.SourceFile
+		if key == "" {
+			key = j.TitleName
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		batch = append(batch, j)
+	}
+	return batch
 }
