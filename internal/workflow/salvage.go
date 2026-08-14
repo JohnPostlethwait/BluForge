@@ -160,55 +160,9 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 
 	// 3. Fill what the backup could not take.
-	//
-	// ddrescue is a separate process and does not go through the MakeMKV
-	// executor, so nothing otherwise stops the five-second drive poller reading
-	// the same drive underneath it. That contention took a rescue from 14 MB/s
-	// down to 2.4 MB/s, turning an hour into nine and a half.
-	if len(short) > 0 {
-		if locker, ok := o.backupper.(DriveLocker); ok {
-			locker.LockDrive()
-			defer locker.UnlockDrive()
-			slog.Info("salvage: holding the drive for the rescue", "files", len(short))
-		} else {
-			slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
-		}
-	}
-
-	var unrecovered int64
-	for _, s := range short {
-		name := filepath.Base(s.name)
-		report("rescuing", 0, fmt.Sprintf("Patching %s", name))
-		lastRescuePct := -1
-
-		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
-			Source:      filepath.Join(root, s.name),
-			Dest:        filepath.Join(dir, s.name),
-			MapFile:     filepath.Join(dir, filepath.Base(s.name)+".map"),
-			StartOffset: s.have,
-			Retries:     req.Retries,
-		}, func(p ddrescue.Progress) {
-			if p.BytesBad > 0 {
-				unrecovered = p.BytesBad
-			}
-			if p.Line != "" {
-				slog.Info("salvage: rescuing", "file", s.name, "status", p.Line)
-			}
-			// ddrescue reports what it has recovered; turning that into a
-			// percentage of the file is the only honest measure of how far
-			// through an hour-long rescue it is.
-			if p.BytesRescued > 0 && s.want > 0 {
-				pct := int(p.BytesRescued * 100 / s.want)
-				if pct != lastRescuePct {
-					lastRescuePct = pct
-					report("rescuing", pct, fmt.Sprintf("Patching %s — %s of %s recovered",
-						name, humanBytes(p.BytesRescued), humanBytes(s.want)))
-				}
-			}
-		})
-		if err != nil {
-			return nil, fmt.Errorf("salvage: %w", err)
-		}
+	unrecovered, err := o.rescueStreams(ctx, req, root, dir, short, report)
+	if err != nil {
+		return nil, err
 	}
 
 	// 4. Read the repaired tree. Reads now succeed everywhere, including across
@@ -605,4 +559,70 @@ func (o *Orchestrator) pausedSalvage() (SalvageState, bool) {
 		}, true
 	}
 	return SalvageState{}, false
+}
+
+// rescueStreams runs ddrescue over the streams the backup left short, holding
+// the drive for the duration.
+//
+// Separated from Salvage so the drive lock is released when the rescue ends
+// rather than when the whole salvage does. Held across the folder scan that
+// follows, it deadlocked: the scan takes the same executor mutex, Go mutexes do
+// not nest, and a salvage sat with its rescue complete and nothing running for
+// as long as anyone left it.
+func (o *Orchestrator) rescueStreams(
+	ctx context.Context,
+	req SalvageRequest,
+	root, dir string,
+	short []shortStream,
+	report func(phase string, percent int, message string),
+) (int64, error) {
+	if len(short) == 0 {
+		return 0, nil
+	}
+
+	// ddrescue is a separate process and does not go through the MakeMKV
+	// executor, so nothing otherwise stops the drive poller reading the same
+	// drive underneath it. That contention took a rescue from 14 MB/s to
+	// 2.4 MB/s.
+	if locker, ok := o.backupper.(DriveLocker); ok {
+		locker.LockDrive()
+		defer locker.UnlockDrive()
+		slog.Info("salvage: holding the drive for the rescue", "files", len(short))
+	} else {
+		slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
+	}
+
+	var unrecovered int64
+	for _, s := range short {
+		name := filepath.Base(s.name)
+		report("rescuing", 0, fmt.Sprintf("Patching %s", name))
+		lastRescuePct := -1
+
+		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
+			Source:      filepath.Join(root, s.name),
+			Dest:        filepath.Join(dir, s.name),
+			MapFile:     filepath.Join(dir, name+".map"),
+			StartOffset: s.have,
+			Retries:     req.Retries,
+		}, func(p ddrescue.Progress) {
+			if p.BytesBad > 0 {
+				unrecovered = p.BytesBad
+			}
+			if p.Line != "" {
+				slog.Info("salvage: rescuing", "file", s.name, "status", p.Line)
+			}
+			if p.BytesRescued > 0 && s.want > 0 {
+				pct := int(p.BytesRescued * 100 / s.want)
+				if pct != lastRescuePct {
+					lastRescuePct = pct
+					report("rescuing", pct, fmt.Sprintf("Patching %s — %s of %s recovered",
+						name, humanBytes(p.BytesRescued), humanBytes(s.want)))
+				}
+			}
+		})
+		if err != nil {
+			return unrecovered, fmt.Errorf("salvage: %w", err)
+		}
+	}
+	return unrecovered, nil
 }
