@@ -633,6 +633,29 @@ function applyScanResults(titles) {
 			</template>
 		</div>
 
+		<!--
+			A disc served from a repaired copy behaves like any other, and nothing
+			said so: scans returned instantly and rips never touched the drive,
+			with no explanation anywhere on the page.
+
+			This sits outside the step wizard on purpose. Nested inside a step it
+			only appeared once the user reached that step, which is exactly too
+			late: the copy is what makes the scan instant, so the banner has to be
+			readable before the scan, not after it.
+		-->
+		<div x-data x-show="$store.drive.hasBackup" x-cloak class="card scan-warnings">
+			<h2 class="section-title">Reading a repaired copy of this disc</h2>
+			<p class="text-muted">
+				This disc was salvaged, and BluForge is reading the copy on disk rather
+				than the disc itself. Scans and rips will not touch the drive, and the
+				result may contain damaged video where the disc could not be read.
+			</p>
+			<div class="mt-2">
+				@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the copy</button>`, data.DriveIndex))
+				<span class="text-muted text-sm"> Frees the space and goes back to reading the disc</span>
+			</div>
+		</div>
+
 		<!-- Stepper -->
 		@components.Stepper([]components.StepperStep{
 			{Number: 1, Label: "Search"},
@@ -914,23 +937,6 @@ function applyScanResults(titles) {
 				silently loses content, so whatever MakeMKV complained about is shown
 				here rather than only in the container log.
 			-->
-			<!--
-				A disc served from a repaired copy behaves like any other, and nothing
-				said so: scans returned instantly and rips never touched the drive,
-				with no explanation anywhere on the page.
-			-->
-			<div x-data x-show="$store.drive.hasBackup" x-cloak class="card scan-warnings">
-				<h2 class="section-title">Reading a repaired copy of this disc</h2>
-				<p class="text-muted">
-					This disc was salvaged, and BluForge is reading the copy on disk rather
-					than the disc itself. Scans and rips will not touch the drive, and the
-					result may contain damaged video where the disc could not be read.
-				</p>
-				<div class="mt-2">
-					@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the copy</button>`, data.DriveIndex))
-					<span class="text-muted text-sm"> Frees the space and goes back to reading the disc</span>
-				</div>
-			</div>
 			<div
 				x-data
 				x-show="((($store.drive.scanDiagnosis || {}).findings) || []).length > 0"
