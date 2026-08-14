@@ -494,6 +494,13 @@ function formatDuration(secs) {
 									<span x-show="j.audioTracks && j.audioTracks.length" x-text="(j.sizeHuman || j.duration ? ' · ' : '') + (j.audioTracks || []).map(t => [t.Codec, t.Channels, t.Language].filter(Boolean).join(' ')).join(', ')"></span>
 									<span x-show="j.subtitleLanguages && j.subtitleLanguages.length" x-text="' · Subs: ' + (j.subtitleLanguages || []).join(', ')"></span>
 								</div>
+								<!--
+									A rip from a salvaged copy contains damage. The card someone
+									watches for twenty minutes said nothing about it.
+								-->
+								<template x-if="j.salvageNote">
+									<div class="text-warning text-sm mt-1" x-text="j.salvageNote"></div>
+								</template>
 								<div class="progress-row" x-show="j.phase === 'analyzing'">
 									<span class="spinner" aria-hidden="true"></span>
 									<span class="text-secondary">Reading the disc structure&hellip;</span>
