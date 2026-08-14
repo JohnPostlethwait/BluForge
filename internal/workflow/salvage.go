@@ -195,9 +195,10 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 		"titles", len(scan.Titles), "rescued_files", len(short))
 
 	return &RecoveredDisc{
-		Source: src,
-		Dir:    dir,
-		Scan:   scan,
+		DiscLabel: req.DiscLabel,
+		Source:    src,
+		Dir:       dir,
+		Scan:      scan,
 		// Measured is what makes Unrecovered meaningful. A resume that rescues
 		// nothing has measured nothing, and reporting zero read as "everything
 		// was recovered" when an earlier run had lost bytes it never saw.

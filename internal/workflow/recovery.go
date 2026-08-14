@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +76,14 @@ type RecoveryRequest struct {
 // RecoveredDisc is a disc that has been backed up and stripped of its AACS
 // directory, ready to rip as a folder source.
 type RecoveredDisc struct {
+	// DiscLabel is the disc this copy was made from, taken from the request
+	// that made it rather than from rescanning the copy.
+	//
+	// A folder scan reports whatever the copied BDMV names itself, which is not
+	// the drive's volume label and is sometimes nothing at all. Anything that
+	// has to match a copy against a disc — a history entry offering to delete
+	// it — needs the name the rest of BluForge uses for that disc.
+	DiscLabel    string
 	Source       makemkv.Source
 	Dir          string
 	Scan         *makemkv.DiscScan
@@ -336,7 +345,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		"disc", req.DiscLabel, "backup_dir", backupDir,
 		"titles", len(scan.Titles), "backup_bytes", size)
 
-	return &RecoveredDisc{Source: src, Dir: backupDir, Scan: scan, DiagnosticID: diagID}, nil
+	return &RecoveredDisc{DiscLabel: req.DiscLabel, Source: src, Dir: backupDir, Scan: scan, DiagnosticID: diagID}, nil
 }
 
 // maybeRecover inspects a scan failure and, when it carries the spurious-AACS
@@ -601,17 +610,14 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 // discarded: if jobs are still ripping from it — a disc swapped mid-rip — it
 // survives until they finish, and only its map entry is replaced.
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
-	discLabel := ""
-	if rec.Scan != nil {
-		discLabel = rec.Scan.DiscName
-	}
+	discLabel := discLabelOf(rec)
 
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{
 		source:      rec.Source,
 		dir:         rec.Dir,
-		discLabel:   discLabel,
+		discLabels:  discLabelsFor(discLabel, rec.Dir),
 		ephemeral:   rec.Ephemeral,
 		unmount:     rec.unmount,
 		salvageNote: salvageNoteFor(rec),
@@ -633,13 +639,9 @@ func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	// Persist so the copy survives a restart. Without the record the startup
 	// sweep cannot tell it from crash debris, and would delete it.
 	if o.store != nil {
-		label := ""
-		if rec.Scan != nil {
-			label = rec.Scan.DiscName
-		}
 		if _, err := o.store.SaveDiscBackup(db.DiscBackup{
 			DriveIndex: driveIndex,
-			DiscLabel:  label,
+			DiscLabel:  discLabel,
 			BackupDir:  rec.Dir,
 			SourceArg:  rec.Source.Arg(),
 		}); err != nil {
@@ -687,9 +689,9 @@ func (o *Orchestrator) RestoreBackups() error {
 
 		o.recoveredMu.Lock()
 		o.recovered[b.DriveIndex] = &recoveredDisc{
-			source:    makemkv.FileSource(b.BackupDir),
-			dir:       b.BackupDir,
-			discLabel: b.DiscLabel,
+			source:     makemkv.FileSource(b.BackupDir),
+			dir:        b.BackupDir,
+			discLabels: discLabelsFor(b.DiscLabel, b.BackupDir),
 		}
 		o.recoveredMu.Unlock()
 
@@ -753,11 +755,16 @@ func (o *Orchestrator) DiscsWithBackup() []string {
 	for _, rec := range o.recovered {
 		// A link tree costs kilobytes and disappears with the disc. There is no
 		// space to reclaim, so there is nothing to offer.
-		if rec.ephemeral || rec.discLabel == "" || seen[rec.discLabel] {
+		if rec.ephemeral {
 			continue
 		}
-		seen[rec.discLabel] = true
-		discs = append(discs, rec.discLabel)
+		for _, label := range rec.discLabels {
+			if seen[label] {
+				continue
+			}
+			seen[label] = true
+			discs = append(discs, label)
+		}
 	}
 	return discs
 }
@@ -777,7 +784,7 @@ func (o *Orchestrator) DiscardBackupForDisc(discLabel string) error {
 	var dirs []string
 	var unmounts []func()
 	for idx, rec := range o.recovered {
-		if rec.discLabel != discLabel {
+		if !slices.Contains(rec.discLabels, discLabel) {
 			continue
 		}
 		dirs = append(dirs, rec.dir)
@@ -1144,6 +1151,68 @@ func (o *Orchestrator) finishDiagnostic(id int64, outcome, detail string, backup
 }
 
 // scratchSlug builds a stable, filesystem-safe directory name for a disc.
+// discLabelsFor lists every name a copy can be matched by, best first.
+//
+// Both the recorded label and the one encoded in the directory are kept. They
+// normally agree; where they do not, the copy was made by a version that
+// recorded whatever scanning the copied folder reported, and only the directory
+// still carries the disc's own name. Matching on either is what makes those
+// copies actionable without a migration.
+func discLabelsFor(recorded, dir string) []string {
+	var labels []string
+	for _, l := range []string{recorded, discLabelFromDir(dir)} {
+		if l == "" || slices.Contains(labels, l) {
+			continue
+		}
+		labels = append(labels, l)
+	}
+	return labels
+}
+
+// discLabelOf resolves the disc a copy was made from.
+//
+// The request that made the copy is authoritative: it is the same label the
+// drive, the jobs and the history rows all use. Scanning the copy is only a
+// fallback, and a poor one — a folder scan reports what the copied BDMV calls
+// itself, which is often not the volume label and sometimes nothing.
+//
+// Failing both, the directory name still carries it: scratchSlug builds every
+// copy's name as "<sanitized label>-<hash>". That is what gives copies made by
+// earlier versions, which recorded no label at all, a name to match on.
+func discLabelOf(rec *RecoveredDisc) string {
+	if rec == nil {
+		return ""
+	}
+	if rec.DiscLabel != "" {
+		return rec.DiscLabel
+	}
+	if rec.Scan != nil && rec.Scan.DiscName != "" {
+		return rec.Scan.DiscName
+	}
+	return discLabelFromDir(rec.Dir)
+}
+
+// discLabelFromDir recovers a disc label from the scratch directory named after
+// it, undoing scratchSlug's "<label>-<hash>" and the "-link" suffix a symlink
+// tree adds.
+func discLabelFromDir(dir string) string {
+	name := strings.TrimSuffix(filepath.Base(dir), "-link")
+	cut := strings.LastIndex(name, "-")
+	if cut <= 0 {
+		return ""
+	}
+	// Only the 8 hex characters scratchSlug appends. Anything else is part of a
+	// disc name that happens to contain a hyphen.
+	if suffix := name[cut+1:]; len(suffix) != 8 || strings.Trim(suffix, "0123456789abcdef") != "" {
+		return ""
+	}
+	if label := name[:cut]; label != "disc" {
+		return label
+	}
+	// scratchSlug's placeholder for a disc that had no name to begin with.
+	return ""
+}
+
 func scratchSlug(discLabel, devicePath string) string {
 	name := organizer.SanitizeFilename(discLabel)
 	if name == "" {
