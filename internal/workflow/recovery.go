@@ -436,8 +436,9 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		o.registerRecovered(driveIndex, rec)
 		// Cache the recovered scan so the next scan request is served instantly
 		// rather than re-reading the disc that could not be read in the first
-		// place.
-		o.cacheScan(driveIndex, rec.Scan)
+		// place. Filed under the disc, not under what scanning the copy
+		// reported: a folder scan names itself after the copied BDMV.
+		o.cacheScanFor(driveIndex, discName, rec.Scan)
 		o.broadcastRecovery(driveIndex, discName, "done", 100, "")
 		slog.Info("recovery: complete, disc is ready to rip",
 			"drive_index", driveIndex, "disc", discName, "titles", len(rec.Scan.Titles))
@@ -610,7 +611,7 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 // discarded: if jobs are still ripping from it — a disc swapped mid-rip — it
 // survives until they finish, and only its map entry is replaced.
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
-	discLabel := discLabelOf(rec)
+	discLabel := discLabelOf(rec, o.driveDiscName(driveIndex))
 
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
@@ -942,6 +943,10 @@ func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
 // Unbinding is not deleting. The copy stays on disk and stays discardable — it
 // simply stops being what this drive reads.
 func (o *Orchestrator) SetDriveDisc(driveIndex int, discLabel string) {
+	// Recorded before the copy is considered, and under a different lock, so a
+	// cache lookup made with only a drive index can still be exact.
+	o.setDriveDiscName(driveIndex, discLabel)
+
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 
@@ -1261,17 +1266,27 @@ func discLabelsFor(recorded, dir string) []string {
 // Failing both, the directory name still carries it: scratchSlug builds every
 // copy's name as "<sanitized label>-<hash>". That is what gives copies made by
 // earlier versions, which recorded no label at all, a name to match on.
-func discLabelOf(rec *RecoveredDisc) string {
+func discLabelOf(rec *RecoveredDisc, driveDisc string) string {
 	if rec == nil {
 		return ""
 	}
 	if rec.DiscLabel != "" {
 		return rec.DiscLabel
 	}
-	if rec.Scan != nil && rec.Scan.DiscName != "" {
+	if label := discLabelFromDir(rec.Dir); label != "" {
+		return label
+	}
+	// What the drive says it is holding beats what the copy says about itself.
+	// A copy is made from the disc in a drive, and a folder scan names itself
+	// after the copied BDMV — taking that name over the drive's leaves the copy
+	// looking like it belongs to a different disc than the one it came from.
+	if driveDisc != "" {
+		return driveDisc
+	}
+	if rec.Scan != nil {
 		return rec.Scan.DiscName
 	}
-	return discLabelFromDir(rec.Dir)
+	return ""
 }
 
 // discLabelFromDir recovers a disc label from the scratch directory named after

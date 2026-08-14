@@ -315,6 +315,16 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 		devicePath = loc.DevicePathForDrive(context.Background(), driveIndex)
 	}
 	discLabel := discLabelFor(context.Background(), o.scanner, driveIndex, "")
+	if discLabel == "" {
+		// Fall back to what the drive last reported. Without a label the copy is
+		// filed under whatever scanning it reports about itself, which nothing
+		// asking about this disc can find — including the check that decides
+		// whether the drive is still holding the disc this copy was made from,
+		// so the salvage disowns its own output the moment it finishes.
+		discLabel = o.driveDiscName(driveIndex)
+		slog.Warn("salvage: the drive did not report a disc name; using the last one it reported",
+			"drive_index", driveIndex, "disc", discLabel)
+	}
 	o.recoveredMu.Lock()
 	if o.salvageLabels == nil {
 		o.salvageLabels = make(map[int]string)
@@ -361,7 +371,10 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 		}
 
 		o.registerRecovered(driveIndex, rec)
-		o.cacheScan(driveIndex, rec.Scan)
+		// Filed under the disc, not under what scanning the copy reported. A
+		// folder scan names itself after the copied BDMV, and a scan filed under
+		// that name is one nobody asking about this disc can find.
+		o.cacheScanFor(driveIndex, discLabel, rec.Scan)
 
 		// Rip what the user already chose. They matched the disc, picked titles,
 		// chose languages and named the files before the rip failed; sending

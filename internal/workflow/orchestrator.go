@@ -71,6 +71,12 @@ type Orchestrator struct {
 
 	scanMu    sync.RWMutex
 	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
+	// driveDisc is the disc each drive currently holds, as last reported by the
+	// drive itself. It is what makes a cache lookup exact: the cache is keyed by
+	// drive and disc, but nearly every caller has only a drive index, and
+	// answering those with "whatever is cached for this drive" is how one disc's
+	// titles get shown for another. Guarded by scanMu.
+	driveDisc map[int]string
 	// scanning tracks in-flight scans so the page can be told what a scan that
 	// takes half an hour is actually doing. Guarded by scanMu.
 	scanning map[int]*scanState
@@ -172,6 +178,7 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		checkSpace:   ripper.CheckDiskSpace,
 		rescuer:      ddrescue.ExecRunner{},
 		scanCache:    make(map[string]*makemkv.DiscScan),
+		driveDisc:    make(map[int]string),
 		recovered:    make(map[int]*recoveredDisc),
 		recovering:   make(map[int]bool),
 		salvaging:    make(map[int]context.CancelFunc),
@@ -606,7 +613,9 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 				"drive_index", driveIndex, "source", src.Arg())
 			scan, err := o.backupper.ScanSource(ctx, *src)
 			if err == nil && len(scan.Titles) > 0 {
-				o.cacheScan(driveIndex, scan)
+				// Under the disc in the drive, not under what the copy calls
+				// itself — otherwise this rescan happens again on every request.
+				o.cacheScanFor(driveIndex, o.driveDiscName(driveIndex), scan)
 				return scan, nil
 			}
 			slog.Warn("orchestrator: restored backup did not scan; falling back to the drive",
@@ -648,25 +657,52 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 		o.RecordDirectScan(scan)
 	}
 
-	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
+	// Under the disc in the drive. A scan that came back from recovery is a scan
+	// of the copy, and names itself after the copied BDMV rather than the disc.
+	o.cacheScanFor(driveIndex, o.driveDiscName(driveIndex), scan)
+
+	return scan, nil
+}
+
+// cacheScanFor stores a scan under the disc it belongs to, where that is not
+// the name the scan reports about itself.
+//
+// A scan of a repaired copy is a folder scan, and a folder scan reports what
+// the copied BDMV calls itself rather than the disc's volume label. Filing it
+// under that name leaves it unreachable to anyone asking about the disc, which
+// is everyone.
+func (o *Orchestrator) cacheScanFor(driveIndex int, discLabel string, scan *makemkv.DiscScan) {
+	if scan == nil {
+		return
+	}
+	if discLabel == "" {
+		discLabel = scan.DiscName
+	}
+	key := fmt.Sprintf("%d:%s", driveIndex, discLabel)
 	o.scanMu.Lock()
 	o.scanCache[key] = scan
 	o.scanMu.Unlock()
 
 	slog.Info("orchestrator: disc scan cached", "drive_index", driveIndex, "cache_key", key)
-
-	return scan, nil
 }
 
-// cacheScan stores a scan under its drive and disc name.
-func (o *Orchestrator) cacheScan(driveIndex int, scan *makemkv.DiscScan) {
-	if scan == nil {
+// driveDiscName returns the disc a drive currently holds, or "" if it has not
+// reported one.
+func (o *Orchestrator) driveDiscName(driveIndex int) string {
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+	return o.driveDisc[driveIndex]
+}
+
+// setDriveDiscName records the disc a drive currently holds, so cache lookups
+// made with only a drive index can still be exact.
+func (o *Orchestrator) setDriveDiscName(driveIndex int, discLabel string) {
+	if discLabel == "" {
 		return
 	}
-	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
-	o.scanCache[key] = scan
+	o.driveDisc[driveIndex] = discLabel
 }
 
 // CachedScan returns a previously cached scan for the given drive and disc name,
@@ -690,12 +726,25 @@ func (o *Orchestrator) InvalidateScan(driveIndex int) {
 	}
 }
 
-// GetCachedScanByDrive returns the first cached scan for the given drive index,
-// regardless of disc name. Returns nil if no cached scan exists for this drive.
+// GetCachedScanByDrive returns the cached scan for the disc a drive is holding,
+// or nil when there is none.
+//
+// Nearly every caller has a drive index and no disc name, and this used to
+// answer them with whatever was cached for that drive. That is only ever
+// correct because a disc change clears the cache — an event, and an event can
+// be missed or not have happened yet after a restart. When the drive has told
+// us what it holds, the lookup is exact instead.
 func (o *Orchestrator) GetCachedScanByDrive(driveIndex int) *makemkv.DiscScan {
-	prefix := fmt.Sprintf("%d:", driveIndex)
 	o.scanMu.RLock()
 	defer o.scanMu.RUnlock()
+
+	if disc := o.driveDisc[driveIndex]; disc != "" {
+		return o.scanCache[fmt.Sprintf("%d:%s", driveIndex, disc)]
+	}
+
+	// The drive has not reported a disc yet. Falling back to the drive's only
+	// cached scan is what this always did, and it is no worse than before.
+	prefix := fmt.Sprintf("%d:", driveIndex)
 	for key, scan := range o.scanCache {
 		if strings.HasPrefix(key, prefix) {
 			return scan
