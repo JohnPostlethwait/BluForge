@@ -228,10 +228,10 @@ type DriveStoreJSON struct {
 	// HasBackup reports that a stripped scratch copy exists for this drive,
 	// which is what makes the discard control meaningful.
 	HasBackup bool `json:"hasBackup"`
-	// ScanWarnings are the problems MakeMKV reported during the scan. Titles it
-	// could not read are simply absent from the list, so without these the user
-	// sees a tidy result and no sign that content was dropped.
-	ScanWarnings []makemkv.ScanWarning `json:"scanWarnings"`
+	// ScanOutput is everything MakeMKV said, unfiltered. It sits behind a
+	// disclosure so a scan can always be checked without a support request —
+	// and without every ordinary line reading as a warning.
+	ScanOutput []makemkv.ScanWarning `json:"scanOutput"`
 	// ScanDiagnosis reads those same messages back in terms of what the user
 	// lost. The raw form is nine lines of SCSI sense data; this says which
 	// titles are missing.

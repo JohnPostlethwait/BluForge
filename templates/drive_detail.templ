@@ -173,7 +173,7 @@ async function resyncDriveState() {
 		store.ripActive = s.ripActive
 		store.activeJobCount = s.activeJobCount
 		store.hasBackup = s.hasBackup
-		store.scanWarnings = s.scanWarnings || []
+		store.scanOutput = s.scanOutput || []
 		store.scanDiagnosis = s.scanDiagnosis || { summary: '', findings: [] }
 
 		// A scan that started while we were disconnected has to restore its
@@ -483,7 +483,7 @@ function formatElapsed(seconds) {
 // called it, so a copy could only be removed with a shell.
 async function discardBackup(driveIndex) {
 	const agreed = confirm(
-		'Discard the repaired copy?\n\n' +
+		'Discard the scanned copy?\n\n' +
 		'The recovered files are deleted and BluForge goes back to reading the disc. ' +
 		'Salvaging again would mean repeating the whole recovery.'
 	)
@@ -651,7 +651,7 @@ function applyScanResults(titles) {
 				result may contain damaged video where the disc could not be read.
 			</p>
 			<div class="mt-2">
-				@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the copy</button>`, data.DriveIndex))
+				@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the scanned copy</button>`, data.DriveIndex))
 				<span class="text-muted text-sm"> Frees the space and goes back to reading the disc</span>
 			</div>
 		</div>
@@ -957,14 +957,22 @@ function applyScanResults(titles) {
 						</li>
 					</template>
 				</ul>
-				<!--
-					The SCSI detail is what MakeMKV's own support asks for, so it stays
-					available — just not as the first thing the user has to read.
-				-->
-				<details class="scan-warning-details" x-show="($store.drive.scanWarnings || []).length > 0">
-					<summary class="text-muted">What MakeMKV reported</summary>
+			</div>
+			<!--
+				The scan output, always available and never alarming.
+				//
+				A scan says a great many ordinary things — which Java runtime it used,
+				which playlists were too short to bother with — and treating every
+				uncatalogued one as a warning told people their disc was damaged when
+				it was not. Hiding them instead would mean the one time it matters,
+				the answer is only in a container log. So they are here, behind a
+				disclosure, phrased as what happened rather than what went wrong.
+			-->
+			<div x-data x-show="($store.drive.scanOutput || []).length > 0" x-cloak class="card">
+				<details class="scan-warning-details">
+					<summary class="text-muted">What MakeMKV reported during the scan</summary>
 					<ul class="scan-warning-list">
-						<template x-for="w in ($store.drive.scanWarnings || [])" x-bind:key="w.text">
+						<template x-for="w in ($store.drive.scanOutput || [])" x-bind:key="w.code + w.text">
 							<li>
 								<span x-text="w.text"></span>
 								<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>

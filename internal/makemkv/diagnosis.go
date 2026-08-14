@@ -56,9 +56,10 @@ type ScanDiagnosis struct {
 	// TotalReadErrors is MakeMKV's own total when it reported one, otherwise
 	// the number of read errors seen.
 	TotalReadErrors int `json:"totalReadErrors"`
-	// Details is every non-routine message verbatim. It is what MakeMKV's
-	// support forum asks for, so it is kept even though nobody reads it first.
-	Details []ScanWarning `json:"details"`
+	// Notes are messages that are not evidence of anything wrong: which Java
+	// runtime was used, a playlist skipped for duplicating another. Held apart
+	// from Findings so they can be read without being read as a warning.
+	Notes []ScanFinding `json:"notes,omitempty"`
 }
 
 // readErrorTarget reports what a read-error message was reading, or "" if the
@@ -127,10 +128,7 @@ func isDiscPath(target string) bool {
 // data, and the two facts that mattered — 00007.m2ts and 00008.m2ts are not in
 // your title list — were ninth and eleventh.
 func Diagnose(messages []Message) ScanDiagnosis {
-	d := ScanDiagnosis{
-		Findings: []ScanFinding{},
-		Details:  ScanWarnings(messages),
-	}
+	d := ScanDiagnosis{Findings: []ScanFinding{}}
 
 	titleErrors := make(map[string]int)
 	var titleOrder []string
@@ -223,19 +221,29 @@ func Diagnose(messages []Message) ScanDiagnosis {
 		})
 	}
 
-	d.Findings = append(d.Findings, notes...)
-
 	d.TotalReadErrors = reportedTotal
 	if d.TotalReadErrors == 0 {
 		d.TotalReadErrors = readErrors
 	}
 
-	if len(d.Findings) > 0 {
-		// The heading follows whatever actually cost the user something. A
-		// missing runtime is worth saying; it is not a disc that will not read.
-		d.Headline = "The disc did not read cleanly"
-		d.Summary = summarize(lost, damaged, d.TotalReadErrors)
+	// Notes never raise the alarm.
+	//
+	// They used to be findings, and any finding set the heading — so a healthy
+	// disc that mentioned which Java runtime MakeMKV picked was announced as a
+	// disc that did not read cleanly. Messages nobody has catalogued are the
+	// common case, not the exceptional one, and the reader cannot tell an
+	// uncatalogued message from a real fault when both arrive under that
+	// heading. They stay available in the scan output, which is always there to
+	// open, and say nothing about whether anything is wrong.
+	if len(d.Findings) == 0 {
+		d.Notes = notes
+		return d
 	}
+
+	d.Findings = append(d.Findings, notes...)
+	// The heading follows whatever actually cost the user something.
+	d.Headline = "The disc did not read cleanly"
+	d.Summary = summarize(lost, damaged, d.TotalReadErrors)
 	return d
 }
 

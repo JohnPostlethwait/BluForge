@@ -237,7 +237,7 @@ function discHasBackup(discName) {
 // renumbered or unplugged, and a stale index would delete another disc's copy.
 async function discardDiscBackup(discName) {
 	const agreed = confirm(
-		'Discard the repaired copy of ' + discName + '?\n\n' +
+		'Discard the scanned copy of ' + discName + '?\n\n' +
 		'This frees the space it is using. The files already ripped from it are ' +
 		'not affected.\n\n' +
 		'Ripping this disc again would have to read the damaged disc from the ' +
@@ -565,14 +565,22 @@ function formatDuration(secs) {
 									if (j.phase === 'analyzing') {
 										return elapsedStr + ' elapsed \u00b7 copying has not started yet'
 									}
-									if (j.progress >= 5) {
+									// Enough copied to average out, measured in bytes rather than
+									// percent. Five percent of an 86 GB disc is 4.3 GB \u2014 about
+									// five minutes with no estimate at all, which is
+									// indistinguishable from a stall \u2014 while five percent of a
+									// DVD is over in seconds. A fixed amount read gives every
+									// disc the same short warm-up.
+									const copied = j.phase === 'copying' && j.sizeBytes ? j.sizeBytes * j.progress / 100 : 0
+									const enough = copied >= 500 * 1024 * 1024 || (!j.sizeBytes && j.progress >= 5)
+									if (enough && j.progress > 0) {
 										const total = elapsed / (j.progress / 100)
 										const remaining = Math.max(0, total - elapsed)
 										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining'
 									}
-									// Below the threshold an estimate would swing wildly, but a
-									// blank where a number used to be reads as information lost
-									// rather than not yet known.
+									// Before that an estimate would swing wildly, but a blank
+									// where a number used to be reads as information lost rather
+									// than not yet known.
 									return elapsedStr + ' elapsed \u00b7 estimating\u2026'
 								})() : ''"></div>
 								<div class="text-right mt-2">
@@ -701,7 +709,7 @@ function formatDuration(secs) {
 								<template x-if="discHasBackup(r.discName)">
 									<div class="mt-2">
 										<button class="btn btn-secondary btn-sm"
-											x-on:click="discardDiscBackup(r.discName)">Discard the repaired copy</button>
+											x-on:click="discardDiscBackup(r.discName)">Discard the scanned copy</button>
 										<span class="text-muted text-sm"> Frees the space; a re-rip would have to read the disc again</span>
 									</div>
 								</template>
