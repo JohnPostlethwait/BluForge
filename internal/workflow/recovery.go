@@ -18,6 +18,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/aacs"
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 )
@@ -281,6 +282,14 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 	err = o.backupper.Backup(ctx, req.DriveIndex, backupDir, nil)
 	close(stopTicker)
 	<-tickerDone
+	// makemkvcon creates the disc's own directories itself and takes no notice
+	// of our umask doing it, so they arrive at 0755 inside a scratch directory
+	// we made 0777. Normalise before the error check: a failed backup is
+	// retained for inspection below, and inspecting it means being able to read
+	// and delete it from the share.
+	if normErr := fsutil.NormalizeTree(backupDir); normErr != nil {
+		slog.Warn("recovery: could not normalise backup permissions", "dir", backupDir, "error", normErr)
+	}
 	if err != nil {
 		// Retained deliberately: a partial backup is evidence, and re-copying
 		// 100GB to look at it again is not reasonable.

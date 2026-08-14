@@ -397,6 +397,13 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			return
 		}
 
+		// makemkvcon wrote the .mkv itself, with its own idea of the mode. The
+		// move below preserves whatever it chose, so the film would carry it
+		// into the library; normalise here, while it is still ours alone.
+		if normErr := fsutil.NormalizeTree(job.OutputDir); normErr != nil {
+			slog.Warn("could not normalise ripped file permissions", "job_id", job.ID, "dir", job.OutputDir, "error", normErr)
+		}
+
 		// Find the .mkv file MakeMKV wrote to the title temp dir.
 		srcPath, findErr := findMKVFile(job.OutputDir)
 		if findErr != nil {

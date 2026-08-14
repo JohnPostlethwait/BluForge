@@ -16,6 +16,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
@@ -144,6 +145,12 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 			slog.Warn("salvage: backup did not complete; continuing with what it copied",
 				"drive_index", req.DriveIndex, "dir", dir, "error", err)
 			report("backing-up", lastPct, "")
+		}
+		// makemkvcon made the disc's directories itself, at its own 0755, inside
+		// a scratch directory we created 0777. A partial copy is kept and worked
+		// on from here, so this runs whether the backup finished or not.
+		if err := fsutil.NormalizeTree(dir); err != nil {
+			slog.Warn("salvage: could not normalise backup permissions", "dir", dir, "error", err)
 		}
 	}
 
@@ -686,6 +693,13 @@ func (o *Orchestrator) rescueStreams(
 		if err != nil {
 			return unrecovered, fmt.Errorf("salvage: %w", err)
 		}
+	}
+
+	// ddrescue writes the patched streams and its own map files, and like
+	// makemkvcon it does not consult our umask for the directories it creates
+	// along the way.
+	if err := fsutil.NormalizeTree(dir); err != nil {
+		slog.Warn("salvage: could not normalise rescued file permissions", "dir", dir, "error", err)
 	}
 	return unrecovered, nil
 }
