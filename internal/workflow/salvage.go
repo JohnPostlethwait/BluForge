@@ -238,6 +238,9 @@ func incompleteFiles(discRoot, backupDir string) ([]shortStream, error) {
 		if err != nil {
 			return nil
 		}
+		if !rescuableFile(rel) {
+			return nil
+		}
 
 		var have int64
 		if st, statErr := os.Stat(filepath.Join(backupDir, rel)); statErr == nil {
@@ -645,4 +648,16 @@ func (o *Orchestrator) rescueStreams(
 		}
 	}
 	return unrecovered, nil
+}
+
+// rescuableFile reports whether a file may be copied from the disc into a
+// backup.
+//
+// Only the video tree. MakeMKV's backup writes the protection-related files —
+// AACS, CERTIFICATE, discatt.dat — in the form it wants them, which is not the
+// raw form they take on the disc. Copying the disc's versions over them fed
+// makemkvcon a 134MB MKB_RO.inf where it expected a few kilobytes, and it
+// crashed reading the result.
+func rescuableFile(rel string) bool {
+	return strings.HasPrefix(filepath.ToSlash(rel), "BDMV/")
 }

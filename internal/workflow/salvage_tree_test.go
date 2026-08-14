@@ -16,7 +16,8 @@ func discWithStructure(t *testing.T) string {
 		"BDMV/STREAM/00000.m2ts":   4096,
 		"BDMV/PLAYLIST/00800.mpls": 512,
 		"BDMV/CLIPINF/00000.clpi":  256,
-		"discatt.dat":              128,
+		"AACS/MKB_RO.inf":          134217728,
+		"CERTIFICATE/id.bdmv":      104,
 	} {
 		full := filepath.Join(root, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o777); err != nil {
@@ -56,9 +57,17 @@ func TestSalvageRescuesStructuralFilesNotJustStreams(t *testing.T) {
 	}
 	joined := strings.Join(names, " ")
 
-	for _, want := range []string{"00800.mpls", "00000.clpi", "discatt.dat"} {
+	for _, want := range []string{"00800.mpls", "00000.clpi"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%s was not noticed as missing: %v", want, names)
+		}
+	}
+	// MakeMKV's backup writes the protection files in its own form, which is
+	// not the raw form on the disc. Copying the disc's versions over them fed
+	// makemkvcon a 134MB MKB_RO.inf where it expected kilobytes, and it crashed.
+	for _, never := range []string{"MKB_RO.inf", "id.bdmv"} {
+		if strings.Contains(joined, never) {
+			t.Errorf("%s was queued for rescue; the protection files are not ours to copy: %v", never, names)
 		}
 	}
 	// The complete stream must not be rescued again: that is hours of drive
