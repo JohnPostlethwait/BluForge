@@ -92,7 +92,7 @@ document.addEventListener('alpine:init', () => {
 		store.salvageUnrecovered = update.unrecovered || 0
 		store.salvageResumable = !!update.resumable
 		if (update.drive_index !== undefined) store.salvageDriveIndex = update.drive_index
-		store.salvageActive = ['backing-up', 'rescuing', 'verifying'].includes(update.phase)
+		store.salvageActive = ['starting', 'backing-up', 'rescuing', 'verifying'].includes(update.phase)
 		if (store.salvageActive && !store.salvageStartedAt) store.salvageStartedAt = Date.now()
 	})
 
@@ -199,7 +199,9 @@ async function resumeSalvage() {
 	const store = Alpine.store('activity')
 	const idx = store.salvageDriveIndex
 	if (idx === null || idx === undefined) return
-	store.salvagePhase = 'backing-up'
+	// Do not guess the phase: a resume skips the copy when one is already on
+	// disk, and claiming "Copying the disc" here said so regardless.
+	store.salvagePhase = 'starting'
 	store.salvageActive = true
 	store.salvageMessage = ''
 	store.salvagePercent = 0
@@ -417,6 +419,7 @@ function formatDuration(secs) {
 		-->
 		<div x-data x-show="$store.activity.salvagePhase" x-cloak class="card scan-warnings">
 			<h2 class="section-title" x-text="({
+				'starting': 'Salvaging this disc',
 				'backing-up': 'Salvaging this disc',
 				'rescuing': 'Salvaging this disc',
 				'verifying': 'Salvaging this disc',
@@ -428,6 +431,7 @@ function formatDuration(secs) {
 			<div class="flex items-center gap-2" x-show="$store.activity.salvageActive">
 				<span class="spinner" aria-hidden="true"></span>
 				<span x-text="({
+					'starting': 'Starting',
 					'backing-up': 'Copying the disc',
 					'rescuing': 'Patching the damaged sections of the copy',
 					'verifying': 'Reading the repaired copy'
