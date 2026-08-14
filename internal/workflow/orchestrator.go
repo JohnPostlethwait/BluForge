@@ -123,6 +123,11 @@ func (o *Orchestrator) lockDriveScan(driveIndex int) func() {
 type recoveredDisc struct {
 	source makemkv.Source
 	dir    string
+	// discLabel names the disc this copy was made from. Activity history
+	// outlives the drive it was ripped on — drives are renumbered when the
+	// bus re-enumerates — so anything acting on a copy from a history row has
+	// to find it by disc rather than by drive index.
+	discLabel string
 	// refCount is how many jobs are still ripping from this backup.
 	refCount int
 	// retired means the drive has moved on — the disc was ejected or replaced.

@@ -65,6 +65,11 @@ type activityStoreJSON struct {
 	History   []activityJobJSON `json:"history"`
 	Page      int               `json:"page"`
 	HasMore   bool              `json:"hasMore"`
+	// DiscsWithBackup names the discs whose repaired copy is still on disk.
+	// History lists every rip that ever came off a copy, but most of those
+	// copies are long gone — this is what separates the ones worth offering to
+	// delete from the ones that would be a button doing nothing.
+	DiscsWithBackup []string `json:"discsWithBackup"`
 }
 
 // salvageStateJSON mirrors workflow.SalvageState for the page.
@@ -254,6 +259,10 @@ func (s *Server) handleActivity(c echo.Context) error {
 		})
 	}
 
+	if s.orchestrator != nil {
+		store.DiscsWithBackup = s.orchestrator.DiscsWithBackup()
+	}
+
 	storeBytes, err := json.Marshal(store)
 	if err != nil {
 		slog.Error("failed to marshal activity store", "error", err)
@@ -397,6 +406,32 @@ func (s *Server) salvageResumable(status, errMessage, discName string) bool {
 		return false
 	}
 	return s.orchestrator.SalvageResumable(discName)
+}
+
+// handleActivityDiscardBackup deletes the repaired copy a history entry came
+// from, identified by disc rather than by drive.
+//
+// The drive page can discard by index because the drive is right there. A
+// history row cannot: it may name a rip from a drive that has since been
+// renumbered or unplugged, and acting on a stale index would delete some other
+// disc's copy.
+func (s *Server) handleActivityDiscardBackup(c echo.Context) error {
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "orchestrator not configured")
+	}
+
+	disc := c.FormValue("disc")
+	if disc == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "no disc named")
+	}
+
+	if err := s.orchestrator.DiscardBackupForDisc(disc); err != nil {
+		slog.Warn("discard disc copy failed", "disc", disc, "error", err)
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+
+	slog.Info("discarded disc copy on request from activity", "disc", disc)
+	return c.JSON(http.StatusOK, map[string]any{"status": "discarded", "disc": disc})
 }
 
 // salvageNoteForJob returns the salvage note recorded against a running job.

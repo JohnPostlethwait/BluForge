@@ -601,11 +601,17 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 // discarded: if jobs are still ripping from it — a disc swapped mid-rip — it
 // survives until they finish, and only its map entry is replaced.
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
+	discLabel := ""
+	if rec.Scan != nil {
+		discLabel = rec.Scan.DiscName
+	}
+
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{
 		source:      rec.Source,
 		dir:         rec.Dir,
+		discLabel:   discLabel,
 		ephemeral:   rec.Ephemeral,
 		unmount:     rec.unmount,
 		salvageNote: salvageNoteFor(rec),
@@ -681,8 +687,9 @@ func (o *Orchestrator) RestoreBackups() error {
 
 		o.recoveredMu.Lock()
 		o.recovered[b.DriveIndex] = &recoveredDisc{
-			source: makemkv.FileSource(b.BackupDir),
-			dir:    b.BackupDir,
+			source:    makemkv.FileSource(b.BackupDir),
+			dir:       b.BackupDir,
+			discLabel: b.DiscLabel,
 		}
 		o.recoveredMu.Unlock()
 
@@ -727,6 +734,69 @@ func (o *Orchestrator) DiscardBackup(driveIndex int) error {
 	slog.Info("recovery: discarding disc backup on request", "drive_index", driveIndex, "dir", dir)
 	o.forgetBackup(dir)
 	if unmount != nil {
+		unmount()
+	}
+	return nil
+}
+
+// DiscsWithBackup lists the discs that currently have a copy on disk.
+//
+// Activity history shows every rip that ever came off a repaired copy, but only
+// some of those copies still exist. Offering to discard one that is already
+// gone is a button that does nothing, so the page is told which discs are real.
+func (o *Orchestrator) DiscsWithBackup() []string {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	var discs []string
+	seen := make(map[string]bool, len(o.recovered))
+	for _, rec := range o.recovered {
+		// A link tree costs kilobytes and disappears with the disc. There is no
+		// space to reclaim, so there is nothing to offer.
+		if rec.ephemeral || rec.discLabel == "" || seen[rec.discLabel] {
+			continue
+		}
+		seen[rec.discLabel] = true
+		discs = append(discs, rec.discLabel)
+	}
+	return discs
+}
+
+// DiscardBackupForDisc deletes the copy made from a named disc.
+//
+// The drive-page discard works by drive index, which is right there and right
+// then. History is neither: a rip listed in Activity may have come off a drive
+// that has since been renumbered or unplugged, and the disc name is the only
+// identifier that still means the same thing.
+func (o *Orchestrator) DiscardBackupForDisc(discLabel string) error {
+	if discLabel == "" {
+		return fmt.Errorf("no disc named")
+	}
+
+	o.recoveredMu.Lock()
+	var dirs []string
+	var unmounts []func()
+	for idx, rec := range o.recovered {
+		if rec.discLabel != discLabel {
+			continue
+		}
+		dirs = append(dirs, rec.dir)
+		if rec.unmount != nil {
+			unmounts = append(unmounts, rec.unmount)
+		}
+		delete(o.recovered, idx)
+	}
+	o.recoveredMu.Unlock()
+
+	if len(dirs) == 0 {
+		return fmt.Errorf("no disc copy for %q", discLabel)
+	}
+
+	for _, dir := range dirs {
+		slog.Info("recovery: discarding disc copy on request", "disc", discLabel, "dir", dir)
+		o.forgetBackup(dir)
+	}
+	for _, unmount := range unmounts {
 		unmount()
 	}
 	return nil
