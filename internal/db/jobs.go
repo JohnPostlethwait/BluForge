@@ -110,6 +110,40 @@ func (s *Store) UpdateJobStatus(id int64, status string, progress int, errMsg st
 	return nil
 }
 
+// interruptedMessage explains a job the process never got to finish.
+//
+// It is deliberately not a disc fault: the disc may have been fine, and telling
+// someone their disc failed when the container was redeployed sends them to
+// salvage a disc that never needed it.
+const interruptedMessage = "BluForge stopped before this rip finished — it was interrupted, not refused by the disc"
+
+// FailInterruptedJobs closes out jobs that were still in flight when the
+// process died, returning how many it closed.
+//
+// A rip lives in memory: the engine holds the running job and the queue behind
+// it, and neither survives a restart. Their database rows did survive, still
+// reading "ripping" or "pending", describing work that stopped happening
+// whenever the container was last redeployed. Nothing was ever going to move
+// them, so six attempts at one disc left six rows all claiming to be ripping it
+// right now, none of them cancellable because no engine knew them.
+func (s *Store) FailInterruptedJobs() (int, error) {
+	const q = `
+		UPDATE rip_jobs
+		SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE status IN ('pending', 'ripping', 'organizing')`
+
+	res, err := s.db.Exec(q, interruptedMessage)
+	if err != nil {
+		return 0, fmt.Errorf("fail interrupted jobs: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("fail interrupted jobs: %w", err)
+	}
+	return int(n), nil
+}
+
 // UpdateJobOutput records where a rip landed and how big it actually is.
 //
 // The size is measured rather than assumed: the estimate captured at scan time

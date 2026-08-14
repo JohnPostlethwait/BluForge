@@ -220,6 +220,54 @@ async function resumeSalvage() {
 	}
 }
 
+// discHasBackup reports whether a repaired copy of this disc is still on disk.
+//
+// History lists every rip that ever came off a copy, but most of those copies
+// were deleted the moment their rip succeeded. Offering to discard one that is
+// already gone is a button that does nothing.
+function discHasBackup(discName) {
+	if (!discName) return false
+	const discs = Alpine.store('activity').discsWithBackup || []
+	return discs.includes(discName)
+}
+
+// discardDiscBackup deletes the repaired copy a finished rip came from.
+//
+// Keyed by disc, not drive: a history row may name a drive that has since been
+// renumbered or unplugged, and a stale index would delete another disc's copy.
+async function discardDiscBackup(discName) {
+	const agreed = confirm(
+		'Discard the repaired copy of ' + discName + '?\n\n' +
+		'This frees the space it is using. The files already ripped from it are ' +
+		'not affected.\n\n' +
+		'Ripping this disc again would have to read the damaged disc from the ' +
+		'start, which takes hours and may not succeed.'
+	)
+	if (!agreed) return
+
+	const store = Alpine.store('activity')
+	try {
+		const body = new URLSearchParams({ disc: discName })
+		const resp = await fetch('/activity/discard-backup', {
+			method: 'POST',
+			headers: {
+				'Accept': 'application/json',
+				'Content-Type': 'application/x-www-form-urlencoded',
+			},
+			body,
+		})
+		if (!resp.ok) {
+			const info = await resp.json().catch(() => ({}))
+			alert(info.message || ('The copy could not be discarded (HTTP ' + resp.status + ')'))
+			return
+		}
+		// The copy is gone, so the offer goes with it.
+		store.discsWithBackup = (store.discsWithBackup || []).filter(d => d !== discName)
+	} catch (err) {
+		alert('The copy could not be discarded: ' + err)
+	}
+}
+
 async function salvageDisc(driveIndex, discName) {
 	const agreed = confirm(
 		'Salvage this disc?\n\n' +
@@ -643,6 +691,19 @@ function formatDuration(secs) {
 								-->
 								<template x-if="r.salvageNote">
 									<div class="text-warning text-sm mt-1" x-text="r.salvageNote"></div>
+								</template>
+								<!--
+									The copy this rip came off is still on disk, holding up to
+									~100GB. This row is where someone looking at the finished file
+									decides they are done with it, so the offer to reclaim the
+									space belongs here and not only on the drive page.
+								-->
+								<template x-if="discHasBackup(r.discName)">
+									<div class="mt-2">
+										<button class="btn btn-secondary btn-sm"
+											x-on:click="discardDiscBackup(r.discName)">Discard the repaired copy</button>
+										<span class="text-muted text-sm"> Frees the space; a re-rip would have to read the disc again</span>
+									</div>
 								</template>
 								<template x-if="r.salvageable">
 									<div class="mt-2">

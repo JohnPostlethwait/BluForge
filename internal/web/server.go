@@ -161,6 +161,7 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/drives/:id/salvage/pause", s.handleDriveSalvagePause)
 	e.GET("/activity", s.handleActivity)
 	e.POST("/activity/:id/cancel", s.handleActivityCancel)
+	e.POST("/activity/discard-backup", s.handleActivityDiscardBackup)
 	e.POST("/activity/clear-history", s.handleActivityClearHistory)
 	e.POST("/activity/clear-filtered", s.handleActivityClearFiltered)
 	e.GET("/settings", s.handleSettings)

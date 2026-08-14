@@ -33,7 +33,11 @@ func TestSalvageRipsWhatWasAlreadyChosen(t *testing.T) {
 	}
 
 	if n := orch.ripAfterSalvage(1, "RAMBO_DISC2", outputDir); n != 1 {
-		t.Fatalf("submitted %d rips, want 1", n)
+		// The count comes from what the store hands back, so when it is wrong
+		// the store is the thing worth seeing — a read that errored under load
+		// looks identical to a disc with nothing waiting.
+		failed, err := store.ListJobsByStatus("failed")
+		t.Fatalf("submitted %d rips, want 1; store has %d failed jobs (err=%v)", n, len(failed), err)
 	}
 
 	deadline := time.Now().Add(asyncDeadline)

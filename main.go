@@ -105,6 +105,16 @@ func main() {
 	// know where that is even when triggered from the scan path.
 	orch.SetOutputDir(cfg.OutputDir)
 
+	// Close out rips that were in flight when the process last stopped. The
+	// engine's running job and its queue live in memory, so nothing else will
+	// ever move these rows off "ripping" — they would sit there claiming to be
+	// ripping a disc for as long as the database lasts.
+	if n, err := store.FailInterruptedJobs(); err != nil {
+		slog.Warn("could not close out interrupted rips", "error", err)
+	} else if n > 0 {
+		slog.Info("closed out rips interrupted by the last shutdown", "jobs", n)
+	}
+
 	// Reload backups from a previous run before sweeping, so a live ~100GB copy
 	// is not mistaken for crash debris and deleted.
 	//
