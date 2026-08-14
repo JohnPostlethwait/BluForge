@@ -151,14 +151,14 @@ func TestDiagnoseSummarizesTheDamage(t *testing.T) {
 
 // Everything MakeMKV said is still available, because it is what the user needs
 // when they take the disc to MakeMKV's forum.
-func TestDiagnoseKeepsTheRawMessages(t *testing.T) {
-	d := Diagnose(policeStory2Messages())
+func TestTheRawMessagesAreKept(t *testing.T) {
+	out := ScanOutput(policeStory2Messages())
 
-	if len(d.Details) == 0 {
+	if len(out) == 0 {
 		t.Fatal("the raw messages were dropped")
 	}
 	var sawRaw bool
-	for _, w := range d.Details {
+	for _, w := range out {
 		if strings.Contains(w.Text, "L-EC UNCORRECTABLE") {
 			sawRaw = true
 		}
@@ -319,11 +319,27 @@ func TestDiagnoseSaysNothingAboutAMissingJavaRuntime(t *testing.T) {
 	if d.Summary != "" {
 		t.Errorf("summary = %q, want nothing said at all", d.Summary)
 	}
-	// The raw disclosure would put it back on screen under the same heading.
-	for _, w := range d.Details {
-		if strings.Contains(w.Text, "bdjava") {
-			t.Errorf("the message survived into the details list: %q", w.Text)
+	for _, n := range d.Notes {
+		if strings.Contains(n.Text, "bdjava") {
+			t.Errorf("the message survived into the notes: %q", n.Text)
 		}
+	}
+}
+
+// It is still in the scan output, which is a record of what MakeMKV said rather
+// than a list of problems. Leaving it out would mean the one person who can act
+// on it — whoever builds the image — cannot see it without a container log.
+func TestTheMissingRuntimeMessageIsStillInTheScanOutput(t *testing.T) {
+	out := ScanOutput([]Message{
+		{
+			Code:   3344,
+			Text:   "This disc requires Java runtime (JRE), but none was found. See http://www.makemkv.com/bdjava/ for details.",
+			Params: []string{"http://www.makemkv.com/bdjava/"},
+		},
+	})
+
+	if len(out) != 1 || !strings.Contains(out[0].Text, "bdjava") {
+		t.Errorf("the scan output dropped a message MakeMKV emitted: %+v", out)
 	}
 }
 

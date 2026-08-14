@@ -32,41 +32,13 @@ var routineScanMessages = map[int]bool{
 	5085: true, // Loaded content hash table
 }
 
-// ScanWarnings extracts the messages from a scan that indicate something went
-// wrong, collapsing repeats.
-//
-// A disc with unreadable sectors reports every retry, and titles it could not
-// read are simply absent from the results — so without this the user sees a
-// tidy list of titles and no indication that content was dropped.
-func ScanWarnings(messages []Message) []ScanWarning {
-	var out []ScanWarning
-	index := make(map[string]int, len(messages))
-
-	for _, m := range messages {
-		// Suppressed messages are logged and never shown: they describe this
-		// installation rather than the disc in the drive.
-		if routineScanMessages[m.Code] || suppressedMessage(m) {
-			continue
-		}
-		key := m.Text
-		if i, seen := index[key]; seen {
-			out[i].Count++
-			continue
-		}
-		index[key] = len(out)
-		out = append(out, ScanWarning{Code: m.Code, Text: m.Text, Count: 1})
-	}
-
-	return out
-}
-
 // ScanOutput is everything MakeMKV said during a scan, in order, with repeats
 // collapsed.
 //
-// Unlike ScanWarnings this filters nothing. It is shown behind a disclosure the
-// user opens deliberately, so there is no cost to including the ordinary lines
-// — and every time a scan has been questioned, the answer was in a message
-// somebody had decided was not worth showing.
+// It filters nothing. It is shown behind a disclosure the user opens
+// deliberately, so there is no cost to including the ordinary lines — and every
+// time a scan has been questioned, the answer was in a message somebody had
+// decided was not worth showing.
 func ScanOutput(messages []Message) []ScanWarning {
 	var out []ScanWarning
 	index := make(map[string]int, len(messages))

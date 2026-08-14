@@ -173,7 +173,6 @@ async function resyncDriveState() {
 		store.ripActive = s.ripActive
 		store.activeJobCount = s.activeJobCount
 		store.hasBackup = s.hasBackup
-		store.scanWarnings = s.scanWarnings || []
 		store.scanOutput = s.scanOutput || []
 		store.scanDiagnosis = s.scanDiagnosis || { summary: '', findings: [] }
 
@@ -484,7 +483,7 @@ function formatElapsed(seconds) {
 // called it, so a copy could only be removed with a shell.
 async function discardBackup(driveIndex) {
 	const agreed = confirm(
-		'Discard the repaired copy?\n\n' +
+		'Discard the scanned copy?\n\n' +
 		'The recovered files are deleted and BluForge goes back to reading the disc. ' +
 		'Salvaging again would mean repeating the whole recovery.'
 	)
@@ -652,7 +651,7 @@ function applyScanResults(titles) {
 				result may contain damaged video where the disc could not be read.
 			</p>
 			<div class="mt-2">
-				@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the copy</button>`, data.DriveIndex))
+				@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="discardBackup(%d)">Discard the scanned copy</button>`, data.DriveIndex))
 				<span class="text-muted text-sm"> Frees the space and goes back to reading the disc</span>
 			</div>
 		</div>

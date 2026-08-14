@@ -44,3 +44,23 @@ func TestTheScanOutputIsCollapsed(t *testing.T) {
 		t.Error("the scan output is not inside a details disclosure")
 	}
 }
+
+// One action, one name. The drive page and the history entry delete the same
+// copy through the same endpoint, and called it two different things.
+func TestTheDiscardControlHasOneName(t *testing.T) {
+	drive := renderDriveDetail(t)
+	activity := renderActivity(t)
+
+	const label = "Discard the scanned copy"
+	if !strings.Contains(drive, label) {
+		t.Errorf("the drive page does not say %q", label)
+	}
+	if !strings.Contains(activity, label) {
+		t.Errorf("the history entry does not say %q", label)
+	}
+	for _, old := range []string{"Discard the copy<", "Discard the repaired copy"} {
+		if strings.Contains(drive, old) || strings.Contains(activity, old) {
+			t.Errorf("an older name for the same action is still on the page: %q", old)
+		}
+	}
+}

@@ -56,9 +56,6 @@ type ScanDiagnosis struct {
 	// TotalReadErrors is MakeMKV's own total when it reported one, otherwise
 	// the number of read errors seen.
 	TotalReadErrors int `json:"totalReadErrors"`
-	// Details is every non-routine message verbatim. It is what MakeMKV's
-	// support forum asks for, so it is kept even though nobody reads it first.
-	Details []ScanWarning `json:"details"`
 	// Notes are messages that are not evidence of anything wrong: which Java
 	// runtime was used, a playlist skipped for duplicating another. Held apart
 	// from Findings so they can be read without being read as a warning.
@@ -131,10 +128,7 @@ func isDiscPath(target string) bool {
 // data, and the two facts that mattered — 00007.m2ts and 00008.m2ts are not in
 // your title list — were ninth and eleventh.
 func Diagnose(messages []Message) ScanDiagnosis {
-	d := ScanDiagnosis{
-		Findings: []ScanFinding{},
-		Details:  ScanWarnings(messages),
-	}
+	d := ScanDiagnosis{Findings: []ScanFinding{}}
 
 	titleErrors := make(map[string]int)
 	var titleOrder []string
