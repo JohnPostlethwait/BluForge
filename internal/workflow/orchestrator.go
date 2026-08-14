@@ -303,6 +303,10 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		// A rip from a salvaged disc carries damage the file itself cannot
 		// explain. The job record is where that explanation lives.
 		SalvageNote: o.salvageNoteForDrive(params.DriveIndex),
+		// The choices behind this rip, kept so a salvage can repeat it exactly
+		// rather than sending the user back to choose everything again.
+		SourceFile:    sel.SourceFile,
+		SelectionOpts: encodeSelectionOpts(params.SelectionOpts),
 	})
 	if err != nil {
 		return TitleResult{
@@ -1145,6 +1149,19 @@ func (o *Orchestrator) salvageNoteForDrive(driveIndex int) string {
 		return rec.salvageNote
 	}
 	return ""
+}
+
+// encodeSelectionOpts stores the audio and subtitle choice with the job.
+func encodeSelectionOpts(opts *makemkv.SelectionOpts) string {
+	if opts == nil {
+		return ""
+	}
+	data, err := json.Marshal(opts)
+	if err != nil {
+		slog.Warn("could not record the language choices for this rip", "error", err)
+		return ""
+	}
+	return string(data)
 }
 
 // humanBytes renders a size for the notes and messages users read.

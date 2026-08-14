@@ -9,7 +9,8 @@ import (
 
 const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
 	       output_path, status, progress, error_message, size_bytes, duration,
-	       created_at, updated_at, track_metadata, output_size_bytes, salvage_note`
+	       created_at, updated_at, track_metadata, output_size_bytes, salvage_note,
+	       selection_opts, source_file`
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
@@ -32,7 +33,14 @@ type RipJob struct {
 	// SalvageNote records that this rip came from a salvaged disc and what that
 	// cost. Empty for an ordinary rip. It is the only thing that will explain a
 	// glitch to whoever finds one later.
-	SalvageNote   string
+	SalvageNote string
+	// SelectionOpts is the audio and subtitle choice this rip was made with, as
+	// JSON. Kept so a salvage can repeat the rip exactly rather than sending the
+	// user back to choose everything again.
+	SelectionOpts string
+	// SourceFile is the playlist this title came from, e.g. "00800.mpls". The
+	// rip checks it against makemkvcon's numbering, which is not stable.
+	SourceFile    string
 	Duration      string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -45,8 +53,8 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 		INSERT INTO rip_jobs
 			(drive_index, disc_name, title_index, title_name, content_type,
 			 output_path, status, progress, error_message, size_bytes, duration,
-			 track_metadata, salvage_note)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			 track_metadata, salvage_note, selection_opts, source_file)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	status := job.Status
 	if status == "" {
@@ -57,7 +65,7 @@ func (s *Store) CreateJob(job RipJob) (int64, error) {
 		job.DriveIndex, job.DiscName, job.TitleIndex, job.TitleName,
 		job.ContentType, job.OutputPath, status, job.Progress,
 		job.ErrorMessage, job.SizeBytes, job.Duration,
-		job.TrackMetadata, job.SalvageNote,
+		job.TrackMetadata, job.SalvageNote, job.SelectionOpts, job.SourceFile,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create job: %w", err)
@@ -246,7 +254,7 @@ func scanJob(s scanner) (*RipJob, error) {
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
 		&job.CreatedAt, &job.UpdatedAt, &trackMeta, &job.OutputSizeBytes,
-		&job.SalvageNote,
+		&job.SalvageNote, &job.SelectionOpts, &job.SourceFile,
 	)
 	if err != nil {
 		return nil, err

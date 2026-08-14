@@ -17,6 +17,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
+	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
 
 // salvageRuns numbers salvage runs so their events can be told apart. A run
@@ -355,7 +356,21 @@ func (o *Orchestrator) StartSalvage(driveIndex int) error {
 
 		o.registerRecovered(driveIndex, rec)
 		o.cacheScan(driveIndex, rec.Scan)
-		o.broadcastSalvage(runID, driveIndex, "done", 100, "", rec.Unrecovered)
+
+		// Rip what the user already chose. They matched the disc, picked titles,
+		// chose languages and named the files before the rip failed; sending
+		// them back to do all of it again is not a recovery, it is starting
+		// over with extra steps.
+		ripped := o.ripAfterSalvage(driveIndex, discLabel, outputDir)
+		msg := ""
+		if ripped > 0 {
+			noun := "titles"
+			if ripped == 1 {
+				noun = "title"
+			}
+			msg = fmt.Sprintf("Ripping %d %s again with the same choices.", ripped, noun)
+		}
+		o.broadcastSalvage(runID, driveIndex, "done", 100, msg, rec.Unrecovered)
 		slog.Info("salvage: disc is ready to rip",
 			"drive_index", driveIndex, "titles", len(rec.Scan.Titles),
 			"unrecovered_bytes", rec.Unrecovered)
@@ -676,4 +691,83 @@ func rescuableFile(rel string) bool {
 // content; it lives inside the scratch and is ours.
 func isSalvageMap(rel string) bool {
 	return strings.HasPrefix(filepath.ToSlash(rel), salvageMapDir+"/")
+}
+
+// ripAfterSalvage repeats the rips that failed on this disc, using the choices
+// already made for them, and returns how many were submitted.
+//
+// A salvage exists because a rip failed. The user had already matched the disc,
+// selected titles, chosen audio and subtitle languages and settled on names —
+// all of it recorded against those failed jobs. Finishing the salvage and
+// stopping there sent them back to the beginning.
+func (o *Orchestrator) ripAfterSalvage(driveIndex int, discLabel, outputDir string) int {
+	if o.store == nil || discLabel == "" {
+		return 0
+	}
+	failed, err := o.store.ListJobsByStatus("failed")
+	if err != nil {
+		slog.Error("salvage: could not look up what to rip again", "error", err)
+		return 0
+	}
+
+	var titles []TitleSelection
+	var mediaTitle string
+	var opts *makemkv.SelectionOpts
+
+	for _, j := range failed {
+		if j.DiscName != discLabel {
+			continue
+		}
+		sel := TitleSelection{
+			TitleIndex:    j.TitleIndex,
+			TitleName:     j.TitleName,
+			SourceFile:    j.SourceFile,
+			SizeBytes:     j.SizeBytes,
+			ContentType:   j.ContentType,
+			TrackMetadata: parseTrackMeta(j.TrackMetadata),
+		}
+		titles = append(titles, sel)
+
+		// The names were settled before the failure: <output>/<media>/<title>.mkv.
+		// Taking the media directory back off the path reproduces them exactly.
+		if mediaTitle == "" && j.OutputPath != "" {
+			mediaTitle = filepath.Base(filepath.Dir(j.OutputPath))
+		}
+		if opts == nil && j.SelectionOpts != "" {
+			var parsed makemkv.SelectionOpts
+			if err := json.Unmarshal([]byte(j.SelectionOpts), &parsed); err == nil {
+				opts = &parsed
+			} else {
+				slog.Warn("salvage: could not read the language choices for this rip",
+					"job_id", j.ID, "error", err)
+			}
+		}
+	}
+	if len(titles) == 0 {
+		slog.Info("salvage: nothing was waiting to be ripped for this disc", "disc", discLabel)
+		return 0
+	}
+
+	slog.Info("salvage: ripping again with the choices already made",
+		"disc", discLabel, "titles", len(titles), "media_title", mediaTitle,
+		"languages_kept", opts != nil)
+
+	o.ManualRip(ManualRipParams{
+		DriveIndex:      driveIndex,
+		DiscName:        discLabel,
+		MediaTitle:      mediaTitle,
+		OutputDir:       outputDir,
+		DuplicateAction: "overwrite",
+		SelectionOpts:   opts,
+		Titles:          titles,
+	})
+	return len(titles)
+}
+
+func parseTrackMeta(raw string) ripper.TrackMetadata {
+	var m ripper.TrackMetadata
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &m)
+	}
+	return m
 }
