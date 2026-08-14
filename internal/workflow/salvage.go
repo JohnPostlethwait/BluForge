@@ -213,7 +213,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 
 	// 4. Read the repaired tree. Reads now succeed everywhere, including across
 	// the zero-filled gaps, so MakeMKV has no reason to abandon the title.
-	report("verifying", 90, "Checking what can be ripped from the repaired copy")
+	report("verifying", 90, "")
 	src := makemkv.FileSource(dir)
 	scan, err := o.backupper.ScanSource(ctx, src)
 	if err != nil {
