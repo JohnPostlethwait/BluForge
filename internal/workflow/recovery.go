@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +76,14 @@ type RecoveryRequest struct {
 // RecoveredDisc is a disc that has been backed up and stripped of its AACS
 // directory, ready to rip as a folder source.
 type RecoveredDisc struct {
+	// DiscLabel is the disc this copy was made from, taken from the request
+	// that made it rather than from rescanning the copy.
+	//
+	// A folder scan reports whatever the copied BDMV names itself, which is not
+	// the drive's volume label and is sometimes nothing at all. Anything that
+	// has to match a copy against a disc — a history entry offering to delete
+	// it — needs the name the rest of BluForge uses for that disc.
+	DiscLabel    string
 	Source       makemkv.Source
 	Dir          string
 	Scan         *makemkv.DiscScan
@@ -336,7 +345,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		"disc", req.DiscLabel, "backup_dir", backupDir,
 		"titles", len(scan.Titles), "backup_bytes", size)
 
-	return &RecoveredDisc{Source: src, Dir: backupDir, Scan: scan, DiagnosticID: diagID}, nil
+	return &RecoveredDisc{DiscLabel: req.DiscLabel, Source: src, Dir: backupDir, Scan: scan, DiagnosticID: diagID}, nil
 }
 
 // maybeRecover inspects a scan failure and, when it carries the spurious-AACS
@@ -427,8 +436,9 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		o.registerRecovered(driveIndex, rec)
 		// Cache the recovered scan so the next scan request is served instantly
 		// rather than re-reading the disc that could not be read in the first
-		// place.
-		o.cacheScan(driveIndex, rec.Scan)
+		// place. Filed under the disc, not under what scanning the copy
+		// reported: a folder scan names itself after the copied BDMV.
+		o.cacheScanFor(driveIndex, discName, rec.Scan)
 		o.broadcastRecovery(driveIndex, discName, "done", 100, "")
 		slog.Info("recovery: complete, disc is ready to rip",
 			"drive_index", driveIndex, "disc", discName, "titles", len(rec.Scan.Titles))
@@ -577,8 +587,8 @@ func (o *Orchestrator) currentOutputDir() string {
 func (o *Orchestrator) RecoveredSource(driveIndex int) *makemkv.Source {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	rec, ok := o.recovered[driveIndex]
-	if !ok {
+	rec := o.currentFor(driveIndex)
+	if rec == nil {
 		return nil
 	}
 	src := rec.source
@@ -589,7 +599,7 @@ func (o *Orchestrator) RecoveredSource(driveIndex int) *makemkv.Source {
 func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
-	if rec, ok := o.recovered[driveIndex]; ok {
+	if rec := o.currentFor(driveIndex); rec != nil {
 		return rec.dir
 	}
 	return ""
@@ -601,17 +611,14 @@ func (o *Orchestrator) RecoveredDir(driveIndex int) string {
 // discarded: if jobs are still ripping from it — a disc swapped mid-rip — it
 // survives until they finish, and only its map entry is replaced.
 func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
-	discLabel := ""
-	if rec.Scan != nil {
-		discLabel = rec.Scan.DiscName
-	}
+	discLabel := discLabelOf(rec, o.driveDiscName(driveIndex))
 
 	o.recoveredMu.Lock()
 	stale := o.recovered[driveIndex]
 	o.recovered[driveIndex] = &recoveredDisc{
 		source:      rec.Source,
 		dir:         rec.Dir,
-		discLabel:   discLabel,
+		discLabels:  discLabelsFor(discLabel, rec.Dir),
 		ephemeral:   rec.Ephemeral,
 		unmount:     rec.unmount,
 		salvageNote: salvageNoteFor(rec),
@@ -633,13 +640,9 @@ func (o *Orchestrator) registerRecovered(driveIndex int, rec *RecoveredDisc) {
 	// Persist so the copy survives a restart. Without the record the startup
 	// sweep cannot tell it from crash debris, and would delete it.
 	if o.store != nil {
-		label := ""
-		if rec.Scan != nil {
-			label = rec.Scan.DiscName
-		}
 		if _, err := o.store.SaveDiscBackup(db.DiscBackup{
 			DriveIndex: driveIndex,
-			DiscLabel:  label,
+			DiscLabel:  discLabel,
 			BackupDir:  rec.Dir,
 			SourceArg:  rec.Source.Arg(),
 		}); err != nil {
@@ -687,9 +690,9 @@ func (o *Orchestrator) RestoreBackups() error {
 
 		o.recoveredMu.Lock()
 		o.recovered[b.DriveIndex] = &recoveredDisc{
-			source:    makemkv.FileSource(b.BackupDir),
-			dir:       b.BackupDir,
-			discLabel: b.DiscLabel,
+			source:     makemkv.FileSource(b.BackupDir),
+			dir:        b.BackupDir,
+			discLabels: discLabelsFor(b.DiscLabel, b.BackupDir),
 		}
 		o.recoveredMu.Unlock()
 
@@ -701,10 +704,12 @@ func (o *Orchestrator) RestoreBackups() error {
 
 // TrackedBackupDirs lists the backup directories currently accounted for, so a
 // sweep can distinguish them from debris.
-func (o *Orchestrator) TrackedBackupDirs() []string {
+//
+// An error means the list is incomplete, and the caller must not sweep on it.
+// SweepScratch deletes everything it is not told to keep, so an empty list is
+// not "nothing to protect" — it is an instruction to delete every copy on disk.
+func (o *Orchestrator) TrackedBackupDirs() ([]string, error) {
 	o.recoveredMu.Lock()
-	defer o.recoveredMu.Unlock()
-
 	dirs := make([]string, 0, len(o.recovered)+len(o.partialScratch))
 	for _, rec := range o.recovered {
 		dirs = append(dirs, rec.dir)
@@ -712,7 +717,31 @@ func (o *Orchestrator) TrackedBackupDirs() []string {
 	// Unfinished salvages count as tracked: they are hours of work, and the
 	// sweep exists to remove debris rather than work in progress.
 	dirs = append(dirs, o.partialScratch...)
-	return dirs
+	o.recoveredMu.Unlock()
+
+	if o.store == nil {
+		return dirs, nil
+	}
+
+	// Every copy the database still records counts too, whether or not it is
+	// the one its drive currently holds.
+	//
+	// The in-memory map is keyed by drive index, so a second copy made on the
+	// same drive displaces the first. The first is still on disk and still
+	// recorded — but it was no longer named here, and the sweep deletes
+	// anything it is not told about, which is hours of work gone on the next
+	// restart. The record is the authority for what to keep: it is written when
+	// a copy is made and dropped only when one is discarded.
+	backups, err := o.store.ListDiscBackups()
+	if err != nil {
+		return nil, fmt.Errorf("list recorded disc copies: %w", err)
+	}
+	for _, b := range backups {
+		if !slices.Contains(dirs, b.BackupDir) {
+			dirs = append(dirs, b.BackupDir)
+		}
+	}
+	return dirs, nil
 }
 
 // DiscardBackup deletes a drive's scratch copy on request.
@@ -753,11 +782,16 @@ func (o *Orchestrator) DiscsWithBackup() []string {
 	for _, rec := range o.recovered {
 		// A link tree costs kilobytes and disappears with the disc. There is no
 		// space to reclaim, so there is nothing to offer.
-		if rec.ephemeral || rec.discLabel == "" || seen[rec.discLabel] {
+		if rec.ephemeral {
 			continue
 		}
-		seen[rec.discLabel] = true
-		discs = append(discs, rec.discLabel)
+		for _, label := range rec.discLabels {
+			if seen[label] {
+				continue
+			}
+			seen[label] = true
+			discs = append(discs, label)
+		}
 	}
 	return discs
 }
@@ -777,7 +811,7 @@ func (o *Orchestrator) DiscardBackupForDisc(discLabel string) error {
 	var dirs []string
 	var unmounts []func()
 	for idx, rec := range o.recovered {
-		if rec.discLabel != discLabel {
+		if !slices.Contains(rec.discLabels, discLabel) {
 			continue
 		}
 		dirs = append(dirs, rec.dir)
@@ -822,8 +856,8 @@ func (o *Orchestrator) retainRecovered(driveIndex int) *recoveredDisc {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()
 
-	rec, ok := o.recovered[driveIndex]
-	if !ok {
+	rec := o.currentFor(driveIndex)
+	if rec == nil {
 		return nil
 	}
 	rec.refCount++
@@ -896,6 +930,66 @@ func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
 	if rec, ok := o.recovered[driveIndex]; ok {
 		rec.retired = true
 	}
+}
+
+// SetDriveDisc tells the orchestrator which disc a drive currently holds, and
+// unbinds any copy that was made from a different one.
+//
+// A copy is bound to a drive index, and the drive outlives the disc. Putting a
+// second disc in the same drive left it bound to the first: the page announced
+// that a completely unrelated disc was being read from a repaired copy, and a
+// scan would have been served that copy's titles rather than the disc's.
+//
+// Unbinding is not deleting. The copy stays on disk and stays discardable — it
+// simply stops being what this drive reads.
+func (o *Orchestrator) SetDriveDisc(driveIndex int, discLabel string) {
+	// Recorded before the copy is considered, and under a different lock, so a
+	// cache lookup made with only a drive index can still be exact.
+	o.setDriveDiscName(driveIndex, discLabel)
+
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	rec, ok := o.recovered[driveIndex]
+	if !ok {
+		return
+	}
+	// An empty label is a drive reporting no disc, or reporting one it has not
+	// identified yet. Neither is evidence about the copy, and acting on it would
+	// drop the copy during the gap right after a salvage finishes.
+	if discLabel == "" {
+		return
+	}
+
+	if slices.Contains(rec.discLabels, discLabel) {
+		// The copy's own disc. If it was set aside for another disc, it comes
+		// back — otherwise swapping a disc out and back in would send the drive
+		// to read the damaged original that needed repairing in the first place.
+		if rec.retired {
+			rec.retired = false
+			slog.Info("recovery: this disc's repaired copy is being read again",
+				"drive_index", driveIndex, "disc", discLabel, "dir", rec.dir)
+		}
+		return
+	}
+
+	if !rec.retired {
+		rec.retired = true
+		slog.Info("recovery: a different disc is in this drive, so its copy is no longer being read",
+			"drive_index", driveIndex, "disc", discLabel, "copy_of", rec.discLabels, "dir", rec.dir)
+	}
+}
+
+// currentFor returns the copy a drive should be read from, or nil.
+//
+// Retired copies are excluded: they are kept on disk so they can be resumed or
+// discarded, but they are no longer what the drive holds.
+func (o *Orchestrator) currentFor(driveIndex int) *recoveredDisc {
+	rec, ok := o.recovered[driveIndex]
+	if !ok || rec.retired {
+		return nil
+	}
+	return rec
 }
 
 func removeBackupDir(dir string) {
@@ -1144,6 +1238,78 @@ func (o *Orchestrator) finishDiagnostic(id int64, outcome, detail string, backup
 }
 
 // scratchSlug builds a stable, filesystem-safe directory name for a disc.
+// discLabelsFor lists every name a copy can be matched by, best first.
+//
+// Both the recorded label and the one encoded in the directory are kept. They
+// normally agree; where they do not, the copy was made by a version that
+// recorded whatever scanning the copied folder reported, and only the directory
+// still carries the disc's own name. Matching on either is what makes those
+// copies actionable without a migration.
+func discLabelsFor(recorded, dir string) []string {
+	var labels []string
+	for _, l := range []string{recorded, discLabelFromDir(dir)} {
+		if l == "" || slices.Contains(labels, l) {
+			continue
+		}
+		labels = append(labels, l)
+	}
+	return labels
+}
+
+// discLabelOf resolves the disc a copy was made from.
+//
+// The request that made the copy is authoritative: it is the same label the
+// drive, the jobs and the history rows all use. Scanning the copy is only a
+// fallback, and a poor one — a folder scan reports what the copied BDMV calls
+// itself, which is often not the volume label and sometimes nothing.
+//
+// Failing both, the directory name still carries it: scratchSlug builds every
+// copy's name as "<sanitized label>-<hash>". That is what gives copies made by
+// earlier versions, which recorded no label at all, a name to match on.
+func discLabelOf(rec *RecoveredDisc, driveDisc string) string {
+	if rec == nil {
+		return ""
+	}
+	if rec.DiscLabel != "" {
+		return rec.DiscLabel
+	}
+	if label := discLabelFromDir(rec.Dir); label != "" {
+		return label
+	}
+	// What the drive says it is holding beats what the copy says about itself.
+	// A copy is made from the disc in a drive, and a folder scan names itself
+	// after the copied BDMV — taking that name over the drive's leaves the copy
+	// looking like it belongs to a different disc than the one it came from.
+	if driveDisc != "" {
+		return driveDisc
+	}
+	if rec.Scan != nil {
+		return rec.Scan.DiscName
+	}
+	return ""
+}
+
+// discLabelFromDir recovers a disc label from the scratch directory named after
+// it, undoing scratchSlug's "<label>-<hash>" and the "-link" suffix a symlink
+// tree adds.
+func discLabelFromDir(dir string) string {
+	name := strings.TrimSuffix(filepath.Base(dir), "-link")
+	cut := strings.LastIndex(name, "-")
+	if cut <= 0 {
+		return ""
+	}
+	// Only the 8 hex characters scratchSlug appends. Anything else is part of a
+	// disc name that happens to contain a hyphen.
+	if suffix := name[cut+1:]; len(suffix) != 8 || strings.Trim(suffix, "0123456789abcdef") != "" {
+		return ""
+	}
+	if label := name[:cut]; label != "disc" {
+		return label
+	}
+	// scratchSlug's placeholder for a disc that had no name to begin with.
+	return ""
+}
+
 func scratchSlug(discLabel, devicePath string) string {
 	name := organizer.SanitizeFilename(discLabel)
 	if name == "" {

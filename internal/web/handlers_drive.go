@@ -65,6 +65,17 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 		KeepLossless:      cfg.KeepLosslessAudio,
 	}
 
+	// Say what is in the drive before asking anything about it.
+	//
+	// Everything below looks things up by drive index — the cached scan, the
+	// repaired copy — and both are really keyed by disc. The orchestrator learns
+	// the disc from events, and an event can be missed or simply not have
+	// happened yet after a restart. This is the same fact taken from the drive
+	// itself, so the answers below are right even then.
+	if s.orchestrator != nil {
+		s.orchestrator.SetDriveDisc(idx, drv.DiscName())
+	}
+
 	// Check for an existing disc mapping (from a previous rip of this disc).
 	if s.orchestrator != nil && s.store != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {

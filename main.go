@@ -125,7 +125,12 @@ func main() {
 	if err := orch.RestoreBackups(); err != nil {
 		slog.Warn("could not restore disc backups", "error", err)
 	}
-	if err := workflow.SweepScratch(cfg.OutputDir, orch.TrackedBackupDirs()); err != nil {
+	// Only sweep on a complete list. The sweep deletes every scratch directory
+	// it is not told to keep, so an incomplete list destroys copies worth hours.
+	if tracked, err := orch.TrackedBackupDirs(); err != nil {
+		slog.Error("skipping the scratch sweep: could not tell which disc copies are live",
+			"error", err)
+	} else if err := workflow.SweepScratch(cfg.OutputDir, tracked); err != nil {
 		slog.Warn("could not sweep untracked disc backups", "error", err)
 	}
 	slog.Info("disc backup housekeeping complete", "took", time.Since(restoreStart).String())
@@ -160,6 +165,13 @@ func main() {
 		// Invalidate cached scan when disc changes.
 		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {
 			orch.InvalidateScan(ev.DriveIndex)
+		}
+
+		// A repaired copy is bound to a drive, and the drive outlives the disc.
+		// Tell the orchestrator what is actually in there now, or a second disc
+		// would keep being read from the first one's copy.
+		if ev.Type == drivemanager.EventDiscInserted {
+			orch.SetDriveDisc(ev.DriveIndex, ev.DiscName)
 		}
 
 		// Clear drive session on eject so stale selection state doesn't persist.
