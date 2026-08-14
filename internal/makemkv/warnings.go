@@ -59,3 +59,29 @@ func ScanWarnings(messages []Message) []ScanWarning {
 
 	return out
 }
+
+// ScanOutput is everything MakeMKV said during a scan, in order, with repeats
+// collapsed.
+//
+// Unlike ScanWarnings this filters nothing. It is shown behind a disclosure the
+// user opens deliberately, so there is no cost to including the ordinary lines
+// — and every time a scan has been questioned, the answer was in a message
+// somebody had decided was not worth showing.
+func ScanOutput(messages []Message) []ScanWarning {
+	var out []ScanWarning
+	index := make(map[string]int, len(messages))
+
+	for _, m := range messages {
+		if m.Text == "" {
+			continue
+		}
+		if i, seen := index[m.Text]; seen {
+			out[i].Count++
+			continue
+		}
+		index[m.Text] = len(out)
+		out = append(out, ScanWarning{Code: m.Code, Text: m.Text, Count: 1})
+	}
+
+	return out
+}

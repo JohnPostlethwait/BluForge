@@ -177,13 +177,57 @@ func TestDiagnoseKeepsUnrecognizedProblemsVerbatim(t *testing.T) {
 	})
 
 	var found bool
-	for _, f := range d.Findings {
-		if strings.Contains(f.Text, "Something nobody has seen before") {
+	for _, n := range d.Notes {
+		if strings.Contains(n.Text, "Something nobody has seen before") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("an unrecognized message was swallowed: %+v", d.Findings)
+		t.Errorf("an unrecognized message was swallowed: %+v", d.Notes)
+	}
+}
+
+// Surviving is not the same as raising an alarm. Uncatalogued messages are the
+// common case — a healthy disc naming its Java runtime was announced as a disc
+// that did not read cleanly — and the reader cannot tell one from a real fault
+// when both arrive under that heading.
+func TestAnUnrecognizedMessageIsNotReportedAsDamage(t *testing.T) {
+	d := Diagnose([]Message{
+		{Code: 1005, Text: "MakeMKV started"},
+		{Code: 3344, Text: "Using Java runtime from /usr/lib/jvm/java-21-openjdk-amd64/bin/java"},
+		{Code: 9999, Text: "Something nobody has seen before"},
+	})
+
+	if len(d.Findings) != 0 {
+		t.Errorf("a scan with nothing wrong reported %d findings: %+v", len(d.Findings), d.Findings)
+	}
+	if d.Headline != "" {
+		t.Errorf("Headline = %q, want nothing said about a disc that read fine", d.Headline)
+	}
+	if d.Summary != "" {
+		t.Errorf("Summary = %q, want nothing said about a disc that read fine", d.Summary)
+	}
+}
+
+// A real fault still says so, and still carries the uncatalogued messages with
+// it: when something did go wrong, the unexplained line beside it is context.
+func TestARealFaultStillRaisesTheAlarm(t *testing.T) {
+	d := Diagnose([]Message{
+		{Code: 3344, Text: "Using Java runtime from /usr/lib/jvm/java-21-openjdk-amd64/bin/java"},
+		{Code: msgTitleSkipped, Text: "Title 00008.m2ts was skipped", Params: []string{"00008.m2ts"}},
+	})
+
+	if d.Headline == "" {
+		t.Error("a title that could not be read said nothing")
+	}
+	var sawNote bool
+	for _, f := range d.Findings {
+		if strings.Contains(f.Text, "Java runtime") {
+			sawNote = true
+		}
+	}
+	if !sawNote {
+		t.Error("the uncatalogued message was dropped from a report that had room for it")
 	}
 }
 

@@ -152,10 +152,12 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	}
 
 	driveStore.ScanWarnings = make([]makemkv.ScanWarning, 0)
+	driveStore.ScanOutput = make([]makemkv.ScanWarning, 0)
 	driveStore.ScanDiagnosis = makemkv.ScanDiagnosis{Findings: []makemkv.ScanFinding{}}
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
 			driveStore.ScanWarnings = makemkv.ScanWarnings(scan.Messages)
+			driveStore.ScanOutput = makemkv.ScanOutput(scan.Messages)
 			driveStore.ScanDiagnosis = makemkv.Diagnose(scan.Messages)
 		}
 	}
