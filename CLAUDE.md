@@ -8,6 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **NEVER run `git push`** unless the user's CURRENT message explicitly contains the word "push". "Fix it", "commit this", "investigate" — none of these mean push.
 - **NEVER create or push a git tag** unless the user's CURRENT message explicitly asks for it (e.g. "tag as v0.1.3"). Tags trigger release workflows.
 - **NEVER run `rm`, `rm -f`, or `rm -rf`** without asking the user first, even on generated files.
+- **NEVER use bare `git stash` or `git stash pop`.** The stash stack is shared with the main checkout and every worktree, and parallel agents push and pop it concurrently — a bare `pop` can restore, and then delete, another session's work. Prefer a temporary WIP commit. If you must stash:
+  - `git stash push -u -m "<unique-tag>"`, then immediately capture the SHA with `git stash list --format='%H %gs'`
+  - Restore with `git stash apply <sha>` — never `pop`, which pops whatever is on top rather than your entry
+  - `apply` leaves the entry behind on purpose. Do not clean it up: `drop` is denied, because deciding an entry is disposable is exactly the judgment that loses another session's work. Report the tag and let the user drop it.
+  - **`git stash apply` is not a safe probe.** A bad or non-existent revision does not reliably error — git can fall back to applying `stash@{0}`, dumping an unrelated entry into your tree as conflicts. Never run it to "test" anything.
+  - `.claude/settings.json` denies bare `git stash`, `pop`, `drop`, and `clear` to enforce this.
+- **NEVER propose `git branch -D` without first proving the branch is contained in `origin/master`.** `-D` deletes regardless of merge state, and `.claude/settings.json` puts it in `ask` rather than `deny` — so the prompt is approving *your* reasoning, not a checked fact. Earn it. Run all three against a freshly fetched `origin/master`, and show the output when you ask:
+  - `git merge-base --is-ancestor <branch> origin/master` — tip already in master. If this passes, the branch is safe and the rest is confirmation.
+  - `git cherry -v origin/master <branch>` — for a rebased branch, whose commits are upstream by patch but not by ancestry. Lines marked `-` are already upstream; `+` are not. `git branch --merged` alone will not see these.
+  - `git diff --name-only --diff-filter=A origin/master..<branch>` — files the branch has that master does not. **Do not substitute a three-dot diff of the files the branch changed**: that misses files master itself deleted later, which are absent from master for a completely different reason.
+  - Any file the last check names must be resolved individually before proposing anything: either master deleted it deliberately (read the deleting commit and say so) or it is unlanded work that must be rescued first.
+  - `git branch -d` (lowercase) refuses unmerged branches on its own and needs none of this. Reach for it first.
+  - Never route around a denied command — `git update-ref -d`, or any other spelling that deletes the same ref. The rule exists so an agent's confidence is not the last line of defence; getting past it by rewording is the failure it was written to prevent.
 - **NEVER use compound `cd && git` or `cd && go` commands** — always separate them:
   - Use `git -C <dir> <cmd>` instead of `cd <dir> && git <cmd>`
   - Use separate `cd` and `go` calls instead of `cd <dir> && go <cmd>`
