@@ -29,6 +29,8 @@ document.addEventListener('alpine:init', () => {
 	store.discPickerRelease = null
 	store.audioLangs = store.audioLanguages || []
 	store.subtitleLangs = store.subtitleLanguages || []
+	store.preferredAudioLangs = store.preferredAudioLangs || []
+	store.preferredSubtitleLangs = store.preferredSubtitleLangs || []
 	store.keepLossless = store.keepLossless !== undefined ? store.keepLossless : true
 	store.keepForcedSubs = store.keepForcedSubs !== undefined ? store.keepForcedSubs : true
 	// A page loaded while a scan is already running has to show it: the events
@@ -203,6 +205,12 @@ async function resyncDriveState() {
 		if (!s.recoveryActive && store.recoveryPhase && store.recoveryPhase !== 'done') {
 			store.recoveryPhase = 'done'
 		}
+
+		// The preferences can have been edited in another tab since this page
+		// loaded, and the next rebuild of the language list has to use the
+		// current ones.
+		store.preferredAudioLangs = s.preferredAudioLangs || []
+		store.preferredSubtitleLangs = s.preferredSubtitleLangs || []
 
 		// Titles only arrive with a selected release; do not blank an existing
 		// list just because the server has not been told about one.
@@ -438,17 +446,40 @@ function updateLanguagesFromTitles(titles) {
 		console.warn('[BluForge] ' + totalSub + ' subtitle streams found but none have language codes. MPLS enrichment may have failed. Track selection will show all tracks.')
 	}
 
-	const preferredAudio = store.audioLangs.filter(l => l.selected).map(l => l.code)
-	const preferredSubtitle = store.subtitleLangs.filter(l => l.selected).map(l => l.code)
+	store.audioLangs = pickLanguages(audioSet, store.audioLangs, store.preferredAudioLangs)
+	store.subtitleLangs = pickLanguages(subtitleSet, store.subtitleLangs, store.preferredSubtitleLangs)
+}
 
-	store.audioLangs = Array.from(audioSet, ([code, name]) => ({
+// pickLanguages decides which of the languages actually on the disc start out
+// checked.
+//
+// What the user last chose wins; a list built for the first time falls back to
+// the configured preferences. Without that fallback there was nothing to
+// prefer on the ordinary path — insert, scan, choose tracks — and every
+// language on the disc arrived pre-selected, which is the opposite of what the
+// settings ask for.
+//
+// A preference naming no language this disc carries selects everything rather
+// than nothing: an empty preference already means "all", and a rip with no
+// audio at all is a worse answer than an over-inclusive one.
+function pickLanguages(available, prior, configured) {
+	let wanted = prior.filter(l => l.selected).map(l => l.code)
+	let fromConfig = false
+	if (prior.length === 0) {
+		wanted = configured || []
+		fromConfig = true
+	}
+
+	const picked = Array.from(available, ([code, name]) => ({
 		code, name,
-		selected: preferredAudio.length > 0 ? preferredAudio.includes(code) : true
+		selected: wanted.length === 0 || wanted.includes(code)
 	}))
-	store.subtitleLangs = Array.from(subtitleSet, ([code, name]) => ({
-		code, name,
-		selected: preferredSubtitle.length > 0 ? preferredSubtitle.includes(code) : true
-	}))
+
+	if (fromConfig && picked.length > 0 && !picked.some(l => l.selected)) {
+		console.warn('[BluForge] none of the preferred languages (' + wanted.join(', ') + ') are on this disc; selecting all')
+		for (const l of picked) l.selected = true
+	}
+	return picked
 }
 
 function hasLosslessAudio() {

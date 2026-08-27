@@ -63,6 +63,9 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 		SubtitleLanguages: make([]LangOptionJSON, 0),
 		KeepForcedSubs:    cfg.KeepForcedSubtitles,
 		KeepLossless:      cfg.KeepLosslessAudio,
+
+		PreferredAudioLangs:    splitLangCodesSlice(cfg.PreferredAudioLangs),
+		PreferredSubtitleLangs: splitLangCodesSlice(cfg.PreferredSubtitleLangs),
 	}
 
 	// Say what is in the drive before asking anything about it.

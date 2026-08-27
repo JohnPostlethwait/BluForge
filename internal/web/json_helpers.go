@@ -219,6 +219,13 @@ type DriveStoreJSON struct {
 	SearchResults     []SearchResultJSON   `json:"searchResults"`
 	AudioLanguages    []LangOptionJSON     `json:"audioLanguages"`
 	SubtitleLanguages []LangOptionJSON     `json:"subtitleLanguages"`
+	// PreferredAudioLangs and PreferredSubtitleLangs carry the configured
+	// language preferences to the browser. The page rebuilds the language list
+	// itself whenever a scan finishes, and without these it had nothing to
+	// prefer and pre-selected every language on the disc. An empty slice means
+	// "no preference", which selects all — distinct from never being told.
+	PreferredAudioLangs    []string `json:"preferredAudioLangs"`
+	PreferredSubtitleLangs []string `json:"preferredSubtitleLangs"`
 	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
 	// RecoveryActive reports whether a spurious-AACS recovery is running for
 	// this drive. The client cannot infer this from the event stream alone: a
@@ -405,6 +412,16 @@ func extractDiscLanguages(scan *makemkv.DiscScan, preferredAudio, preferredSubti
 		subtitle = []LangOptionJSON{}
 	}
 	return audio, subtitle
+}
+
+// splitLangCodesSlice is splitLangCodes with an empty — rather than nil —
+// result for empty input, so the field marshals as [] and the page can tell
+// "no preference" apart from a field it was never sent.
+func splitLangCodesSlice(s string) []string {
+	if codes := splitLangCodes(s); codes != nil {
+		return codes
+	}
+	return []string{}
 }
 
 // splitLangCodes splits a comma-separated list of language codes into a slice,
