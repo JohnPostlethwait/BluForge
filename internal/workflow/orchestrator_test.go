@@ -5,51 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johnpostlethwait/bluforge/internal/db"
-	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
-
-func TestRescan(t *testing.T) {
-	scanner := &mockDriveExecutor{}
-	orch, store, _ := setupOrchestratorWithScanner(t, scanner)
-
-	scan, _ := scanner.ScanDisc(context.Background(), 0)
-	discKey := discdb.BuildDiscKey(scan)
-
-	err := store.SaveMapping(db.DiscMapping{
-		DiscKey:     discKey,
-		DiscName:    "DEADPOOL_2",
-		MediaItemID: "item-dp2",
-		ReleaseID:   "rel-dp2",
-		MediaTitle:  "Deadpool 2",
-		MediaYear:   "2018",
-		MediaType:   "movie",
-	})
-	if err != nil {
-		t.Fatalf("SaveMapping: %v", err)
-	}
-
-	mapping, err := store.GetMapping(discKey)
-	if err != nil {
-		t.Fatalf("GetMapping: %v", err)
-	}
-	if mapping == nil {
-		t.Fatal("expected mapping to exist before rescan")
-	}
-
-	if err := orch.Rescan(context.Background(), 0); err != nil {
-		t.Fatalf("Rescan: %v", err)
-	}
-
-	mapping, err = store.GetMapping(discKey)
-	if err != nil {
-		t.Fatalf("GetMapping after rescan: %v", err)
-	}
-	if mapping != nil {
-		t.Error("expected mapping to be deleted after rescan")
-	}
-}
 
 func TestScanDisc_CachesResult(t *testing.T) {
 	orch, _, _ := setupOrchestratorWithScanner(t, &mockDriveExecutor{})

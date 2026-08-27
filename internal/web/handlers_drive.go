@@ -684,20 +684,6 @@ func (s *Server) handleDiscardBackup(c echo.Context) error {
 	})
 }
 
-// handleDriveRescan clears any existing mapping for a drive and redirects back to the detail page.
-func (s *Server) handleDriveRescan(c echo.Context) error {
-	idx, err := parseDriveIndex(c)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
-	}
-
-	if err := s.orchestrator.Rescan(c.Request().Context(), idx); err != nil {
-		slog.Error("rescan failed", "error", err, "drive_index", idx)
-	}
-
-	return c.Redirect(http.StatusSeeOther, "/drives/"+strconv.Itoa(idx))
-}
-
 // handleDriveMatch runs title matching using the cached scan and selected
 // release. Returns enriched TitleJSON. Used as a fallback when both scan and
 // release exist but the inline trigger points didn't fire (e.g., page refresh).

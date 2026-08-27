@@ -543,6 +543,53 @@ async function discardBackup(driveIndex) {
 	}
 }
 
+// clearMatch throws away everything this drive remembers about what disc is in
+// it, putting the wizard back at Search.
+//
+// The local reset is not belt-and-braces: resyncDriveState deliberately refuses
+// to blank an existing title list, so a bare resync would leave the discarded
+// match's titles on screen.
+async function clearMatch(driveIndex) {
+	const agreed = confirm(
+		'Clear the match for this disc?\n\n' +
+		'The selected release, the search results, and the scanned title list are ' +
+		'discarded, and the disc stops being remembered from any earlier rip. ' +
+		'You can search again and re-scan from scratch.'
+	)
+	if (!agreed) return
+
+	const store = Alpine.store('drive')
+	try {
+		const resp = await fetch('/drives/' + driveIndex + '/clear-match', {
+			method: 'POST',
+			headers: { 'Accept': 'application/json' },
+		})
+		if (!resp.ok) {
+			store.searchError = 'Could not clear the match (HTTP ' + resp.status + ')'
+			return
+		}
+	} catch (err) {
+		store.searchError = 'Could not clear the match: ' + err.message
+		return
+	}
+
+	store.selectedRelease = null
+	store.discPickerRelease = null
+	store.searchResults = []
+	store.searchQuery = ''
+	store.searchError = ''
+	store.titles = []
+	store.audioLangs = []
+	store.subtitleLangs = []
+	store.hasMapping = false
+	store.matchedMedia = ''
+	store.scanCachedAt = 0
+	store.scanError = ''
+	store.currentStep = 1
+
+	resyncDriveState()
+}
+
 // scanDisc reads the disc in the drive. It never answers from cache: pressing
 // Scan is how the user finds out what is actually in there, and a cached title
 // list cannot tell that the disc was swapped for another of the same name.
@@ -753,7 +800,7 @@ function cachedScanAge() {
 						<span>Previously matched: <strong x-text="$store.drive.matchedMedia"></strong></span>
 						<div class="flex gap-2">
 							@templ.Raw(`<button class="btn btn-primary btn-sm" x-on:click="goToStep(3)">Use Saved Match</button>`)
-							@templ.Raw(fmt.Sprintf(`<a href="/drives/%d/rescan" class="btn btn-secondary btn-sm">Clear &amp; Re-scan</a>`, data.DriveIndex))
+							@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="clearMatch(%d)">Clear &amp; Re-scan</button>`, data.DriveIndex))
 						</div>
 					</div>
 				</template>
@@ -922,9 +969,20 @@ function cachedScanAge() {
 				<!-- Show selected release confirmation -->
 				<template x-if="$store.drive.selectedRelease">
 					<div class="alert alert-success mt-3" role="status">
-						Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
-						(<span x-text="$store.drive.selectedRelease.year"></span>)
-						&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+						<div class="flex justify-between items-center flex-wrap gap-2">
+							<span>
+								Matched: <strong x-text="$store.drive.selectedRelease.title"></strong>
+								(<span x-text="$store.drive.selectedRelease.year"></span>)
+								&mdash; <span x-text="$store.drive.selectedRelease.type"></span>
+							</span>
+							<!--
+								The match is only ever confirmed by eye, and a wrong one used
+								to be unremovable: it lived in the drive session, survived
+								every refresh, and went away only on eject. Put the way out
+								next to the claim it undoes.
+							-->
+							@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm" x-on:click="clearMatch(%d)">Wrong match? Clear &amp; start over</button>`, data.DriveIndex))
+						</div>
 						<template x-if="$store.drive.selectedRelease.upc || $store.drive.selectedRelease.asin || $store.drive.selectedRelease.regionCode">
 							<div class="text-sm mt-1 text-secondary">
 								<span x-show="$store.drive.selectedRelease.upc" x-text="'UPC: ' + $store.drive.selectedRelease.upc"></span>
@@ -1086,6 +1144,14 @@ function cachedScanAge() {
 				<div class="step-card-header">
 					<h2 class="section-title-inline">Review Titles</h2>
 					<div class="flex gap-2 items-center">
+						<!--
+							Step 4 is where a wrong match actually shows itself — the titles
+							are named from it. A page reload lands straight back here, so the
+							way out has to be reachable without walking backwards first.
+						-->
+						@templ.Raw(fmt.Sprintf(`<template x-if="$store.drive.selectedRelease">
+							<button class="btn btn-secondary btn-sm" x-on:click="clearMatch(%d)">Wrong match? Clear &amp; start over</button>
+						</template>`, data.DriveIndex))
 						<button class="btn btn-secondary btn-sm" x-on:click="goToStep(3)">&larr; Back</button>
 					</div>
 				</div>

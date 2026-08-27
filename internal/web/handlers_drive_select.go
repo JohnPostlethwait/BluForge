@@ -1,6 +1,7 @@
 package web
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
@@ -80,4 +81,47 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleDriveClearMatch discards everything the drive remembers about what disc
+// is in it: the release the user picked, the search that produced it, the
+// cached title list, and any mapping saved by an earlier rip.
+//
+// A selection that turns out to be wrong was previously unremovable. It lived
+// in the drive session, survived every refresh, and was only dropped on eject —
+// so the page kept rebuilding itself around the wrong match, and re-scanning
+// answered from a cache keyed on the disc the user was trying to stop trusting.
+func (s *Server) handleDriveClearMatch(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	if drv := s.driveMgr.GetDrive(idx); drv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+
+	// The mapping is keyed on the cached scan, so it has to go first. Dropping
+	// the scan destroys the only way to name the row, and the delete would then
+	// quietly match nothing while still reporting success.
+	if s.orchestrator != nil && s.store != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			if discKey := discdb.BuildDiscKey(scan); discKey != "" {
+				if err := s.store.DeleteMapping(discKey); err != nil {
+					slog.Error("clear match: delete mapping failed",
+						"drive_index", idx, "disc_key", discKey, "error", err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "could not clear the saved match")
+				}
+			}
+		}
+	}
+
+	s.driveSessions.Clear(idx)
+
+	if s.orchestrator != nil {
+		s.orchestrator.InvalidateScan(idx)
+	}
+
+	slog.Info("cleared disc match on request", "drive_index", idx)
+	return c.JSON(http.StatusOK, map[string]string{"status": "cleared"})
 }

@@ -1033,23 +1033,6 @@ func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipC
 	return nil
 }
 
-// Rescan scans the disc and deletes any existing disc mapping so that
-// the next AutoRip performs a fresh lookup.
-func (o *Orchestrator) Rescan(ctx context.Context, driveIndex int) error {
-	scan, err := o.ScanDisc(ctx, driveIndex)
-	if err != nil {
-		return fmt.Errorf("rescan: %w", err)
-	}
-
-	discKey := discdb.BuildDiscKey(scan)
-	if err := o.store.DeleteMapping(discKey); err != nil {
-		return fmt.Errorf("rescan delete mapping: %w", err)
-	}
-
-	slog.Info("rescan: deleted disc mapping", "disc_key", discKey, "disc_name", scan.DiscName)
-	return nil
-}
-
 // titlesFromMapping builds TitleSelections using a saved disc mapping for all
 // titles in the scan.
 func (o *Orchestrator) titlesFromMapping(scan *makemkv.DiscScan, mapping *db.DiscMapping) []TitleSelection {
