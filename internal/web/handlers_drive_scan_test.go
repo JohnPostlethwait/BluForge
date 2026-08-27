@@ -35,6 +35,7 @@ func newScanServer(t *testing.T, scanner workflow.DiscScanner) (*Server, *workfl
 	srv := newTestServer(t, mgr)
 	srv.orchestrator = orch
 	srv.echo.POST("/drives/:id/scan", srv.handleDriveScan)
+	srv.echo.GET("/drives/:id/scan", srv.handleDriveScanResult)
 	srv.echo.GET("/drives/:id/state", srv.handleDriveState)
 	return srv, orch
 }
@@ -73,9 +74,11 @@ func TestScanReturnsImmediatelyRatherThanHoldingTheRequest(t *testing.T) {
 	}
 }
 
-// Once the scan is cached the same endpoint returns the titles, which is what
-// the page re-fetches when it sees the done event.
-func TestScanReturnsTitlesOnceTheScanIsCached(t *testing.T) {
+// Once the scan is cached, GET on the same path returns the titles — this is
+// what the page re-fetches when it sees the done event. POST no longer answers
+// from cache: it is the request to read the disc. See
+// TestPressingScanReadsTheDiscEvenWithACachedScan.
+func TestScanResultReturnsTitlesOnceTheScanIsCached(t *testing.T) {
 	srv, orch := newScanServer(t, &blockingScanner{release: make(chan struct{})})
 	orch.InjectCachedScan(0, &makemkv.DiscScan{
 		DiscName:   "SOME_DISC",
@@ -85,17 +88,17 @@ func TestScanReturnsTitlesOnceTheScanIsCached(t *testing.T) {
 		},
 	})
 
-	rec := postScan(t, srv)
+	rec := getScanResult(t, srv)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var titles []TitleJSON
-	if err := json.Unmarshal(rec.Body.Bytes(), &titles); err != nil {
+	var got ScanResultJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v (body: %s)", err, rec.Body.String())
 	}
-	if len(titles) != 1 {
-		t.Errorf("got %d titles, want 1", len(titles))
+	if len(got.Titles) != 1 {
+		t.Errorf("got %d titles, want 1", len(got.Titles))
 	}
 }
 

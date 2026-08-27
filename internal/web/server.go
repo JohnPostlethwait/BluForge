@@ -152,7 +152,11 @@ func NewServer(deps ServerDeps) *Server {
 	e.GET("/drives/:id/state", s.handleDriveState)
 	e.POST("/drives/:id/search", s.handleDriveSearch)
 	e.POST("/drives/:id/select", s.handleDriveSelectAlpine)
+	// POST reads the disc; GET returns the result of a scan that already ran.
+	// Splitting them is what stops the Scan button being answered from a cache
+	// that cannot tell one disc from another of the same name.
 	e.POST("/drives/:id/scan", s.handleDriveScan)
+	e.GET("/drives/:id/scan", s.handleDriveScanResult)
 	e.POST("/drives/:id/rip", s.handleDriveRip)
 	e.POST("/drives/:id/rescan", s.handleDriveRescan)
 	e.POST("/drives/:id/match", s.handleDriveMatch)

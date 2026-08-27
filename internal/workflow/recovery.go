@@ -20,6 +20,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 )
 
@@ -987,6 +988,82 @@ func (o *Orchestrator) SetDriveDisc(driveIndex int, discLabel string) {
 		slog.Info("recovery: a different disc is in this drive, so its copy is no longer being read",
 			"drive_index", driveIndex, "disc", discLabel, "copy_of", rec.discLabels, "dir", rec.dir)
 	}
+}
+
+// retireRecoveredForDrive unbinds a drive's repaired copy.
+//
+// Unbinding is not deleting. The copy stays on disk and stays discardable — it
+// simply stops being what this drive reads.
+func (o *Orchestrator) retireRecoveredForDrive(driveIndex int, reason string) {
+	o.recoveredMu.Lock()
+	defer o.recoveredMu.Unlock()
+
+	rec, ok := o.recovered[driveIndex]
+	if !ok || rec.retired {
+		return
+	}
+
+	rec.retired = true
+	slog.Info("recovery: this copy is no longer being read",
+		"drive_index", driveIndex, "reason", reason, "copy_of", rec.discLabels, "dir", rec.dir)
+}
+
+// copyIsForAnotherDisc reports that the disc in the drive is demonstrably not
+// the one the drive's repaired copy was made from.
+//
+// SetDriveDisc already unbinds a copy when the volume label differs, which is
+// the case a label can settle. It cannot settle a two-disc set that ships both
+// discs under one label: the copy stayed bound, and scanDisc consults the copy
+// before the cache, so the drive kept being read from the previous disc's
+// backup with nothing downstream able to notice.
+//
+// The disc's own playlists answer it. A disc gets copied because makemkvcon
+// fails on its AACS directory, not because the filesystem is unreadable —
+// recovery copies BDMV off that very disc — so the playlist inventory is
+// readable here and comparable against the copy's.
+//
+// False whenever the comparison cannot be made. Unbinding on no evidence sends
+// the drive back to reading a disc that needed repairing in the first place,
+// which costs tens of minutes and ~100GB; leaving it bound costs nothing the
+// "Reading a repaired copy of this disc" banner does not already disclose.
+func (o *Orchestrator) copyIsForAnotherDisc(ctx context.Context, driveIndex int) bool {
+	copyDir := o.RecoveredDir(driveIndex)
+	if copyDir == "" || o.openDiscRoot == nil {
+		return false
+	}
+
+	copyPrint := mpls.PlaylistFingerprint(copyDir)
+	if copyPrint == "" {
+		return false
+	}
+
+	var devicePath string
+	if loc, ok := o.scanner.(DeviceLocator); ok {
+		devicePath = loc.DevicePathForDrive(ctx, driveIndex)
+	}
+
+	root, cleanup, err := o.openDiscRoot(devicePath)
+	if err != nil {
+		slog.Info("recovery: cannot read the disc to check it against the copy; leaving the copy bound",
+			"drive_index", driveIndex, "error", err)
+		return false
+	}
+	defer cleanup()
+
+	discPrint := mpls.PlaylistFingerprint(root)
+	if discPrint == "" {
+		slog.Info("recovery: the disc has no readable playlists to check against the copy; leaving the copy bound",
+			"drive_index", driveIndex)
+		return false
+	}
+
+	if discPrint == copyPrint {
+		return false
+	}
+
+	slog.Info("recovery: the disc in the drive is not the one this copy was made from",
+		"drive_index", driveIndex, "disc_playlists", discPrint, "copy_playlists", copyPrint)
+	return true
 }
 
 // currentFor returns the copy a drive should be read from, or nil.

@@ -48,6 +48,20 @@ const scanNarrationInterval = time.Second
 // an hour. Held open on the request it outlived the browser, and the browser
 // giving up killed makemkvcon mid-read — which is what "signal: killed" was.
 func (o *Orchestrator) StartScan(driveIndex int) error {
+	return o.startScan(driveIndex, false)
+}
+
+// StartRescan reads the disc in the drive whatever is cached for it, reporting
+// progress the same way StartScan does.
+//
+// This is what the Scan button runs. A cached scan cannot tell that the disc
+// was swapped for another one answering to the same volume label, and finding
+// out means reading the disc.
+func (o *Orchestrator) StartRescan(driveIndex int) error {
+	return o.startScan(driveIndex, true)
+}
+
+func (o *Orchestrator) startScan(driveIndex int, force bool) error {
 	if o.scanner == nil {
 		return errors.New("no scanner configured")
 	}
@@ -59,7 +73,7 @@ func (o *Orchestrator) StartScan(driveIndex int) error {
 		defer o.endScan(driveIndex)
 
 		// Detached on purpose: nothing about this scan belongs to a request.
-		scan, err := o.ScanDisc(context.Background(), driveIndex)
+		scan, err := o.scanDisc(context.Background(), driveIndex, force)
 		switch {
 		case errors.Is(err, ErrRecoveryInProgress):
 			// Recovery took over and broadcasts its own progress. Ending the

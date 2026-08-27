@@ -37,6 +37,14 @@ document.addEventListener('alpine:init', () => {
 	store.scanOperation = store.scanOperation || ''
 	store.scanStartedAt = store.scanStartedAt ? store.scanStartedAt * 1000 : 0
 	store.scanElapsed = store.scanStartedAt ? Math.floor((Date.now() - store.scanStartedAt) / 1000) : 0
+	// scanCachedAt marks a title list this page did not read out of the drive
+	// itself. It survives a reload on purpose: the page cannot know whether the
+	// disc was changed while it was away, and a two-disc set sharing a volume
+	// label is exactly the case nothing else would catch.
+	store.scanCachedAt = store.scanCachedAt || 0
+	// Set while a scan this page asked for is in flight, so its result is not
+	// then labelled as cached.
+	store.scanRequested = false
 	Alpine.store('drive', store)
 	if (store.scanning) startScanClock()
 
@@ -64,6 +72,7 @@ document.addEventListener('alpine:init', () => {
 			Alpine.store('drive').discName = update.DiscName
 			if (update.Type === 'disc_ejected') {
 				Alpine.store('drive').titles = []
+				Alpine.store('drive').scanCachedAt = 0
 				Alpine.store('drive').selectedRelease = null
 				Alpine.store('drive').searchResults = []
 				Alpine.store('drive').scanning = false
@@ -125,6 +134,7 @@ document.addEventListener('alpine:init', () => {
 			// The titles are cached now; the same endpoint returns them.
 			loadScanResults(store.driveIndex)
 		} else if (update.phase === 'failed') {
+			store.scanRequested = false
 			store.scanError = update.message || 'Scan failed'
 			resyncDriveState()
 		} else if (update.phase === 'recovering') {
@@ -502,6 +512,9 @@ async function discardBackup(driveIndex) {
 	}
 }
 
+// scanDisc reads the disc in the drive. It never answers from cache: pressing
+// Scan is how the user finds out what is actually in there, and a cached title
+// list cannot tell that the disc was swapped for another of the same name.
 async function scanDisc(driveIndex) {
 	const store = Alpine.store('drive')
 	store.scanning = true
@@ -510,6 +523,9 @@ async function scanDisc(driveIndex) {
 	store.scanStartedAt = Date.now()
 	store.scanOperation = 'Starting'
 	store.titles = []
+	// Whatever was cached is being replaced by a read of the disc.
+	store.scanCachedAt = 0
+	store.scanRequested = true
 	startScanClock()
 
 	try {
@@ -532,36 +548,54 @@ async function scanDisc(driveIndex) {
 			return
 		}
 
-		if (resp.ok) {
-			stopScanClock()
-			store.scanning = false
-			applyScanResults(await resp.json())
-			return
-		}
-
+		// Anything else is a failure to start. The titles themselves arrive via
+		// the done event, which re-fetches them with loadScanResults.
 		stopScanClock()
 		store.scanning = false
+		store.scanRequested = false
 		store.scanError = (await resp.text()) || 'Scan failed (HTTP ' + resp.status + ')'
 	} catch (err) {
 		stopScanClock()
 		store.scanning = false
+		store.scanRequested = false
 		store.scanError = 'Scan request failed: ' + err.message
 	}
 }
 
 // loadScanResults fetches the titles of a scan that has already finished.
+//
+// GET, not POST. POST on this path is the request to read the disc — answering
+// it from cache is what showed one disc's titles for another of the same name.
 async function loadScanResults(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/scan', {
-			method: 'POST',
 			headers: { 'Accept': 'application/json' },
 		})
+		if (resp.status === 204) {
+			// No scan has run for this drive yet. Nothing to show, not an error.
+			Alpine.store('drive').scanCachedAt = 0
+			return
+		}
 		if (!resp.ok) {
 			Alpine.store('drive').scanError = (await resp.text()) || 'Scan failed (HTTP ' + resp.status + ')'
 			return
 		}
 		if (resp.status === 202) return
-		applyScanResults(await resp.json())
+		const result = await resp.json()
+
+		// The endpoint always serves from cache — that is what it is for. What
+		// decides the label is whether this page asked for the read that filled
+		// it. A scan the user just pressed for is a reading of the disc in the
+		// drive, however it is fetched back.
+		const store = Alpine.store('drive')
+		if (store.scanRequested) {
+			store.scanRequested = false
+			store.scanCachedAt = 0
+		} else {
+			store.scanCachedAt = result.cached_at || 0
+		}
+
+		applyScanResults(result.titles || [])
 	} catch (err) {
 		Alpine.store('drive').scanError = 'Could not load scan results: ' + err.message
 	}
@@ -577,6 +611,18 @@ function applyScanResults(titles) {
 	// The diagnosis lives in the drive state rather than the title list, so pick
 	// up whatever MakeMKV complained about during this scan.
 	resyncDriveState()
+}
+
+// cachedScanAge renders how old a cached title list is, so "cached" is a fact
+// the user can act on rather than a vague warning.
+function cachedScanAge() {
+	const at = Alpine.store('drive').scanCachedAt
+	if (!at) return ''
+	const secs = Math.max(0, Math.floor(Date.now() / 1000) - at)
+	if (secs < 60) return 'just now'
+	if (secs < 3600) return Math.floor(secs / 60) + ' min ago'
+	if (secs < 86400) return Math.floor(secs / 3600) + ' hr ago'
+	return Math.floor(secs / 86400) + ' days ago'
 }
 </script>`, data.StoreJSON))
 
@@ -877,6 +923,18 @@ function applyScanResults(titles) {
 						<p class="text-secondary">
 							Disc already scanned &mdash; <span x-text="$store.drive.titles.length"></span> title(s) found.
 						</p>
+						<!--
+							A cached title list is not a reading of the disc in the drive.
+							Two discs of one set can report the same volume label, so a
+							cache hit alone cannot prove these titles belong to the disc
+							currently loaded. Say so, and put the re-read next to it.
+						-->
+						<template x-if="$store.drive.scanCachedAt">
+							<div class="alert alert-warning mt-2" role="status">
+								<strong>Cached results</strong> &mdash; read <span x-text="cachedScanAge()"></span>, not from the disc in the drive now.
+								If you have changed discs, re-scan to read this one.
+							</div>
+						</template>
 						<div class="flex gap-3 justify-center">
 							@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary" x-on:click="scanDisc(%d)">Re-scan Disc</button>`, data.DriveIndex))
 							@templ.Raw(`<button class="btn btn-primary btn-lg" x-on:click="goToStep(4)">Continue to Titles</button>`)
@@ -931,6 +989,18 @@ function applyScanResults(titles) {
 
 		<!-- ═══════════════ Step 4: Review & Select Titles ═══════════════ -->
 		<div x-data x-show="$store.drive.currentStep === 4" x-cloak class="step-content">
+			<!--
+				This is where titles get chosen for ripping, so it is the last place a
+				cached list can do damage. A two-disc set can report one volume label
+				for both discs, and the cache is keyed on that label — so a cache hit
+				is not evidence that these titles came from the disc in the drive.
+			-->
+			<template x-if="$store.drive.scanCachedAt">
+				<div class="alert alert-warning" role="status">
+					<strong>Cached results</strong> &mdash; these titles were read <span x-text="cachedScanAge()"></span>, not from the disc in the drive now.
+					@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm ml-2" x-on:click="scanDisc(%d)">Re-scan Disc</button>`, data.DriveIndex))
+				</div>
+			</template>
 			<!--
 				Titles MakeMKV could not read are simply absent from the list below,
 				which reads as a clean result. On a disc with unreadable sectors that

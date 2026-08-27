@@ -496,6 +496,14 @@ textarea:focus-visible {
   color: #fecaca;
 }
 
+/* Something the user should check before acting on it, but nothing has failed
+   — a title list served from cache rather than read from the disc in hand. */
+.alert-warning {
+  background-color: rgba(234, 179, 8, 0.12);
+  border: 1px solid var(--warning);
+  color: #fde68a;
+}
+
 .info-box {
   background-color: rgba(59, 130, 246, 0.1);
   border: 1px solid var(--accent-blue);

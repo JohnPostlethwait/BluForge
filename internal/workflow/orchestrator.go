@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/contribute"
 	"github.com/johnpostlethwait/bluforge/internal/db"
@@ -70,8 +71,10 @@ type Orchestrator struct {
 	// Injected so salvage can be tested without a scratched disc.
 	rescuer ddrescue.Runner
 
+	onDiscChanged func(driveIndex int)
+
 	scanMu    sync.RWMutex
-	scanCache map[string]*makemkv.DiscScan // keyed by "driveIndex:discName"
+	scanCache map[string]*cachedScan // keyed by "driveIndex:discName"
 	// driveDisc is the disc each drive currently holds, as last reported by the
 	// drive itself. It is what makes a cache lookup exact: the cache is keyed by
 	// drive and disc, but nearly every caller has only a drive index, and
@@ -176,14 +179,15 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		backupper:    deps.Backupper,
 		openDiscRoot: openRoot,
 		onDriveState: deps.OnDriveState,
-		checkSpace:   ripper.CheckDiskSpace,
-		rescuer:      ddrescue.ExecRunner{},
-		scanCache:    make(map[string]*makemkv.DiscScan),
-		driveDisc:    make(map[int]string),
-		recovered:    make(map[int]*recoveredDisc),
-		recovering:   make(map[int]bool),
-		salvaging:    make(map[int]context.CancelFunc),
-		scanLocks:    make(map[int]*sync.Mutex),
+
+		checkSpace: ripper.CheckDiskSpace,
+		rescuer:    ddrescue.ExecRunner{},
+		scanCache:  make(map[string]*cachedScan),
+		driveDisc:  make(map[int]string),
+		recovered:  make(map[int]*recoveredDisc),
+		recovering: make(map[int]bool),
+		salvaging:  make(map[int]context.CancelFunc),
+		scanLocks:  make(map[int]*sync.Mutex),
 	}
 }
 
@@ -610,10 +614,49 @@ func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection)
 	return o.organizer.BuildPath(dirName, fileName)
 }
 
-// ScanDisc delegates disc scanning to the configured scanner. Results are cached
-// per drive+disc combination so that repeated visits to the drive detail page
-// don't re-read the physical disc each time.
+// cachedScan is a scan together with what identifies the disc it came from.
+//
+// The fingerprint is the point: the cache is keyed by drive index and disc
+// name, and a volume label is not identity. A two-disc set sharing one label
+// served the first disc's titles for the second until the entry could be
+// checked against what a fresh read actually found.
+type cachedScan struct {
+	scan        *makemkv.DiscScan
+	fingerprint string
+	at          time.Time
+}
+
+// ScanResult is a cached scan and its provenance, for a page that has to say
+// where a title list came from.
+type ScanResult struct {
+	Scan        *makemkv.DiscScan
+	Fingerprint string
+	CachedAt    time.Time
+}
+
+// ScanDisc returns the drive's cached scan when there is one, and otherwise
+// reads the disc. It is the passive path: page loads and background callers
+// that want a title list without paying for a read of the disc.
+//
+// Anything acting on the user pressing Scan must use RescanDisc. A cache hit
+// here cannot tell that the disc was swapped for another one answering to the
+// same name.
 func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
+	return o.scanDisc(ctx, driveIndex, false)
+}
+
+// RescanDisc reads the disc in the drive, whatever is cached for it.
+//
+// This is what the Scan button runs. Verifying a cached scan means finding out
+// what is on the disc, so the check and the read are the same operation — and
+// since the page only scans when the user asks it to, re-reading costs nothing
+// that was not requested. A scan that comes back describing a different disc
+// than the cache held replaces it and reports the change.
+func (o *Orchestrator) RescanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error) {
+	return o.scanDisc(ctx, driveIndex, true)
+}
+
+func (o *Orchestrator) scanDisc(ctx context.Context, driveIndex int, force bool) (*makemkv.DiscScan, error) {
 	if o.scanner == nil {
 		slog.Error("orchestrator: scan requested but no scanner configured")
 		return nil, fmt.Errorf("no scanner configured")
@@ -621,11 +664,29 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 
 	// A recovered disc is served from its stripped backup. Re-reading the drive
 	// would fail exactly as it did the first time and start another recovery.
+	//
+	// A forced rescan does not change that. The drive holds the disc MakeMKV
+	// could not open, so reading it would fail on the spurious-AACS signature
+	// and maybeRecover would start a second ~100GB copy of a disc already
+	// sitting in scratch. What force does mean here is re-deriving the titles
+	// from the copy rather than trusting the cache — a folder scan, no disc I/O.
+	// Before reading a repaired copy, make sure it is a copy of the disc in the
+	// drive. A copy is bound to a drive index and unbound by volume label, and a
+	// two-disc set can ship both discs under one label — so the label matching
+	// is not evidence that this is the same disc. Retiring it here is what makes
+	// the RecoveredSource below answer nil and fall through to a real read.
+	if o.RecoveredSource(driveIndex) != nil && o.copyIsForAnotherDisc(ctx, driveIndex) {
+		o.retireRecoveredForDrive(driveIndex, "a different disc is in the drive")
+		o.InvalidateScan(driveIndex)
+	}
+
 	if src := o.RecoveredSource(driveIndex); src != nil {
-		if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
-			slog.Info("orchestrator: serving recovered disc from its backup",
-				"drive_index", driveIndex, "source", src.Arg())
-			return cached, nil
+		if !force {
+			if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+				slog.Info("orchestrator: serving recovered disc from its backup",
+					"drive_index", driveIndex, "source", src.Arg())
+				return cached, nil
+			}
 		}
 
 		// No cached scan — the process restarted since the backup was made. Read
@@ -634,7 +695,7 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 		// already sitting in scratch.
 		if o.backupper != nil {
 			slog.Info("orchestrator: rescanning a restored backup",
-				"drive_index", driveIndex, "source", src.Arg())
+				"drive_index", driveIndex, "source", src.Arg(), "forced", force)
 			scan, err := o.backupper.ScanSource(ctx, *src)
 			if err == nil && len(scan.Titles) > 0 {
 				// Under the disc in the drive, not under what the copy calls
@@ -645,7 +706,18 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 			slog.Warn("orchestrator: restored backup did not scan; falling back to the drive",
 				"drive_index", driveIndex, "source", src.Arg(), "error", err)
 		}
+
+		// Nothing could re-derive the copy. Serving the cache beats reading a
+		// disc that is known to fail, even on a forced rescan.
+		if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+			return cached, nil
+		}
 	}
+
+	// What the cache held before we queued. A forced rescan may only accept an
+	// entry written while it waited — one from before is the very thing it was
+	// asked to go behind.
+	cachedBefore := o.cachedAtForDrive(driveIndex)
 
 	// One scan per drive at a time. A scan that appears to hang invites another
 	// click, and makemkvcon serialises on the executor mutex anyway — a second
@@ -654,9 +726,9 @@ func (o *Orchestrator) ScanDisc(ctx context.Context, driveIndex int) (*makemkv.D
 	unlock := o.lockDriveScan(driveIndex)
 	defer unlock()
 
-	if cached := o.GetCachedScanByDrive(driveIndex); cached != nil {
+	if fresh := o.cachedSince(driveIndex, force, cachedBefore); fresh != nil {
 		slog.Info("orchestrator: serving scan completed while waiting", "drive_index", driveIndex)
-		return cached, nil
+		return fresh, nil
 	}
 
 	slog.Info("orchestrator: starting disc scan", "drive_index", driveIndex)
@@ -703,11 +775,97 @@ func (o *Orchestrator) cacheScanFor(driveIndex int, discLabel string, scan *make
 		discLabel = scan.DiscName
 	}
 	key := fmt.Sprintf("%d:%s", driveIndex, discLabel)
+	fingerprint := makemkv.ScanFingerprint(scan)
+
+	// Whatever this drive held before, under any label. The disc that was
+	// swapped out answered to the label the new one now uses, so looking only
+	// under the new key would compare the disc against itself.
 	o.scanMu.Lock()
-	o.scanCache[key] = scan
+	previous := o.newestCachedForDrive(driveIndex)
+	o.scanCache[key] = &cachedScan{scan: scan, fingerprint: fingerprint, at: time.Now()}
 	o.scanMu.Unlock()
 
-	slog.Info("orchestrator: disc scan cached", "drive_index", driveIndex, "cache_key", key)
+	slog.Info("orchestrator: disc scan cached",
+		"drive_index", driveIndex, "cache_key", key, "fingerprint", fingerprint)
+
+	// An empty fingerprint on either side means a scan that found no titles,
+	// which describes no disc. Comparing those would report a disc change on
+	// every failed scan.
+	if previous == nil || previous.fingerprint == "" || fingerprint == "" {
+		return
+	}
+	if previous.fingerprint == fingerprint {
+		return
+	}
+
+	slog.Info("orchestrator: a different disc is in this drive",
+		"drive_index", driveIndex,
+		"was", previous.scan.DiscName, "was_fingerprint", previous.fingerprint,
+		"now", scan.DiscName, "now_fingerprint", fingerprint)
+
+	o.discChanged(driveIndex, scan.DiscName)
+}
+
+// SetOnDiscChanged registers the callback fired when a scan finds a different
+// disc than the one previously cached for a drive — including one answering to
+// the same volume label.
+//
+// The release selection, the search results and the mapping saved against them
+// all belong to the disc they were chosen for. Whoever holds that state has to
+// drop it, and that is the web server, which is built after this orchestrator.
+func (o *Orchestrator) SetOnDiscChanged(fn func(driveIndex int)) {
+	o.onDiscChanged = fn
+}
+
+// discChanged drops everything bound to the disc that just left the drive.
+//
+// Any repaired copy is already handled before the read that got us here — see
+// copyIsForAnotherDisc — so what is left is the state outside this package: the
+// release the user picked, the search results behind it, and the mapping saved
+// against them, all of which describe the disc that just came out.
+func (o *Orchestrator) discChanged(driveIndex int, discLabel string) {
+	slog.Info("orchestrator: dropping state bound to the disc that left the drive",
+		"drive_index", driveIndex, "disc", discLabel)
+
+	if o.onDiscChanged != nil {
+		o.onDiscChanged(driveIndex)
+	}
+}
+
+// newestCachedForDrive returns the most recently cached scan for a drive, under
+// any disc label. Callers must hold scanMu.
+func (o *Orchestrator) newestCachedForDrive(driveIndex int) *cachedScan {
+	prefix := fmt.Sprintf("%d:", driveIndex)
+	var newest *cachedScan
+	for key, entry := range o.scanCache {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if newest == nil || entry.at.After(newest.at) {
+			newest = entry
+		}
+	}
+	return newest
+}
+
+// CachedScanInfo returns the cached scan for the disc a drive is holding, along
+// with what identifies it and when it was taken, or nil when there is none.
+//
+// The page uses this to say a title list came from cache rather than from the
+// disc in the drive, so a stale one is never mistaken for a fresh read.
+func (o *Orchestrator) CachedScanInfo(driveIndex int) *ScanResult {
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+
+	entry := o.cachedEntryForDrive(driveIndex)
+	if entry == nil {
+		return nil
+	}
+	return &ScanResult{
+		Scan:        entry.scan,
+		Fingerprint: entry.fingerprint,
+		CachedAt:    entry.at,
+	}
 }
 
 // driveDiscName returns the disc a drive currently holds, or "" if it has not
@@ -735,7 +893,10 @@ func (o *Orchestrator) CachedScan(driveIndex int, discName string) *makemkv.Disc
 	key := fmt.Sprintf("%d:%s", driveIndex, discName)
 	o.scanMu.RLock()
 	defer o.scanMu.RUnlock()
-	return o.scanCache[key]
+	if entry := o.scanCache[key]; entry != nil {
+		return entry.scan
+	}
+	return nil
 }
 
 // InvalidateScan removes any cached scan for the given drive index.
@@ -762,6 +923,43 @@ func (o *Orchestrator) GetCachedScanByDrive(driveIndex int) *makemkv.DiscScan {
 	o.scanMu.RLock()
 	defer o.scanMu.RUnlock()
 
+	if entry := o.cachedEntryForDrive(driveIndex); entry != nil {
+		return entry.scan
+	}
+	return nil
+}
+
+// cachedAtForDrive returns when the drive's cached scan was taken, or the zero
+// time when there is none.
+func (o *Orchestrator) cachedAtForDrive(driveIndex int) time.Time {
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+	if entry := o.cachedEntryForDrive(driveIndex); entry != nil {
+		return entry.at
+	}
+	return time.Time{}
+}
+
+// cachedSince returns the drive's cached scan, subject to a forced rescan only
+// accepting one taken after the given time — the result of the scan it queued
+// behind, rather than the stale entry it was asked to replace.
+func (o *Orchestrator) cachedSince(driveIndex int, force bool, after time.Time) *makemkv.DiscScan {
+	o.scanMu.RLock()
+	defer o.scanMu.RUnlock()
+
+	entry := o.cachedEntryForDrive(driveIndex)
+	if entry == nil {
+		return nil
+	}
+	if force && !entry.at.After(after) {
+		return nil
+	}
+	return entry.scan
+}
+
+// cachedEntryForDrive resolves the cache entry for the disc a drive holds.
+// Callers must hold scanMu.
+func (o *Orchestrator) cachedEntryForDrive(driveIndex int) *cachedScan {
 	if disc := o.driveDisc[driveIndex]; disc != "" {
 		return o.scanCache[fmt.Sprintf("%d:%s", driveIndex, disc)]
 	}
@@ -769,9 +967,9 @@ func (o *Orchestrator) GetCachedScanByDrive(driveIndex int) *makemkv.DiscScan {
 	// The drive has not reported a disc yet. Falling back to the drive's only
 	// cached scan is what this always did, and it is no worse than before.
 	prefix := fmt.Sprintf("%d:", driveIndex)
-	for key, scan := range o.scanCache {
+	for key, entry := range o.scanCache {
 		if strings.HasPrefix(key, prefix) {
-			return scan
+			return entry
 		}
 	}
 	return nil
@@ -1133,7 +1331,11 @@ func (o *Orchestrator) InjectCachedScan(driveIndex int, scan *makemkv.DiscScan) 
 	key := fmt.Sprintf("%d:%s", driveIndex, scan.DiscName)
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
-	o.scanCache[key] = scan
+	o.scanCache[key] = &cachedScan{
+		scan:        scan,
+		fingerprint: makemkv.ScanFingerprint(scan),
+		at:          time.Now(),
+	}
 }
 
 // buildTrackMetadata extracts audio and subtitle metadata from a scanned title,

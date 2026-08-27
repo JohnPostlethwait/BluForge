@@ -126,6 +126,14 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 		}
 	}
 
+	// Say when the cached scan was taken, so the page can mark a title list it
+	// did not just read out of the drive.
+	if s.orchestrator != nil {
+		if info := s.orchestrator.CachedScanInfo(idx); info != nil {
+			driveStore.ScanCachedAt = info.CachedAt.Unix()
+		}
+	}
+
 	// Populate disc-level language aggregates and lossless flag from cached scan.
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
@@ -445,21 +453,67 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "scanner not configured")
 	}
 
-	// A scan that has already run is served from cache; this is the request the
-	// page makes when it sees the scan finish.
-	scan := s.orchestrator.GetCachedScanByDrive(idx)
-	if scan == nil {
-		err := s.orchestrator.StartScan(idx)
-		if err != nil && !errors.Is(err, workflow.ErrScanInProgress) {
-			slog.Error("could not start disc scan", "drive_index", idx, "error", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", err))
-		}
-		// Progress, completion and failure all arrive as disc_scan SSE events.
-		return c.JSON(http.StatusAccepted, map[string]any{
-			"status":  "scanning",
-			"message": "Reading the disc. This can take a while on a damaged disc; progress is shown on this page.",
-		})
+	// Always a read of the disc, never the cache.
+	//
+	// This used to answer from cache when there was one, which is how a two-disc
+	// set whose discs share a volume label served the first disc's titles for the
+	// second: the cache is keyed on that label, and nothing else about the discs
+	// was ever compared. Pressing Scan is a request to find out what is in the
+	// drive, and only reading it can answer that.
+	//
+	// Fetching the titles of a scan that already finished is a different request
+	// — GET on this path — so this costs nothing the user did not ask for.
+	if err := s.orchestrator.StartRescan(idx); err != nil && !errors.Is(err, workflow.ErrScanInProgress) {
+		slog.Error("could not start disc scan", "drive_index", idx, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("disc scan failed: %v", err))
 	}
+
+	// Progress, completion and failure all arrive as disc_scan SSE events.
+	return c.JSON(http.StatusAccepted, map[string]any{
+		"status":  "scanning",
+		"message": "Reading the disc. This can take a while on a damaged disc; progress is shown on this page.",
+	})
+}
+
+// ScanResultJSON is the stored result of the most recent scan of a drive.
+//
+// Everything this endpoint serves comes from the cache — that is what it is
+// for — so there is no boolean saying so. CachedAt is the useful fact: when the
+// disc was actually read. A title list read a moment ago and one cached before
+// the disc was swapped are otherwise identical, and the caller decides what to
+// make of the age.
+type ScanResultJSON struct {
+	Titles   []TitleJSON `json:"titles"`
+	DiscName string      `json:"disc_name"`
+	// CachedAt is when the scan was taken, as a Unix timestamp.
+	CachedAt int64 `json:"cached_at"`
+}
+
+// handleDriveScanResult returns the titles of a scan that has already run.
+//
+// This is what the page fetches when it sees the done event, and what it uses
+// to render a drive it is returning to. It may use the cache — and says so, so
+// the page never presents a cached list as a fresh read of the disc.
+func (s *Server) handleDriveScanResult(c echo.Context) error {
+	idx, err := parseDriveIndex(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
+	}
+
+	if s.driveMgr.GetDrive(idx) == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "drive not found")
+	}
+	if s.orchestrator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "scanner not configured")
+	}
+
+	// No scan has run for this drive. Not an error: the page asks before the
+	// first scan, and an empty body is how it learns there is nothing yet.
+	info := s.orchestrator.CachedScanInfo(idx)
+	if info == nil || info.Scan == nil {
+		return c.NoContent(http.StatusNoContent)
+	}
+	scan := info.Scan
 
 	// Save disc mapping if a release was selected in the session.
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {
@@ -484,14 +538,20 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && session.RawSearchResults != nil {
 		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
 			titles = enrichTitlesWithMatches(scan, *disc)
-			slog.Info("scan completed with match enrichment", "drive_index", idx, "title_count", len(titles))
-			return c.JSON(http.StatusOK, titles)
 		}
 	}
+	if titles == nil {
+		titles = scanToTitleJSON(scan)
+	}
 
-	titles = scanToTitleJSON(scan)
-	slog.Info("scan completed", "drive_index", idx, "title_count", len(titles))
-	return c.JSON(http.StatusOK, titles)
+	slog.Info("scan results served", "drive_index", idx,
+		"title_count", len(titles), "cached_at", info.CachedAt)
+
+	return c.JSON(http.StatusOK, ScanResultJSON{
+		Titles:   titles,
+		DiscName: scan.DiscName,
+		CachedAt: info.CachedAt.Unix(),
+	})
 }
 
 // handleDriveSalvage starts a salvage of a physically damaged disc.

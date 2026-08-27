@@ -267,6 +267,17 @@ func main() {
 		},
 	})
 
+	// A scan that finds a different disc than the one cached for a drive has to
+	// take the old disc's session with it. The release the user picked, the
+	// search results behind it and the mapping saved against them all describe
+	// the disc that just came out — and a two-disc set sharing one volume label
+	// is exactly the case the eject event cannot catch.
+	orch.SetOnDiscChanged(func(driveIndex int) {
+		slog.Info("a different disc was found in the drive; clearing its session",
+			"drive_index", driveIndex)
+		srv.ClearDriveSession(driveIndex)
+	})
+
 	// 13. Set up graceful shutdown with signal.NotifyContext.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

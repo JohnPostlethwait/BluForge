@@ -243,13 +243,19 @@ type DriveStoreJSON struct {
 	// ScanActive and its companions let a page that reconnected mid-scan draw
 	// the banner it missed the events for. ScanStartedAt is a Unix time so the
 	// client can tick the elapsed count itself, rather than needing a heartbeat.
-	ScanActive     bool   `json:"scanActive"`
-	ScanOperation  string `json:"scanOperation"`
-	ScanStartedAt  int64  `json:"scanStartedAt"`
-	KeepForcedSubs bool   `json:"keepForcedSubs"`
-	KeepLossless   bool   `json:"keepLossless"`
-	RipActive      bool   `json:"ripActive"`
-	ActiveJobCount int    `json:"activeJobCount"`
+	ScanActive    bool   `json:"scanActive"`
+	ScanOperation string `json:"scanOperation"`
+	ScanStartedAt int64  `json:"scanStartedAt"`
+	// ScanCachedAt is when the drive's cached scan was taken, as a Unix time, or
+	// 0 when no scan is cached. A cached title list and one just read out of the
+	// drive are otherwise indistinguishable to the page — which is how a
+	// two-disc set sharing a volume label showed the wrong disc's titles with
+	// nothing to suggest anything was wrong.
+	ScanCachedAt   int64 `json:"scanCachedAt"`
+	KeepForcedSubs bool  `json:"keepForcedSubs"`
+	KeepLossless   bool  `json:"keepLossless"`
+	RipActive      bool  `json:"ripActive"`
+	ActiveJobCount int   `json:"activeJobCount"`
 }
 
 // DashboardJobJSON is a compact job representation for the dashboard.
