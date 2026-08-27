@@ -15,6 +15,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Development Commands
 
 ```bash
+# Fresh clone or new worktree: generate first — *_templ.go is gitignored
+templ generate
+
 # Build
 go build -o bluforge .
 
@@ -37,6 +40,21 @@ templ generate
 docker build -t bluforge:dev .
 docker compose up
 ```
+
+## Releases
+
+Releases are **tag-driven only** — there is no version constant in the code and no CHANGELOG.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which runs the tests, then builds
+and pushes `ghcr.io/johnpostlethwait/bluforge` tagged from the semver.
+
+```bash
+git tag --sort=-v:refname | head -1   # find current version
+git tag -a v0.5.18 -m "v0.5.18 ..."   # annotated; patch bump for fixes
+git push origin v0.5.18
+```
+
+Tag a commit that is already on `origin/master`. Nothing else needs bumping.
+(The HARD RULE above still applies: only tag when the user's current message asks for it.)
 
 ## Architecture
 
