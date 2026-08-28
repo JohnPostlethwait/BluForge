@@ -69,6 +69,34 @@ git push origin v0.5.18
 Tag a commit that is already on `origin/master`. Nothing else needs bumping.
 (The HARD RULE above still applies: only tag when the user's current message asks for it.)
 
+### Release candidates
+
+A pre-release tag publishes its own image and **does not move `latest`** — that is what
+`latest=auto` in `release.yml` buys, so anything tracking `latest` stays where it is.
+
+```bash
+git tag -a v0.5.21-rc.1 -m "v0.5.21-rc.1 ..."   # -> ghcr.io/…/bluforge:0.5.21-rc.1
+git push origin v0.5.21-rc.1
+```
+
+Iterate with `-rc.2`, `-rc.3`; when it is right, tag `v0.5.21` and that one moves `latest`.
+RC images are kept, not pruned. Same rule as any tag: only when the current message asks.
+
+### Testing a branch before it is released
+
+An RC still has to be on `origin/master`, which is no use for trying something out before it
+lands. For that, run the **CI** workflow manually (Actions → CI → Run workflow → pick the
+branch). It runs the tests and then builds a dev image from that branch:
+
+```bash
+docker pull ghcr.io/johnpostlethwait/bluforge:branch-my-branch-name   # moves with the branch
+docker pull ghcr.io/johnpostlethwait/bluforge:sha-020f792             # pinned, never moves
+```
+
+Nothing is built unless the workflow is run by hand — a push or a PR still just runs the tests.
+Dev images never touch `latest` and never create a version tag. `/` and `+` in a branch name
+become `-`, since neither is legal in a Docker tag.
+
 ## Architecture
 
 BluForge is a self-hosted web app for orchestrating Blu-ray/DVD ripping via MakeMKV CLI integration, with disc identification through TheDiscDB GraphQL API.
