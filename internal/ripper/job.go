@@ -69,9 +69,16 @@ type Job struct {
 	// Returning a non-nil error aborts the job and transitions it to Failed.
 	// Typical use: lazy creation of the per-title temp directory.
 	OnStart func(job *Job) error `json:"-"`
-	// OnComplete is an optional callback invoked after the job finishes and is
-	// removed from the engine's active map. err is nil on success.
-	OnComplete func(job *Job, err error) `json:"-"`
+	// OnComplete is an optional callback invoked after the rip finishes and the
+	// job is removed from the engine's active map. err is the rip's own error,
+	// nil when the rip succeeded.
+	//
+	// It runs while the job is Organizing, and what it returns decides how the
+	// job ends: the move to the final destination happens in here, and a rip
+	// whose file could not be placed has not succeeded. The engine used to
+	// settle the job before calling this, so a failed move was announced as a
+	// completed rip and only the database disagreed.
+	OnComplete func(job *Job, err error) error `json:"-"`
 	// Source is what makemkvcon reads from. Normally the drive named by
 	// DriveIndex, but a disc recovered from a spurious AACS directory is ripped
 	// from its stripped backup folder instead. Not serialized — the UI groups
@@ -139,6 +146,14 @@ func (j *Job) CurrentPhase() string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.Phase
+}
+
+// SetStatus sets the job's lifecycle state without touching its timestamps.
+// Used for the non-terminal transitions; Complete, Fail and Skip settle a job.
+func (j *Job) SetStatus(status JobStatus) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.Status = status
 }
 
 // UpdateProgress sets the progress percentage (0-100).

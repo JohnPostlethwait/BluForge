@@ -373,12 +373,22 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	}
 
 	// OnComplete: move the ripped file to its final destination and clean up.
-	ripJob.OnComplete = func(job *ripper.Job, ripErr error) {
+	//
+	// What it returns is how the job ends. The engine holds the job at
+	// Organizing for the duration and settles it from this, so a rip that read
+	// the disc perfectly and then could not place the file is reported as the
+	// failure it is rather than as a success the database quietly disagreed with.
+	ripJob.OnComplete = func(job *ripper.Job, ripErr error) (outcome error) {
 		defer wg.Done()
 		// Drop this job's claim on the scratch backup. The last job to finish
 		// takes the ~100GB copy with it.
+		//
+		// On the job's outcome, not on the rip's: a rip that read the disc
+		// perfectly and then could not place the file has produced nothing, and
+		// the copy is exactly what a retry needs. Keyed on ripErr, the copy was
+		// deleted the moment a full destination failed the move.
 		if backupClaim != nil {
-			defer func() { o.releaseRecovered(backupClaim, ripErr == nil) }()
+			defer func() { o.releaseRecovered(backupClaim, outcome == nil) }()
 		}
 		if ripErr != nil {
 			// Look before deleting, and say what was there. Whether makemkvcon
@@ -397,8 +407,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 				}
 			}
 			o.setJobStatus(job.ID, "failed", job.Progress, ripErr.Error())
-			o.broadcastJobUpdate(job.ID, "failed")
-			return
+			return ripErr
 		}
 
 		// makemkvcon wrote the .mkv itself, with its own idea of the mode. The
@@ -413,8 +422,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 		if findErr != nil {
 			slog.Error("could not find ripped file", "job_id", job.ID, "rip_dir", job.OutputDir, "error", findErr)
 			o.setJobStatus(job.ID, "failed", 100, findErr.Error())
-			o.broadcastJobUpdate(job.ID, "failed")
-			return
+			return findErr
 		}
 
 		// Move the ripped file to its final organized destination.
@@ -436,10 +444,9 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			if dbErr := o.store.UpdateJobOutput(job.ID, srcPath, size); dbErr != nil {
 				slog.Error("could not record where the rip was kept", "job_id", job.ID, "path", srcPath, "error", dbErr)
 			}
-			o.setJobStatus(job.ID, "failed", 100,
-				fmt.Sprintf("organize: %v; the ripped file was kept at %s", moveErr, srcPath))
-			o.broadcastJobUpdate(job.ID, "failed")
-			return
+			keptErr := fmt.Errorf("organize: %w; the ripped file was kept at %s", moveErr, srcPath)
+			o.setJobStatus(job.ID, "failed", 100, keptErr.Error())
+			return keptErr
 		}
 
 		// Clean up title temp dir. Parent is cleaned up by the WaitGroup goroutine
@@ -461,7 +468,7 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			slog.Error("failed to update job output", "job_id", job.ID, "error", dbErr)
 		}
 		o.setJobStatus(job.ID, "completed", 100, "")
-		o.broadcastJobUpdate(job.ID, "completed")
+		return nil
 	}
 
 	// 7. Submit to engine.
@@ -1466,20 +1473,4 @@ func (o *Orchestrator) setJobStatus(jobID int64, status string, progress int, er
 	if err := o.store.UpdateJobStatus(jobID, status, progress, errMsg); err != nil {
 		slog.Error("failed to update job status", "jobID", jobID, "status", status, "err", err)
 	}
-}
-
-// broadcastJobUpdate sends a job status update over SSE.
-func (o *Orchestrator) broadcastJobUpdate(jobID int64, status string) {
-	if o.onBroadcast == nil {
-		return
-	}
-	data, err := json.Marshal(map[string]any{
-		"job_id": jobID,
-		"status": status,
-	})
-	if err != nil {
-		slog.Error("failed to marshal SSE data", "error", err)
-		return
-	}
-	o.onBroadcast("job_update", string(data))
 }

@@ -300,7 +300,7 @@ func TestHandleDriveDetail_ActiveRipSetsStoreFields(t *testing.T) {
 	job1 := ripper.NewJob(0, 0, "THE_BFG", tmpDir+"/out1")
 	job1.ID = 1
 	jobDone := make(chan struct{})
-	job1.OnComplete = func(_ *ripper.Job, _ error) { close(jobDone) }
+	job1.OnComplete = func(_ *ripper.Job, _ error) error { close(jobDone); return nil }
 	if err := os.MkdirAll(job1.OutputDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

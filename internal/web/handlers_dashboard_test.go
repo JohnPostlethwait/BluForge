@@ -78,7 +78,7 @@ func TestHandleDashboard_WithActiveRip(t *testing.T) {
 	tmpDir := t.TempDir()
 	job := ripper.NewJob(0, 0, "TEST_DISC", filepath.Join(tmpDir, "out"))
 	jobDone := make(chan struct{})
-	job.OnComplete = func(_ *ripper.Job, _ error) { close(jobDone) }
+	job.OnComplete = func(_ *ripper.Job, _ error) error { close(jobDone); return nil }
 
 	if err := os.MkdirAll(job.OutputDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

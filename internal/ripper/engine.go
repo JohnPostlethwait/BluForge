@@ -150,11 +150,16 @@ search:
 	// Settle the job outside the lock: OnComplete writes to the database,
 	// broadcasts, and releases backup claims, any of which can re-enter the
 	// engine.
+	//
+	// A job dropped from the queue was never ripped, so there is nothing for
+	// OnComplete to organize and nothing it can report that would change the
+	// outcome. It is called for its cleanup — the WaitGroup, the backup claim —
+	// and the job is settled here, once, either side of it.
 	removed.Fail(ErrRemovedFromQueue.Error())
-	e.notify(removed)
 	if removed.OnComplete != nil {
-		removed.OnComplete(removed, ErrRemovedFromQueue)
+		_ = removed.OnComplete(removed, ErrRemovedFromQueue)
 	}
+	e.notify(removed)
 	return true
 }
 
@@ -202,14 +207,16 @@ func (e *Engine) run(job *Job) {
 	if job.OnStart != nil {
 		if err := job.OnStart(job); err != nil {
 			job.Fail(err.Error())
-			e.notify(job)
 			// Remove from active map and drain queue so subsequent jobs aren't blocked.
 			e.mu.Lock()
 			delete(e.active, job.DriveIndex)
 			e.mu.Unlock()
+			// The rip never began, so there is nothing to organize; OnComplete
+			// runs for its cleanup and cannot change an already-settled failure.
 			if job.OnComplete != nil {
-				job.OnComplete(job, err)
+				_ = job.OnComplete(job, err)
 			}
+			e.notify(job)
 			e.drainQueue(job.DriveIndex)
 			return
 		}
@@ -251,19 +258,15 @@ func (e *Engine) run(job *Job) {
 		}
 	})
 
-	if err != nil {
-		job.Fail(err.Error())
-		e.notify(job)
-	} else {
-		// Transition through Organizing before completing.
-		func() {
-			job.mu.Lock()
-			defer job.mu.Unlock()
-			job.Status = StatusOrganizing
-		}()
-		e.notify(job)
-
-		job.Complete(job.OutputDir)
+	// Organizing is the job's state for as long as OnComplete is actually doing
+	// the organizing. Announced before the callback runs and left in place
+	// until it returns, rather than set and immediately superseded.
+	//
+	// Only for a rip that produced something: OnComplete runs either way, but
+	// on the failure path all it has to do is clean up, and announcing
+	// "Organizing" there would name work that is not happening.
+	if err == nil {
+		job.SetStatus(StatusOrganizing)
 		e.notify(job)
 	}
 
@@ -272,9 +275,23 @@ func (e *Engine) run(job *Job) {
 	delete(e.active, job.DriveIndex)
 	e.mu.Unlock()
 
+	// OnComplete moves the ripped file to its destination. A rip whose file
+	// could not be placed has not succeeded, so its error settles the job just
+	// as the rip's own would — and nothing terminal is announced until both
+	// have had their say.
+	postErr := err
 	if job.OnComplete != nil {
-		job.OnComplete(job, err)
+		if cbErr := job.OnComplete(job, err); cbErr != nil && postErr == nil {
+			postErr = cbErr
+		}
 	}
+
+	if postErr != nil {
+		job.Fail(postErr.Error())
+	} else {
+		job.Complete(job.OutputDir)
+	}
+	e.notify(job)
 
 	e.drainQueue(job.DriveIndex)
 }

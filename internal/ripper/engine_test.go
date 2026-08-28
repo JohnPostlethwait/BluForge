@@ -86,12 +86,13 @@ func TestEngine_OnCompleteCallback(t *testing.T) {
 	)
 
 	job := NewJob(0, 1, "DISC", "/output")
-	job.OnComplete = func(j *Job, err error) {
+	job.OnComplete = func(j *Job, err error) error {
 		cbMu.Lock()
 		defer cbMu.Unlock()
 		cbJob = j
 		cbErr = err
 		cbCalled = true
+		return nil
 	}
 
 	if err := engine.Submit(job); err != nil {
@@ -111,19 +112,34 @@ func TestEngine_OnCompleteCallback(t *testing.T) {
 	}
 
 	cbMu.Lock()
-	defer cbMu.Unlock()
+	called, gotJob, gotErr := cbCalled, cbJob, cbErr
+	cbMu.Unlock()
 
-	if !cbCalled {
+	if !called {
 		t.Fatal("OnComplete callback was never called")
 	}
-	if cbJob != job {
-		t.Errorf("OnComplete received wrong job pointer: got %p, want %p", cbJob, job)
+	if gotJob != job {
+		t.Errorf("OnComplete received wrong job pointer: got %p, want %p", gotJob, job)
 	}
-	if cbErr != nil {
-		t.Errorf("OnComplete received non-nil error: %v", cbErr)
+	if gotErr != nil {
+		t.Errorf("OnComplete received non-nil error: %v", gotErr)
 	}
-	if cbJob.Status != StatusCompleted {
-		t.Errorf("job status = %q, want %q", cbJob.Status, StatusCompleted)
+
+	// The job settles *after* the callback returns, because what the callback
+	// does — placing the ripped file — is part of whether the job succeeded.
+	// Reading the status the moment the callback fires would be reading it
+	// mid-flight, so wait for the engine to finish settling it.
+	settled := time.Now().Add(2 * time.Second)
+	var status JobStatus
+	for time.Now().Before(settled) {
+		status = job.Snapshot().Status
+		if status == StatusCompleted || status == StatusFailed {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if status != StatusCompleted {
+		t.Errorf("job status = %q, want %q", status, StatusCompleted)
 	}
 }
 
@@ -194,8 +210,9 @@ func TestEngine_ProgressBackwardsIgnored(t *testing.T) {
 	job := NewJob(0, 1, "DISC", "/output")
 
 	done := make(chan struct{})
-	job.OnComplete = func(_ *Job, _ error) {
+	job.OnComplete = func(_ *Job, _ error) error {
 		close(done)
+		return nil
 	}
 
 	if err := engine.Submit(job); err != nil {
@@ -264,8 +281,9 @@ func TestEngine_StageTransitionResetsProgress(t *testing.T) {
 	job := NewJob(0, 1, "DISC", "/output")
 
 	done := make(chan struct{})
-	job.OnComplete = func(_ *Job, _ error) {
+	job.OnComplete = func(_ *Job, _ error) error {
 		close(done)
+		return nil
 	}
 
 	if err := engine.Submit(job); err != nil {

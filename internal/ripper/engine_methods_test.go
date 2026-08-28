@@ -68,7 +68,7 @@ func TestEngine_IsActive(t *testing.T) {
 
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	done := make(chan struct{})
-	job.OnComplete = func(_ *Job, _ error) { close(done) }
+	job.OnComplete = func(_ *Job, _ error) error { close(done); return nil }
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("submit failed: %v", err)
@@ -98,7 +98,7 @@ func TestEngine_ActiveJobs(t *testing.T) {
 
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	done := make(chan struct{})
-	job.OnComplete = func(_ *Job, _ error) { close(done) }
+	job.OnComplete = func(_ *Job, _ error) error { close(done); return nil }
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("submit failed: %v", err)
@@ -126,7 +126,7 @@ func TestEngine_QueuedJobs(t *testing.T) {
 
 	job1 := NewJob(0, 1, "DISC", t.TempDir())
 	done1 := make(chan struct{})
-	job1.OnComplete = func(_ *Job, _ error) { close(done1) }
+	job1.OnComplete = func(_ *Job, _ error) error { close(done1); return nil }
 
 	if err := engine.Submit(job1); err != nil {
 		t.Fatalf("submit job1 failed: %v", err)
@@ -135,7 +135,7 @@ func TestEngine_QueuedJobs(t *testing.T) {
 
 	job2 := NewJob(0, 2, "DISC", t.TempDir())
 	done2 := make(chan struct{})
-	job2.OnComplete = func(_ *Job, _ error) { close(done2) }
+	job2.OnComplete = func(_ *Job, _ error) error { close(done2); return nil }
 
 	if err := engine.Submit(job2); err != nil {
 		t.Fatalf("submit job2 failed: %v", err)
@@ -163,7 +163,7 @@ func TestEngine_RemoveQueued(t *testing.T) {
 
 	job1 := NewJob(0, 1, "DISC", t.TempDir())
 	done := make(chan struct{})
-	job1.OnComplete = func(_ *Job, _ error) { close(done) }
+	job1.OnComplete = func(_ *Job, _ error) error { close(done); return nil }
 
 	if err := engine.Submit(job1); err != nil {
 		t.Fatalf("submit job1 failed: %v", err)
@@ -208,7 +208,7 @@ func TestEngine_CancelActive(t *testing.T) {
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	job.ID = 1
 	done := make(chan struct{})
-	job.OnComplete = func(_ *Job, _ error) { close(done) }
+	job.OnComplete = func(_ *Job, _ error) error { close(done); return nil }
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("submit failed: %v", err)

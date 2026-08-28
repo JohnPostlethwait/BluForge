@@ -49,7 +49,7 @@ func TestHandleActivityCancel_RemovesQueued(t *testing.T) {
 	job1Done := make(chan struct{})
 	job1 := ripper.NewJob(0, 0, "Disc1", filepath.Join(tmpDir, "out1"))
 	job1.ID = 1
-	job1.OnComplete = func(_ *ripper.Job, _ error) { close(job1Done) }
+	job1.OnComplete = func(_ *ripper.Job, _ error) error { close(job1Done); return nil }
 	os.MkdirAll(job1.OutputDir, 0o755)
 	engine.Submit(job1)
 
@@ -113,7 +113,7 @@ func TestHandleActivityCancel_CancelsActive(t *testing.T) {
 	jobDone := make(chan struct{})
 	job := ripper.NewJob(0, 0, "Disc1", filepath.Join(tmpDir, "out"))
 	job.ID = 1
-	job.OnComplete = func(_ *ripper.Job, _ error) { close(jobDone) }
+	job.OnComplete = func(_ *ripper.Job, _ error) error { close(jobDone); return nil }
 	os.MkdirAll(job.OutputDir, 0o755)
 	engine.Submit(job)
 
