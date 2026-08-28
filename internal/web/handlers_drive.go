@@ -363,7 +363,13 @@ func (s *Server) searchDiscDB(c echo.Context, searchType, query string) []discdb
 		return nil
 	}
 
-	if s.discdbCache != nil {
+	// A negative result is not cached.
+	//
+	// "Not in TheDiscDB" is the answer most likely to change — someone
+	// contributes the disc, quite possibly this user, from this app. Cached
+	// alongside real answers it held for the full TTL, so the search kept
+	// saying no such release with no way to make it look again.
+	if s.discdbCache != nil && len(items) > 0 {
 		if data, err := json.Marshal(items); err == nil {
 			if err := s.discdbCache.Set(cacheKey, data); err != nil {
 				slog.WarnContext(ctx, "failed to cache discdb results", "key", cacheKey, "err", err)
