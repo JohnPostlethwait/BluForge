@@ -70,10 +70,22 @@ func (o *Orchestrator) startScan(driveIndex int, force bool) error {
 	}
 
 	go func() {
+		// A safety net only. The slot is released explicitly below, before the
+		// outcome is announced; this catches the case where scanDisc panics.
 		defer o.endScan(driveIndex)
 
 		// Detached on purpose: nothing about this scan belongs to a request.
 		scan, err := o.scanDisc(context.Background(), driveIndex, force)
+
+		// Release the slot before saying how the scan ended.
+		//
+		// The page reacts to "done" by fetching the titles and resyncing the
+		// drive state, and that resync asks ScanStatus. Announcing first left a
+		// window where it answered "still scanning", which puts the banner back
+		// up over a scan that has finished — and nothing takes it down again,
+		// because the event that would have is the one already spent.
+		o.endScan(driveIndex)
+
 		switch {
 		case errors.Is(err, ErrRecoveryInProgress):
 			// Recovery took over and broadcasts its own progress. Ending the

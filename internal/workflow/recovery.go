@@ -215,7 +215,10 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 	// titles, instead of copying ~100GB to read all of it twice.
 	if rec, err := o.recoverViaSymlinks(ctx, req, root, scratchRoot, diag, cleanup); err == nil {
 		keepMounted = true
-		progress("done", 100)
+		// No "done" here. The caller still has to register the copy and cache
+		// its scan before the disc is actually usable, and "done" is the phase
+		// the page acts on by starting a scan — which would then run before the
+		// copy it is meant to read from exists.
 		return rec, nil
 	} else {
 		slog.Warn("recovery: symlink path unavailable, falling back to a full backup",
@@ -354,7 +357,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 
 	size := dirSize(backupDir)
 	o.finishDiagnostic(diagID, "ok", insp.Reason, size)
-	progress("done", 100)
+	// The terminal phase belongs to the caller; see the symlink path above.
 
 	slog.Info("recovery: disc recovered from spurious AACS directory",
 		"disc", req.DiscLabel, "backup_dir", backupDir,
@@ -426,11 +429,22 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 	bgCtx := context.WithoutCancel(ctx)
 
 	go func() {
+		// A safety net only. The slot is released explicitly before each
+		// outcome is announced; this catches a panic in the recovery itself.
 		defer o.endRecovery(driveIndex)
 
 		// Mark the drive so it does not read as idle for the length of the backup.
 		o.setDriveState(driveIndex, "recovering")
 		defer o.setDriveState(driveIndex, "detected")
+
+		// finish releases the recovery slot before its outcome goes out.
+		//
+		// The page reacts to "done" by starting a scan, and that scan's own
+		// completion resyncs the drive state — which asks RecoveryInProgress.
+		// Announcing first left a window where it answered "still recovering",
+		// putting the banner back up over a recovery that has finished, with
+		// nothing left to take it down again.
+		finish := func() { o.endRecovery(driveIndex) }
 
 		rec, err := o.RecoverSpuriousAACS(bgCtx, RecoveryRequest{
 			DriveIndex: driveIndex,
@@ -444,6 +458,7 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		})
 		if err != nil {
 			slog.Error("recovery: failed", "drive_index", driveIndex, "disc", discName, "error", err)
+			finish()
 			o.broadcastRecovery(driveIndex, discName, "failed", 0, err.Error())
 			return
 		}
@@ -454,6 +469,7 @@ func (o *Orchestrator) maybeRecover(ctx context.Context, driveIndex int, scanErr
 		// place. Filed under the disc, not under what scanning the copy
 		// reported: a folder scan names itself after the copied BDMV.
 		o.cacheScanFor(driveIndex, discName, rec.Scan)
+		finish()
 		o.broadcastRecovery(driveIndex, discName, "done", 100, "")
 		slog.Info("recovery: complete, disc is ready to rip",
 			"drive_index", driveIndex, "disc", discName, "titles", len(rec.Scan.Titles))

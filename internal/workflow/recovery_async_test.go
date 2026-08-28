@@ -60,6 +60,13 @@ func (g *gatedBackupper) backupAttempts() int {
 
 func setupAsync(t *testing.T) (*Orchestrator, *gatedBackupper, string) {
 	t.Helper()
+	return setupAsyncWithBroadcast(t, func(string, string) {})
+}
+
+// setupAsyncWithBroadcast is setupAsync with the SSE callback under the test's
+// control, for asserting on what recovery announces and when it says it.
+func setupAsyncWithBroadcast(t *testing.T, broadcast func(string, string)) (*Orchestrator, *gatedBackupper, string) {
+	t.Helper()
 
 	tmp := t.TempDir()
 	store, err := db.Open(filepath.Join(tmp, "test.db"))
@@ -80,7 +87,7 @@ func setupAsync(t *testing.T) (*Orchestrator, *gatedBackupper, string) {
 		Store:       store,
 		Engine:      ripper.NewEngine(&mockRipExecutor{}),
 		Organizer:   organizer.New(),
-		OnBroadcast: func(string, string) {},
+		OnBroadcast: broadcast,
 		Scanner:     &failingScanner{devicePath: "/dev/sr0"},
 		Backupper:   backupper,
 		OpenDiscRoot: func(string) (string, func(), error) {
