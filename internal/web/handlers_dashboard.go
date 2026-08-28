@@ -10,19 +10,23 @@ import (
 	"github.com/johnpostlethwait/bluforge/templates"
 )
 
-// handleDashboard renders the dashboard with Alpine.js store data.
-func (s *Server) handleDashboard(c echo.Context) error {
+// DriveListJSON describes every known drive for the dashboard.
+//
+// The page render and the drive-update SSE event both need this, and they used
+// to build it separately. The SSE copy set only index, name, disc and state,
+// leaving RipProgress and WorkflowStep at their zero values — which the page
+// reads as "ripping, at 0%" and "no disc". Every insert or eject therefore
+// rewrote every card on the dashboard, blanking the progress of a rip running
+// on a completely different drive. One builder is what keeps the two in step.
+func (s *Server) DriveListJSON() []DriveJSON {
 	drives := s.driveMgr.GetAllDrives()
 
 	// Build active job lookup for per-drive progress.
 	activeByDrive := make(map[int]int) // driveIndex -> progress
-	var activeJobs []*ripper.Job
-	var queuedJobs []*ripper.Job
 	if s.ripEngine != nil {
-		activeJobs = s.ripEngine.ActiveJobs()
-		queuedJobs = s.ripEngine.QueuedJobs()
-		for _, j := range activeJobs {
-			activeByDrive[j.DriveIndex] = j.Progress
+		for _, j := range s.ripEngine.ActiveJobs() {
+			snap := j.Snapshot()
+			activeByDrive[snap.DriveIndex] = snap.Progress
 		}
 	}
 
@@ -41,7 +45,7 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		// Compute workflow step for this drive.
 		if dsm.DiscName() != "" {
 			dj.WorkflowStep = 1 // has disc, at least step 1
-			if session := s.driveSessions.Get(idx); session != nil {
+			if session, ok := s.driveSessions.Snapshot(idx); ok {
 				if len(session.SearchResults) > 0 {
 					dj.WorkflowStep = 2
 				}
@@ -64,6 +68,20 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		}
 
 		driveList = append(driveList, dj)
+	}
+
+	return driveList
+}
+
+// handleDashboard renders the dashboard with Alpine.js store data.
+func (s *Server) handleDashboard(c echo.Context) error {
+	driveList := s.DriveListJSON()
+
+	var activeJobs []*ripper.Job
+	var queuedJobs []*ripper.Job
+	if s.ripEngine != nil {
+		activeJobs = s.ripEngine.ActiveJobs()
+		queuedJobs = s.ripEngine.QueuedJobs()
 	}
 
 	// Completed today count.
@@ -98,6 +116,7 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		CompletedToday: completedToday,
 		RecentJobs:     recentJobs,
 	}
+
 	storeBytes, err := json.Marshal(storeData)
 	if err != nil {
 		slog.Error("failed to marshal dashboard store", "error", err)

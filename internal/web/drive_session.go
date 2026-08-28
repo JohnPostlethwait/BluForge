@@ -54,6 +54,24 @@ func (s *DriveSessionStore) Get(driveIndex int) *DriveSession {
 	return s.sessions[driveIndex]
 }
 
+// Snapshot returns a copy of the session for the given drive index, and whether
+// one exists.
+//
+// Get hands out the live pointer, and the setters below mutate the fields of
+// that same object — so a caller that reads a field off a Get is racing every
+// concurrent search. This is the read for callers that only want to look: the
+// copy is taken under the lock, and the slice fields are only ever replaced
+// wholesale rather than written through, so the copied headers stay valid.
+func (s *DriveSessionStore) Snapshot(driveIndex int) (DriveSession, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	session, ok := s.sessions[driveIndex]
+	if !ok {
+		return DriveSession{}, false
+	}
+	return *session, true
+}
+
 // Set stores a session for the given drive index.
 func (s *DriveSessionStore) Set(driveIndex int, session *DriveSession) {
 	s.mu.Lock()

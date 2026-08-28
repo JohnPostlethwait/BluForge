@@ -202,20 +202,23 @@ func main() {
 		}
 
 		// Broadcast drive-update with full drive list for dashboard Alpine store.
-		allDrives := driveMgr.GetAllDrives()
-		driveList := make([]web.DriveJSON, 0, len(allDrives))
-		for _, dsm := range allDrives {
-			driveList = append(driveList, web.DriveJSON{
-				Index:    dsm.Index(),
-				Name:     dsm.DriveName(),
-				DiscName: dsm.DiscName(),
-				State:    string(dsm.State()),
-			})
+		//
+		// Built by the server, not here: the dashboard replaces its whole list
+		// from this event, and a payload that omits the rip progress and the
+		// workflow step does not mean "unknown" to the page — it means "ripping,
+		// at 0%" and "no disc". Assembling the four easy fields inline is how a
+		// disc going into one drive blanked the progress bar of a rip running in
+		// another.
+		//
+		// The server is built before polling starts, so this only ever guards
+		// the theoretical case.
+		if srv == nil {
+			return
 		}
 		driveUpdatePayload := struct {
 			Ready bool            `json:"ready"`
 			List  []web.DriveJSON `json:"list"`
-		}{Ready: driveMgr.Ready(), List: driveList}
+		}{Ready: driveMgr.Ready(), List: srv.DriveListJSON()}
 		driveUpdateData, err := json.Marshal(driveUpdatePayload)
 		if err != nil {
 			slog.Error("failed to marshal drive update payload", "err", err)
@@ -224,9 +227,6 @@ func main() {
 		sseHub.Broadcast(web.SSEEvent{Event: "drive-update", Data: string(driveUpdateData)})
 
 		// Auto-rip: trigger on disc insert when enabled.
-		if srv == nil {
-			return
-		}
 		snapCfg := srv.GetConfig()
 		if ev.Type == drivemanager.EventDiscInserted && snapCfg.AutoRip {
 			go func() {
