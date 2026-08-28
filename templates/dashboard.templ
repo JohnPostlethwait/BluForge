@@ -46,16 +46,26 @@ document.addEventListener('alpine:init', () => {
 		const store = Alpine.store('drives')
 		const drive = store.list.find(d => d.index === job.DriveIndex)
 		if (drive) {
+			// The card responds at once; the counters come from the server.
+			//
+			// They used to be arithmetic on events, and the arithmetic was
+			// wrong in ways that only drift further apart the longer the page
+			// stays open: completedToday counted a failed rip as one completed,
+			// and queuedCount was decremented on every terminal event whether
+			// or not the job had ever been queued — a single-title rip, which
+			// never queues, still took one off. activeCount, meanwhile, counted
+			// drives rather than jobs.
+			//
+			// None of that needs deriving. The server computes all three from
+			// the engine and the database.
 			if (job.Status === 'completed' || job.Status === 'failed') {
 				drive.ripProgress = -1
 				drive.workflowStep = 4
-				store.completedToday++
-				if (store.queuedCount > 0) store.queuedCount--
+				resyncDrives()
 			} else {
 				drive.ripProgress = job.Progress
 				drive.workflowStep = 5
 			}
-			store.activeCount = store.list.filter(d => d.ripProgress >= 0).length
 		}
 	})
 
