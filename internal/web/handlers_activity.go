@@ -104,51 +104,61 @@ func (s *Server) handleActivity(c echo.Context) error {
 	}
 
 	// Active jobs from the rip engine.
+	//
+	// Read through Snapshot, not off the live pointer. A running job's status,
+	// progress, phase and error are written by the rip goroutine under the
+	// job's mutex; reading them here without it is a data race, and it produced
+	// no symptom only because nothing ever tore a value badly enough to notice.
+	// Snapshot takes the same lock the writers do and hands back a copy.
 	if s.ripEngine != nil {
 		for _, j := range s.ripEngine.ActiveJobs() {
+			snap := j.Snapshot()
 			var startedAt string
-			if !j.StartedAt.IsZero() {
-				startedAt = j.StartedAt.UTC().Format(time.RFC3339)
+			if !snap.StartedAt.IsZero() {
+				startedAt = snap.StartedAt.UTC().Format(time.RFC3339)
 			}
 			store.Active = append(store.Active, activityJobJSON{
-				ID:          j.ID,
-				DiscName:    j.DiscName,
-				TitleName:   j.TitleName,
-				ContentType: normalizeContentType(j.ContentType),
-				Status:      string(j.Status),
-				Progress:    j.Progress,
-				Error:       j.Error,
-				DriveIndex:  j.DriveIndex,
+				ID:          snap.ID,
+				DiscName:    snap.DiscName,
+				TitleName:   snap.TitleName,
+				ContentType: normalizeContentType(snap.ContentType),
+				Status:      string(snap.Status),
+				Progress:    snap.Progress,
+				Error:       snap.Error,
+				DriveIndex:  snap.DriveIndex,
 				StartedAt:   startedAt,
 				// A page loaded mid-rip has seen no events, so the phase has to
 				// come from the engine or the byte counter starts out lying
 				// again until the next update arrives.
-				Phase: j.CurrentPhase(),
+				Phase: snap.Phase,
 				// A rip from a salvaged copy carries damage, and the card you
 				// watch for twenty minutes said nothing about it.
-				SalvageNote:       s.salvageNoteForJob(j.ID),
-				SizeBytes:         j.TrackMetadata.SizeBytes,
-				SizeHuman:         j.TrackMetadata.SizeHuman,
-				Duration:          j.TrackMetadata.Duration,
-				AudioTracks:       j.TrackMetadata.AudioTracks,
-				SubtitleLanguages: j.TrackMetadata.SubtitleLanguages,
+				SalvageNote:       s.salvageNoteForJob(snap.ID),
+				SizeBytes:         snap.TrackMetadata.SizeBytes,
+				SizeHuman:         snap.TrackMetadata.SizeHuman,
+				Duration:          snap.TrackMetadata.Duration,
+				AudioTracks:       snap.TrackMetadata.AudioTracks,
+				SubtitleLanguages: snap.TrackMetadata.SubtitleLanguages,
 			})
 		}
 
-		// Queued (pending) jobs.
+		// Queued (pending) jobs. A queued job is not being written to right now,
+		// but RemoveQueued can settle one from another goroutine at any moment,
+		// so it is read the same way.
 		for _, j := range s.ripEngine.QueuedJobs() {
+			snap := j.Snapshot()
 			store.Pending = append(store.Pending, activityJobJSON{
-				ID:                j.ID,
-				DiscName:          j.DiscName,
-				TitleName:         j.TitleName,
-				ContentType:       normalizeContentType(j.ContentType),
-				Status:            string(j.Status),
-				DriveIndex:        j.DriveIndex,
-				SizeBytes:         j.TrackMetadata.SizeBytes,
-				SizeHuman:         j.TrackMetadata.SizeHuman,
-				Duration:          j.TrackMetadata.Duration,
-				AudioTracks:       j.TrackMetadata.AudioTracks,
-				SubtitleLanguages: j.TrackMetadata.SubtitleLanguages,
+				ID:                snap.ID,
+				DiscName:          snap.DiscName,
+				TitleName:         snap.TitleName,
+				ContentType:       normalizeContentType(snap.ContentType),
+				Status:            string(snap.Status),
+				DriveIndex:        snap.DriveIndex,
+				SizeBytes:         snap.TrackMetadata.SizeBytes,
+				SizeHuman:         snap.TrackMetadata.SizeHuman,
+				Duration:          snap.TrackMetadata.Duration,
+				AudioTracks:       snap.TrackMetadata.AudioTracks,
+				SubtitleLanguages: snap.TrackMetadata.SubtitleLanguages,
 			})
 		}
 	}

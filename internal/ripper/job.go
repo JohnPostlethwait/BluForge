@@ -148,6 +148,18 @@ func (j *Job) CurrentPhase() string {
 	return j.Phase
 }
 
+// SetTitleIndex records the title number the rip is actually running against.
+//
+// makemkvcon renumbers titles between invocations on a disc whose titles fail
+// to read, so the index chosen at scan time can be corrected mid-rip. Every
+// page showing the queue reads this field through Snapshot, under the mutex;
+// the correction has to be written under it too.
+func (j *Job) SetTitleIndex(index int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.TitleIndex = index
+}
+
 // SetStatus sets the job's lifecycle state without touching its timestamps.
 // Used for the non-terminal transitions; Complete, Fail and Skip settle a job.
 func (j *Job) SetStatus(status JobStatus) {

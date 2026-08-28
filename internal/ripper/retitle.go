@@ -32,7 +32,10 @@ func ripWithRetry(ctx context.Context, exec RipExecutor, job *Job, onEvent func(
 
 	// Record what was actually ripped. Leaving the old number on the job would
 	// make the log describe a title that no longer exists at that position.
-	job.TitleIndex = moved.CorrectIndex
+	//
+	// Through the setter: this runs on the rip goroutine while the activity and
+	// dashboard pages read the same field through Snapshot.
+	job.SetTitleIndex(moved.CorrectIndex)
 
 	// One retry only. An enumeration that keeps moving would otherwise walk the
 	// disc for hours, and each pass costs a full re-read.
