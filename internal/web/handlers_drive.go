@@ -13,7 +13,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -544,27 +543,21 @@ func (s *Server) handleDriveScanResult(c echo.Context) error {
 	}
 	scan := info.Scan
 
-	// Save disc mapping if a release was selected in the session.
-	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && s.store != nil {
-		discKey := discdb.BuildDiscKey(scan)
-		if discKey != "" {
-			if err := s.store.SaveMapping(db.DiscMapping{
-				DiscKey:     discKey,
-				MediaItemID: session.MediaItemID,
-				ReleaseID:   session.ReleaseID,
-				DiscID:      session.DiscID,
-				MediaTitle:  session.MediaTitle,
-				MediaYear:   session.MediaYear,
-				MediaType:   session.MediaType,
-			}); err != nil {
-				slog.Warn("failed to save disc mapping", "disc_key", discKey, "error", err)
-			}
-		}
-	}
+	// No mapping is written here.
+	//
+	// This is a GET — the page fetching the titles of a scan that has finished —
+	// and it used to upsert disc_mappings whenever a release happened to be
+	// selected. Searching, picking a release and scanning is browsing, not
+	// confirming: it taught BluForge that this disc is that film without the
+	// user ever pressing Rip, so the page greeted the disc with "Previously
+	// matched" ever after and auto-rip acted on it. The row it wrote also
+	// carried no disc_name, blanking the column a real rip had filled in.
+	//
+	// ManualRip saves the mapping, at the point the user commits to the match.
 
 	// If a release is selected, enrich titles with DiscDB match data.
 	var titles []TitleJSON
-	if session := s.driveSessions.Get(idx); session != nil && session.ReleaseID != "" && session.RawSearchResults != nil {
+	if session, ok := s.driveSessions.Snapshot(idx); ok && session.ReleaseID != "" && session.RawSearchResults != nil {
 		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
 			titles = enrichTitlesWithMatches(scan, *disc)
 		}
