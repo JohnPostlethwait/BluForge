@@ -27,7 +27,7 @@ func TestManagerDetectsDiscInsert(t *testing.T) {
 
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
 		},
 	}
 
@@ -62,7 +62,7 @@ func TestManagerDetectsDiscEject(t *testing.T) {
 
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
 		},
 	}
 
@@ -78,7 +78,7 @@ func TestManagerDetectsDiscEject(t *testing.T) {
 	// acting on that discarded the user's selection in production. The clock is
 	// advanced rather than slept through.
 	mock.drives = []makemkv.DriveInfo{
-		{Index: 0, DriveName: "/dev/sr0", DiscName: "", Flags: 0},
+		{Index: 0, State: makemkv.DriveStateEmptyClosed, DriveName: "/dev/sr0", DiscName: "", Flags: 0},
 	}
 	base := time.Now()
 	mgr.now = func() time.Time { return base }
@@ -112,8 +112,8 @@ func TestManagerMultipleDrives(t *testing.T) {
 
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
-			{Index: 1, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
+			{Index: 1, State: makemkv.DriveStateInserted, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
 		},
 	}
 
@@ -158,7 +158,7 @@ func TestManagerMultipleDrives(t *testing.T) {
 func TestReady_FalseBeforePoll(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
 		},
 	}
 
@@ -172,7 +172,7 @@ func TestReady_FalseBeforePoll(t *testing.T) {
 func TestReady_TrueAfterPoll(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
 		},
 	}
 
@@ -187,7 +187,7 @@ func TestReady_TrueAfterPoll(t *testing.T) {
 func TestGetDrive_ValidIndex(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
 		},
 	}
 
@@ -206,7 +206,7 @@ func TestGetDrive_ValidIndex(t *testing.T) {
 func TestGetDrive_InvalidIndex(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
 		},
 	}
 
@@ -222,8 +222,8 @@ func TestGetDrive_InvalidIndex(t *testing.T) {
 func TestGetAllDrives_AfterPoll(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
-			{Index: 1, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
+			{Index: 1, State: makemkv.DriveStateInserted, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
 		},
 	}
 
@@ -270,7 +270,7 @@ func (m *mockErrorExecutor) ScanDisc(_ context.Context, _ int) (*makemkv.DiscSca
 func TestManagerRun_StopsOnCancel(t *testing.T) {
 	mock := &mockExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
 		},
 	}
 
@@ -336,7 +336,7 @@ func TestPollOnce_ExecutorError_FirstPoll(t *testing.T) {
 func TestPollOnce_ExecutorError_AfterSuccess(t *testing.T) {
 	mock := &mockErrorExecutor{
 		drives: []makemkv.DriveInfo{
-			{Index: 0, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
+			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
 		},
 	}
 

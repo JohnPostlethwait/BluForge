@@ -31,7 +31,11 @@ type driveWithDiscExecutor struct {
 func (e *driveWithDiscExecutor) ListDrives(ctx context.Context) ([]makemkv.DriveInfo, error) {
 	return []makemkv.DriveInfo{
 		{
-			Index:      0,
+			Index: 0,
+			// A drive holding a disc. discName may be empty — that is a disc
+			// with no volume label, which is a real and common case and is
+			// exactly why presence is read from the state rather than the name.
+			State:      makemkv.DriveStateInserted,
 			Flags:      12,
 			DriveName:  "Test Drive",
 			DiscName:   e.discName,

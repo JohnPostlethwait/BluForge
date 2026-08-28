@@ -27,11 +27,11 @@ func (s *scriptedExecutor) ScanDisc(context.Context, int) (*makemkv.DiscScan, er
 }
 
 func withDisc(name string) []makemkv.DriveInfo {
-	return []makemkv.DriveInfo{{Index: 1, Flags: 2, DriveName: "BD-RE", DiscName: name, DevicePath: "/dev/sr1"}}
+	return []makemkv.DriveInfo{{Index: 1, State: makemkv.DriveStateInserted, Flags: 2, DriveName: "BD-RE", DiscName: name, DevicePath: "/dev/sr1"}}
 }
 
 func withoutDisc() []makemkv.DriveInfo {
-	return []makemkv.DriveInfo{{Index: 1, Flags: 0, DriveName: "BD-RE", DiscName: "", DevicePath: "/dev/sr1"}}
+	return []makemkv.DriveInfo{{Index: 1, State: makemkv.DriveStateEmptyClosed, Flags: 0, DriveName: "BD-RE", DiscName: "", DevicePath: "/dev/sr1"}}
 }
 
 func collectEvents(t *testing.T, polls [][]makemkv.DriveInfo) []DriveEvent {

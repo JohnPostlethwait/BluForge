@@ -27,7 +27,7 @@ func countEvents(events []DriveEvent, t EventType) int {
 func TestDisconnectIsAnnouncedOnceNotOnEveryPoll(t *testing.T) {
 	var events []DriveEvent
 	mock := &mockExecutor{drives: []makemkv.DriveInfo{
-		{Index: 0, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
+		{Index: 0, State: makemkv.DriveStateInserted, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
 	}}
 	mgr := NewManager(mock, func(e DriveEvent) { events = append(events, e) })
 
@@ -58,7 +58,7 @@ func TestDisconnectIsAnnouncedOnceNotOnEveryPoll(t *testing.T) {
 // The drive is gone; it must not keep occupying a card on the dashboard.
 func TestADisconnectedDriveIsNoLongerListed(t *testing.T) {
 	mock := &mockExecutor{drives: []makemkv.DriveInfo{
-		{Index: 0, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
+		{Index: 0, State: makemkv.DriveStateInserted, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
 	}}
 	mgr := NewManager(mock, func(DriveEvent) {})
 
@@ -80,7 +80,7 @@ func TestADisconnectedDriveIsNoLongerListed(t *testing.T) {
 func TestAReconnectedDriveIsDetectedAgain(t *testing.T) {
 	var events []DriveEvent
 	present := []makemkv.DriveInfo{
-		{Index: 0, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
+		{Index: 0, State: makemkv.DriveStateInserted, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
 	}
 	mock := &mockExecutor{drives: present}
 	mgr := NewManager(mock, func(e DriveEvent) { events = append(events, e) })

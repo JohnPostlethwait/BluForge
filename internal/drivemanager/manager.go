@@ -86,12 +86,6 @@ func (m *Manager) Ready() bool {
 	return m.ready
 }
 
-// discPresent returns true when a DriveInfo has a non-empty disc name and
-// non-zero flags, indicating a disc is actually loaded.
-func discPresent(info makemkv.DriveInfo) bool {
-	return info.DiscName != "" && info.Flags > 0
-}
-
 // PollOnce lists drives, compares against previous state, and emits events.
 //
 // Events are collected while holding the lock and dispatched after the lock is
@@ -124,8 +118,14 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	seen := make(map[int]bool, len(infos))
 
 	for _, info := range infos {
-		// Skip phantom drive slots with no hardware attached.
-		if info.DriveName == "" {
+		// Skip slots with no hardware attached.
+		//
+		// makemkvcon lists every slot it could use. Deciding this from the blank
+		// drive name meant a real drive that momentarily reported no name was
+		// taken for an empty slot — and, because this skip happens before the
+		// index is marked seen, then for a drive that had been unplugged.
+		// DriveInfo.Present asks MakeMKV's own state field instead.
+		if !info.Present() {
 			continue
 		}
 
@@ -150,7 +150,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		dsm := m.drives[info.Index]
 		prev, hadDisc := m.known[info.Index]
 
-		if discPresent(info) {
+		if info.HasDisc() {
 			// A disc is present now; any earlier empty reading was transient.
 			delete(m.absentSince, info.Index)
 			if !hadDisc || prev != info.DiscName {

@@ -1,12 +1,58 @@
 package makemkv
 
+// Drive states as reported in the DRV line's second field. These are
+// AP_DriveState from MakeMKV's apdefs.h.
+//
+// The published field list at makemkv.com/developers/usage.txt calls this field
+// "set to 1 if drive is present". That is stale — the same document lists six
+// DRV fields where makemkvcon emits seven — and it does not describe observed
+// output, where an empty drive reports 0 and an absent slot reports 256.
+const (
+	DriveStateEmptyClosed = 0
+	DriveStateEmptyOpen   = 1
+	DriveStateInserted    = 2
+	DriveStateLoading     = 3
+	DriveStateNoDrive     = 256
+	DriveStateUnmounting  = 257
+)
+
 // DriveInfo represents a physical disc drive detected by MakeMKV.
 type DriveInfo struct {
-	Index      int
+	Index int
+	// State is MakeMKV's own account of the drive, one of the DriveState
+	// constants above. It is the only field that says outright whether the slot
+	// holds hardware and whether that hardware holds a disc.
+	State      int
 	Flags      int
 	DriveName  string
 	DiscName   string
 	DevicePath string // e.g. "/dev/sr0"
+}
+
+// Present reports that this slot has a drive attached.
+//
+// makemkvcon lists every slot it could use, including ones with no hardware, as
+// DRV:N,256,999,0,"","","". Those have to be skipped — but deciding it from the
+// blank drive name means a real drive that momentarily reports no name is taken
+// for an empty slot, and then for a drive that has been unplugged.
+//
+// The device path is a second witness: a real drive has one even in a poll that
+// omits its name, and a phantom slot never does.
+func (d DriveInfo) Present() bool {
+	if d.State == DriveStateNoDrive {
+		return false
+	}
+	return d.DriveName != "" || d.DevicePath != ""
+}
+
+// HasDisc reports that the drive currently holds readable media.
+//
+// Read from the state rather than inferred from the disc name and media flags.
+// A disc with no volume label reports an empty name, and inferring from that
+// showed an empty drive with a disc sitting in it — nothing could be scanned or
+// ripped, because as far as BluForge was concerned there was nothing there.
+func (d DriveInfo) HasDisc() bool {
+	return d.State == DriveStateInserted
 }
 
 // DiscInfo represents metadata about the disc currently in a drive.
