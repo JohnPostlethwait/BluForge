@@ -37,24 +37,7 @@ document.addEventListener('alpine:init', () => {
 	// A page loaded during a salvage has seen no events. The server says what is
 	// running so the panel is there immediately rather than after the next
 	// update, which during a quiet phase can be minutes away.
-	{
-		const cur = Alpine.store('activity').salvage || {}
-		if (cur.active || cur.paused) {
-			Alpine.store('activity').salvageDriveIndex = cur.driveIndex
-			Alpine.store('activity').salvageDisc = cur.discLabel || ''
-			Alpine.store('activity').salvageResumable = !!cur.resumable
-		}
-		if (cur.active) {
-			Alpine.store('activity').salvageActive = true
-			Alpine.store('activity').salvagePhase = 'backing-up'
-			Alpine.store('activity').salvageStartedAt = Date.now()
-		} else if (cur.paused) {
-			// A salvage stopped with work on disk. The page must offer to
-			// resume it, whether it was paused a minute ago or before a restart.
-			Alpine.store('activity').salvagePhase = 'paused'
-			Alpine.store('activity').salvageMessage = 'Paused. Everything recovered so far is kept.'
-		}
-	}
+	applySalvageState(Alpine.store('activity').salvage)
 	setInterval(() => Alpine.store('activity').now = Date.now(), 1000) // drives live elapsed/ETA update on active rip cards
 	Alpine.store('activityError', '')
 	Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
@@ -63,6 +46,19 @@ document.addEventListener('alpine:init', () => {
 	})
 
 	const evtSource = new EventSource('/events')
+
+	// The event stream is a live hint, not a record: no replay, dropped for slow
+	// clients, and killed outright by a sleeping laptop. Everything below builds
+	// on events, so without somewhere authoritative to ask, anything missed
+	// while this page was away stayed missing until a manual reload.
+	let _sseEverOpen = false
+	evtSource.addEventListener('open', () => {
+		if (_sseEverOpen) resyncActivity()
+		_sseEverOpen = true
+	})
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') resyncActivity()
+	})
 
 	// A salvage runs for hours and produces a file MakeMKV would refuse to make.
 	// Nothing here happens without the user reading what that means and agreeing.
@@ -102,59 +98,67 @@ document.addEventListener('alpine:init', () => {
 
 		// Update active job progress.
 		const active = store.active.find(j => j.id === job.ID)
-		if (active) {
-			active.progress = job.Progress
-			active.status = job.Status
-			active.startedAt = job.StartedAt
-			// Until MakeMKV starts copying, its progress describes an analysis
-			// pass and says nothing about bytes written.
-			active.phase = job.Phase || ''
 
-			// Move to completed when done.
-			if (job.Status === 'completed' || job.Status === 'failed') {
-				store.active = store.active.filter(j => j.id !== job.ID)
-				store.completed.unshift({
-					id: job.ID,
-					discName: job.DiscName,
-					titleName: job.TitleName,
-					contentType: active.contentType,
-					status: job.Status,
-					progress: job.Progress,
-					error: job.Error || '',
-					finishedAt: new Date().toLocaleString(),
-					sizeHuman: active.sizeHuman || '',
-					duration: active.duration || '',
-					audioTracks: active.audioTracks || [],
-					subtitleLanguages: active.subtitleLanguages || [],
-				})
+		// A job this page has never heard of. Every rip submitted from a drive
+		// page while this tab was open arrived here, was matched against an
+		// empty store.active, and was dropped — so the rip ran to completion
+		// without ever appearing. The server knows about it; ask.
+		if (!active) {
+			if (job.Status === 'ripping' || job.Status === 'organizing') resyncActivity()
+			return
+		}
 
-				// Also add to history so it appears in the History tab immediately.
-				// Remove any existing entry for this job first (guards against
-				// duplicates if the page was loaded while the job was in-flight).
-				store.history = store.history.filter(r => r.id !== job.ID)
-				store.history.unshift({
-					id: job.ID,
-					discName: job.DiscName,
-					titleName: job.TitleName,
-					contentType: active.contentType,
-					status: job.Status,
-					error: job.Error || '',
-					duration: '',
-					outputPath: '',
-					createdAt: new Date().toLocaleString(),
-					sizeHuman: active.sizeHuman || '',
-					audioTracks: active.audioTracks || [],
-					subtitleLanguages: active.subtitleLanguages || [],
-				})
+		active.progress = job.Progress
+		active.status = job.Status
+		active.startedAt = job.StartedAt
+		// Until MakeMKV starts copying, its progress describes an analysis
+		// pass and says nothing about bytes written.
+		active.phase = job.Phase || ''
 
-				// Promote next queued job to active.
-				const nextIdx = store.pending.findIndex(j => j.driveIndex === active.driveIndex)
-				if (nextIdx !== -1) {
-					const next = store.pending.splice(nextIdx, 1)[0]
-					next.status = 'ripping'
-					next.progress = 0
-					store.active.push(next)
-				}
+		// Move to completed when done.
+		if (job.Status === 'completed' || job.Status === 'failed') {
+			store.active = store.active.filter(j => j.id !== job.ID)
+			store.completed.unshift({
+				id: job.ID,
+				discName: job.DiscName,
+				titleName: job.TitleName,
+				contentType: active.contentType,
+				status: job.Status,
+				progress: job.Progress,
+				error: job.Error || '',
+				finishedAt: new Date().toLocaleString(),
+				sizeHuman: active.sizeHuman || '',
+				duration: active.duration || '',
+				audioTracks: active.audioTracks || [],
+				subtitleLanguages: active.subtitleLanguages || [],
+			})
+
+			// Also add to history so it appears in the History tab immediately.
+			// Remove any existing entry for this job first (guards against
+			// duplicates if the page was loaded while the job was in-flight).
+			store.history = store.history.filter(r => r.id !== job.ID)
+			store.history.unshift({
+				id: job.ID,
+				discName: job.DiscName,
+				titleName: job.TitleName,
+				contentType: active.contentType,
+				status: job.Status,
+				error: job.Error || '',
+				duration: '',
+				outputPath: '',
+				createdAt: new Date().toLocaleString(),
+				sizeHuman: active.sizeHuman || '',
+				audioTracks: active.audioTracks || [],
+				subtitleLanguages: active.subtitleLanguages || [],
+			})
+
+			// Promote next queued job to active.
+			const nextIdx = store.pending.findIndex(j => j.driveIndex === active.driveIndex)
+			if (nextIdx !== -1) {
+				const next = store.pending.splice(nextIdx, 1)[0]
+				next.status = 'ripping'
+				next.progress = 0
+				store.active.push(next)
 			}
 		}
 	})
@@ -167,6 +171,79 @@ document.addEventListener('alpine:init', () => {
 		store.contributionDiscName = d.disc_name
 	})
 })
+
+// applySalvageState draws the salvage panel from what the server reports.
+//
+// A salvage runs for hours and can be silent for minutes, so a page that has
+// seen no events still has to show one that is running — or one that was paused
+// and is waiting to be resumed, which survives even a restart. Shared by the
+// initial hydration and every resync, so the two cannot drift.
+function applySalvageState(cur) {
+	const store = Alpine.store('activity')
+	if (!store) return
+	cur = cur || {}
+
+	if (cur.active || cur.paused) {
+		store.salvageDriveIndex = cur.driveIndex
+		store.salvageDisc = cur.discLabel || ''
+		store.salvageResumable = !!cur.resumable
+	}
+	if (cur.active) {
+		store.salvageActive = true
+		store.salvagePhase = 'backing-up'
+		if (!store.salvageStartedAt) store.salvageStartedAt = Date.now()
+	} else if (cur.paused) {
+		// A salvage stopped with work on disk. The page must offer to resume it,
+		// whether it was paused a minute ago or before a restart.
+		store.salvageActive = false
+		store.salvagePhase = 'paused'
+		store.salvageMessage = 'Paused. Everything recovered so far is kept.'
+	} else if (store.salvageActive) {
+		// The page believes a salvage is running and the server says none is, so
+		// it ended while this page was disconnected — and the terminal event that
+		// would have taken the spinner down is gone for good. Left alone, the
+		// panel reads "Copying the disc" for work that finished hours ago.
+		//
+		// Marked done rather than blanked: it did finish, and the panel's own
+		// done message is a truer thing to show than nothing at all.
+		store.salvageActive = false
+		store.salvagePhase = 'done'
+	}
+}
+
+// resyncActivity replaces the job lists with the server's view.
+//
+// The lists are entirely server-derived, so they can be taken wholesale. Local
+// UI state — the open tab, the history filter, a salvage this page has just
+// asked to pause — is deliberately left alone.
+async function resyncActivity() {
+	const store = Alpine.store('activity')
+	if (!store) return
+	try {
+		const resp = await fetch('/activity', { headers: { 'Accept': 'application/json' } })
+		if (!resp.ok) return
+		const s = await resp.json()
+
+		store.active = s.active || []
+		store.pending = s.pending || []
+		store.history = s.history || []
+		store.hasMore = s.hasMore
+		store.discsWithBackup = s.discsWithBackup || []
+
+		// The server is authoritative about the salvage, including one that was
+		// paused before this page existed. Not guarded against a pause this page
+		// has just asked for: salvageStoppingRun is only cleared when a salvage
+		// is started or resumed, so guarding on it would silently stop the panel
+		// resyncing for the rest of the page's life after any pause — a far
+		// worse outcome than the millisecond window between clicking Pause and
+		// the server acting on it.
+		store.salvage = s.salvage || {}
+		applySalvageState(store.salvage)
+	} catch (err) {
+		// A failed resync is not worth surfacing: the next reconnect or tab
+		// focus tries again.
+	}
+}
 
 // salvageDisc asks before doing anything, because a salvage is a deliberate
 // departure from how MakeMKV behaves: it writes a file containing damaged video

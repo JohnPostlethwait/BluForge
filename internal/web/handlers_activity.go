@@ -263,6 +263,13 @@ func (s *Server) handleActivity(c echo.Context) error {
 		store.DiscsWithBackup = s.orchestrator.DiscsWithBackup()
 	}
 
+	// A page that lost its event stream has no way to catch up: events are
+	// delivered once and never replayed. This is the same store the render
+	// embeds, served so the page can ask again on reconnect.
+	if wantsJSON(c) {
+		return c.JSON(http.StatusOK, store)
+	}
+
 	storeBytes, err := json.Marshal(store)
 	if err != nil {
 		slog.Error("failed to marshal activity store", "error", err)

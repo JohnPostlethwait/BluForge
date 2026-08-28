@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"log/slog"
+	"net/http"
 
 	"github.com/labstack/echo/v4"
 
@@ -115,6 +116,13 @@ func (s *Server) handleDashboard(c echo.Context) error {
 		QueuedCount:    len(queuedJobs),
 		CompletedToday: completedToday,
 		RecentJobs:     recentJobs,
+	}
+
+	// A page that lost its event stream has no way to catch up: events are
+	// delivered once and never replayed. This is the same store the render
+	// embeds, served so the page can ask again on reconnect.
+	if wantsJSON(c) {
+		return c.JSON(http.StatusOK, storeData)
 	}
 
 	storeBytes, err := json.Marshal(storeData)

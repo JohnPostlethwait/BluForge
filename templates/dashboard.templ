@@ -20,6 +20,21 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('drives').contributionDiscName = ''
 
 	const evtSource = new EventSource('/events')
+
+	// The event stream is a live hint, not a record. It has no replay, the
+	// server drops events for slow clients, and a sleeping laptop kills the
+	// connection outright — so anything that happened while this page was away
+	// is lost unless it asks. The drive page has done this since it was showing
+	// "copying, 94 percent" hours after the copy finished; the dashboard could not.
+	let _sseEverOpen = false
+	evtSource.addEventListener('open', () => {
+		if (_sseEverOpen) resyncDrives()
+		_sseEverOpen = true
+	})
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') resyncDrives()
+	})
+
 	evtSource.addEventListener('drive-update', (e) => {
 		const update = JSON.parse(e.data)
 		Alpine.store('drives').ready = update.ready
@@ -52,6 +67,31 @@ document.addEventListener('alpine:init', () => {
 		store.contributionDiscName = d.disc_name
 	})
 })
+
+// resyncDrives replaces the whole store with the server's view.
+//
+// Everything on this page is server-derived — the drives, the counts, the
+// recent jobs — so there is no in-flight local state to preserve, and the same
+// endpoint that rendered the page answers with the same store as JSON.
+async function resyncDrives() {
+	const store = Alpine.store('drives')
+	if (!store) return
+	try {
+		const resp = await fetch('/', { headers: { 'Accept': 'application/json' } })
+		if (!resp.ok) return
+		const s = await resp.json()
+
+		store.ready = s.ready
+		store.list = s.list || []
+		store.activeCount = s.activeCount
+		store.queuedCount = s.queuedCount
+		store.completedToday = s.completedToday
+		store.recentJobs = s.recentJobs || []
+	} catch (err) {
+		// A failed resync is not worth surfacing: the next reconnect or tab
+		// focus tries again.
+	}
+}
 
 const stepLabels = ['', 'Search', 'Select', 'Scan', 'Review', 'Ripping']
 function stepLabel(n) { return stepLabels[n] || '' }

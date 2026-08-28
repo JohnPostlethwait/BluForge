@@ -69,24 +69,23 @@ document.addEventListener('alpine:init', () => {
 
 	evtSource.addEventListener('drive-event', (e) => {
 		const update = JSON.parse(e.data)
-		if (update.DriveIndex === Alpine.store('drive').driveIndex) {
-			Alpine.store('drive').state = update.State
-			Alpine.store('drive').discName = update.DiscName
-			if (update.Type === 'disc_ejected') {
-				Alpine.store('drive').titles = []
-				Alpine.store('drive').scanCachedAt = 0
-				Alpine.store('drive').selectedRelease = null
-				Alpine.store('drive').searchResults = []
-				Alpine.store('drive').scanning = false
-				Alpine.store('drive').searching = false
-				Alpine.store('drive').selecting = false
-				Alpine.store('drive').scanError = ''
-				Alpine.store('drive').searchError = ''
-				Alpine.store('drive').searchQuery = update.DiscName || ''
-				Alpine.store('drive').discPickerRelease = null
-				Alpine.store('drive').hasMapping = false
-				Alpine.store('drive').currentStep = 1
-			}
+		const store = Alpine.store('drive')
+		if (update.DriveIndex !== store.driveIndex) return
+
+		store.state = update.State
+		store.discName = update.DiscName
+
+		// Both events mean the disc this page was describing is no longer the
+		// disc in the drive, and both have to drop everything bound to it.
+		//
+		// Insert used to do nothing here, and insert is the event an ordinary
+		// swap actually produces: an eject is only believed after the drive
+		// reports empty for a continuous 30 seconds, which taking one disc out
+		// and putting the next in never reaches. So ripping Akira and loading
+		// the next disc left "Matched: Akira (1988)" on the new disc's page,
+		// with its titles still listed underneath.
+		if (update.Type === 'disc_ejected' || update.Type === 'disc_inserted') {
+			resetForNewDisc(update.DiscName || '')
 		}
 	})
 
@@ -163,6 +162,44 @@ document.addEventListener('alpine:init', () => {
 
 function goToStep(step) {
 	Alpine.store('drive').currentStep = step
+}
+
+// resetForNewDisc drops everything on this page that described the disc that
+// has just left the drive, and puts the wizard back at the start.
+//
+// The release, the search behind it, the scanned titles and the languages
+// derived from them all belong to one disc. The server has already dropped its
+// half — the drive session is cleared on both events — so this is the browser's
+// half of the same reset, shared by eject and insert rather than written out
+// once for eject and forgotten for insert.
+//
+// It ends with a resync rather than assumptions: the server knows whether the
+// new disc is already being scanned, recovered or ripped from a copy.
+function resetForNewDisc(discName) {
+	const store = Alpine.store('drive')
+	if (!store) return
+
+	stopScanClock()
+
+	store.titles = []
+	store.audioLangs = []
+	store.subtitleLangs = []
+	store.selectedRelease = null
+	store.discPickerRelease = null
+	store.searchResults = []
+	store.searchQuery = discName || ''
+	store.hasMapping = false
+	store.matchedMedia = ''
+	store.scanCachedAt = 0
+	store.scanRequested = false
+	store.scanning = false
+	store.searching = false
+	store.selecting = false
+	store.scanError = ''
+	store.searchError = ''
+	store.currentStep = 1
+
+	resyncDriveState()
 }
 
 // resyncDriveState replaces live state with the server's view.

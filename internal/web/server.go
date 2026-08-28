@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,6 +181,14 @@ func NewServer(deps ServerDeps) *Server {
 	e.GET("/events", s.handleSSE)
 
 	return s
+}
+
+// wantsJSON reports that the caller asked for the page's state rather than the
+// page. Used by the handlers that serve an Alpine store both ways: rendered
+// into the HTML on a page load, and as JSON when a page that lost its event
+// stream comes back and needs to resync.
+func wantsJSON(c echo.Context) bool {
+	return strings.Contains(c.Request().Header.Get("Accept"), "application/json")
 }
 
 // GetConfig returns a snapshot of the current configuration. Safe for
