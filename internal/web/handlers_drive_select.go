@@ -42,7 +42,7 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	// Preserve existing search results if any.
 	var existingResults []SearchResultJSON
 	var existingRawResults []discdb.MediaItem
-	if existing := s.driveSessions.Get(idx); existing != nil {
+	if existing, ok := s.driveSessions.Snapshot(idx); ok {
 		existingResults = existing.SearchResults
 		existingRawResults = existing.RawSearchResults
 	}
@@ -69,8 +69,8 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	// return them so the frontend updates the Titles table immediately.
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-			session := s.driveSessions.Get(idx)
-			if session != nil && session.RawSearchResults != nil {
+			session, ok := s.driveSessions.Snapshot(idx)
+			if ok && session.RawSearchResults != nil {
 				if disc := findDiscForRelease(session.RawSearchResults, req.ReleaseID, req.DiscID); disc != nil {
 					titles := enrichTitlesWithMatches(scan, *disc)
 					return c.JSON(http.StatusOK, map[string]interface{}{

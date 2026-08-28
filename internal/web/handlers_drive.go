@@ -91,7 +91,7 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	//
 	// Asking the drive is what the block above already does, for the same
 	// reason, and it holds whether or not any event arrived.
-	if session := s.driveSessions.Get(idx); session != nil &&
+	if session, ok := s.driveSessions.Snapshot(idx); ok &&
 		session.DiscLabel != "" && drv.DiscName() != "" &&
 		session.DiscLabel != drv.DiscName() {
 		slog.Info("dropping a drive session bound to a disc that is no longer in the drive",
@@ -118,7 +118,12 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	}
 
 	// Hydrate from drive session if available.
-	if session := s.driveSessions.Get(idx); session != nil {
+	//
+	// Through Snapshot rather than Get: Get hands out the live session, and the
+	// search handlers write SearchResults, RawSearchResults and DiscLabel into
+	// that same object. One tab searching while another renders the page is
+	// enough to be reading a field mid-write.
+	if session, ok := s.driveSessions.Snapshot(idx); ok {
 		if session.ReleaseID != "" {
 			driveStore.SelectedRelease = &SelectedReleaseJSON{
 				MediaItemID: session.MediaItemID,
@@ -753,8 +758,8 @@ func (s *Server) handleDriveMatch(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid drive id")
 	}
 
-	session := s.driveSessions.Get(idx)
-	if session == nil || session.ReleaseID == "" {
+	session, ok := s.driveSessions.Snapshot(idx)
+	if !ok || session.ReleaseID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "no release selected")
 	}
 
