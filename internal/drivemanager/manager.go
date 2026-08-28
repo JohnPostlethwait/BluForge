@@ -198,19 +198,31 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	}
 
 	// Detect drives that have disappeared entirely.
-	for idx := range m.drives {
-		if !seen[idx] {
-			dsm := m.drives[idx]
-			prev := m.known[idx]
-			dsm.ForceReset()
-			delete(m.known, idx)
-			pending = append(pending, DriveEvent{
-				Type:       EventDriveDisconnect,
-				DriveIndex: idx,
-				DiscName:   prev,
-				State:      dsm.State(),
-			})
+	//
+	// The drive is forgotten, not merely reset. Left in the map it was found
+	// missing again on the very next poll, and every poll after that, so a
+	// drive that was unplugged once announced itself as disconnected every few
+	// seconds for the life of the process — and kept a card on the dashboard
+	// for hardware that is not there. Replugging re-adds it through the
+	// ordinary path above, as a new arrival with its disc detected.
+	for idx, dsm := range m.drives {
+		if seen[idx] {
+			continue
 		}
+		prev := m.known[idx]
+		dsm.ForceReset()
+		delete(m.known, idx)
+		// A drive that is gone cannot be mid-eject; leaving this behind leaked
+		// an entry per removal and would misdate the debounce if the same index
+		// were reused by different hardware later.
+		delete(m.absentSince, idx)
+		delete(m.drives, idx)
+		pending = append(pending, DriveEvent{
+			Type:       EventDriveDisconnect,
+			DriveIndex: idx,
+			DiscName:   prev,
+			State:      dsm.State(),
+		})
 	}
 
 	// On the first completed poll, fire a state_change event so SSE clients
