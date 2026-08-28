@@ -115,25 +115,16 @@ document.addEventListener('alpine:init', () => {
 		// pass and says nothing about bytes written.
 		active.phase = job.Phase || ''
 
-		// Move to completed when done.
+		// Move out of active when done.
+		//
+		// There is no separate "completed" list. One existed and nothing ever
+		// rendered it: this handler wrote to it and no x-for read it, while the
+		// server filled it with every finished rip in the database. History
+		// below is the list the History tab actually shows.
 		if (job.Status === 'completed' || job.Status === 'failed') {
 			store.active = store.active.filter(j => j.id !== job.ID)
-			store.completed.unshift({
-				id: job.ID,
-				discName: job.DiscName,
-				titleName: job.TitleName,
-				contentType: active.contentType,
-				status: job.Status,
-				progress: job.Progress,
-				error: job.Error || '',
-				finishedAt: new Date().toLocaleString(),
-				sizeHuman: active.sizeHuman || '',
-				duration: active.duration || '',
-				audioTracks: active.audioTracks || [],
-				subtitleLanguages: active.subtitleLanguages || [],
-			})
 
-			// Also add to history so it appears in the History tab immediately.
+			// Add to history so it appears in the History tab immediately.
 			// Remove any existing entry for this job first (guards against
 			// duplicates if the page was loaded while the job was in-flight).
 			store.history = store.history.filter(r => r.id !== job.ID)

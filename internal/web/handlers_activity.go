@@ -61,7 +61,6 @@ type activityStoreJSON struct {
 	Salvage   salvageStateJSON  `json:"salvage"`
 	Active    []activityJobJSON `json:"active"`
 	Pending   []activityJobJSON `json:"pending"`
-	Completed []activityJobJSON `json:"completed"`
 	History   []activityJobJSON `json:"history"`
 	Page      int               `json:"page"`
 	HasMore   bool              `json:"hasMore"`
@@ -98,7 +97,6 @@ func (s *Server) handleActivity(c echo.Context) error {
 	store := activityStoreJSON{
 		Active:    make([]activityJobJSON, 0),
 		Pending:   make([]activityJobJSON, 0),
-		Completed: make([]activityJobJSON, 0),
 		History:   make([]activityJobJSON, 0),
 		Page:      1,
 	}
@@ -174,39 +172,13 @@ func (s *Server) handleActivity(c echo.Context) error {
 		}
 	}
 
-	// Recent completed/failed jobs.
-	completedJobs, err := s.store.ListJobsByStatus("completed")
-	if err != nil {
-		slog.Error("failed to list completed jobs", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load completed jobs.")
-	}
-	failedJobs, err := s.store.ListJobsByStatus("failed")
-	if err != nil {
-		slog.Error("failed to list failed jobs", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load failed jobs.")
-	}
-
-	for _, j := range append(completedJobs, failedJobs...) {
-		meta := parseTrackMetadata(j.TrackMetadata)
-		store.Completed = append(store.Completed, activityJobJSON{
-			ID:                j.ID,
-			DiscName:          j.DiscName,
-			TitleName:         j.TitleName,
-			ContentType:       normalizeContentType(j.ContentType),
-			Status:            j.Status,
-			Progress:          j.Progress,
-			Error:             j.ErrorMessage,
-			DriveIndex:        j.DriveIndex,
-			FinishedAt:        j.UpdatedAt.Format("Jan 2 15:04"),
-			Salvageable:       salvageable(j.Status, j.ErrorMessage),
-			SalvageResumable:  s.salvageResumable(j.Status, j.ErrorMessage, j.DiscName),
-			SalvageNote:       j.SalvageNote,
-			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
-			Duration:          meta.Duration,
-			AudioTracks:       meta.AudioTracks,
-			SubtitleLanguages: meta.SubtitleLanguages,
-		})
-	}
+	// No separate "completed" list.
+	//
+	// It held every completed and every failed job in the database,
+	// unpaginated, and nothing rendered it -- the template writes to it in the
+	// rip-update handler and no x-for ever reads it. History below covers the
+	// same rips, paginated, so the page carried each of them twice and grew
+	// without bound as the library did.
 
 	// Paginated full history.
 	page := 1
