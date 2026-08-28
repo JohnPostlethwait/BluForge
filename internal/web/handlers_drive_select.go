@@ -47,8 +47,10 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 		existingRawResults = existing.RawSearchResults
 	}
 
-	// Persist selection in drive session.
+	// Persist selection in drive session, bound to the disc it describes so a
+	// later swap cannot leave it applying to whatever comes next.
 	s.driveSessions.Set(idx, &DriveSession{
+		DiscLabel:         drv.DiscName(),
 		MediaItemID:       req.MediaItemID,
 		ReleaseID:         req.ReleaseID,
 		DiscID:            req.DiscID,

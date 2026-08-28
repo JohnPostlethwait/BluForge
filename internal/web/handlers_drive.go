@@ -79,6 +79,27 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 		s.orchestrator.SetDriveDisc(idx, drv.DiscName())
 	}
 
+	// Drop a session that belongs to a disc which is no longer in the drive.
+	//
+	// The release, the search behind it and the titles named from it all
+	// describe one disc. Clearing them was left to events, and both of them miss
+	// an ordinary swap: an eject is only believed after the drive reports empty
+	// for a continuous 30s, which taking one disc out and putting the next in
+	// never reaches, and the orchestrator's disc-changed callback fires only
+	// from a scan that has a previous scan to compare against — which the insert
+	// has just invalidated. Ripping Akira and loading the next disc showed
+	// "Matched: Akira (1988)" on that disc's page.
+	//
+	// Asking the drive is what the block above already does, for the same
+	// reason, and it holds whether or not any event arrived.
+	if session := s.driveSessions.Get(idx); session != nil &&
+		session.DiscLabel != "" && drv.DiscName() != "" &&
+		session.DiscLabel != drv.DiscName() {
+		slog.Info("dropping a drive session bound to a disc that is no longer in the drive",
+			"drive_index", idx, "session_disc", session.DiscLabel, "drive_disc", drv.DiscName())
+		s.driveSessions.Clear(idx)
+	}
+
 	// Check for an existing disc mapping (from a previous rip of this disc).
 	if s.orchestrator != nil && s.store != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
@@ -289,6 +310,11 @@ func (s *Server) handleDriveSearch(c echo.Context) error {
 	jsonRows := mediaItemsToSearchJSON(items)
 	s.driveSessions.SetSearchResults(idx, jsonRows)
 	s.driveSessions.SetRawSearchResults(idx, items)
+	// Bind the results to the disc they were searched for, so a swap does not
+	// leave the previous disc's candidate list on the new disc's page.
+	if drv := s.driveMgr.GetDrive(idx); drv != nil {
+		s.driveSessions.SetDiscLabel(idx, drv.DiscName())
+	}
 	return c.JSON(http.StatusOK, jsonRows)
 }
 

@@ -188,8 +188,16 @@ func main() {
 			orch.SetDriveDisc(ev.DriveIndex, ev.DiscName)
 		}
 
-		// Clear drive session on eject so stale selection state doesn't persist.
-		if ev.Type == drivemanager.EventDiscEjected && srv != nil {
+		// Clear drive session on eject so stale selection state doesn't persist,
+		// and on insert so the previous disc's match does not apply to the one
+		// that replaced it. Insert is the event a swap actually produces: an
+		// eject is only believed after 30s of continuous absence, which taking
+		// one disc out and putting the next in never reaches.
+		//
+		// buildDriveStore checks the session against the drive on every render
+		// and does not depend on this, which is what makes the fix hold when an
+		// event is missed or the process restarted. This is the eager path.
+		if (ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted) && srv != nil {
 			srv.ClearDriveSession(ev.DriveIndex)
 		}
 

@@ -8,8 +8,18 @@ import (
 
 // DriveSession holds transient per-drive workflow state: the user's selected
 // release from TheDiscDB and cached search results. This state persists across
-// browser refreshes but is cleared when the disc is ejected.
+// browser refreshes, and belongs to the disc it was created for.
 type DriveSession struct {
+	// DiscLabel is the volume label of the disc that was in the drive when this
+	// session was created — the physical disc, not TheDiscDB's DiscID below.
+	//
+	// A selection describes one disc, and nothing used to tie it to that disc:
+	// swapping discs left the previous one's match applying to whatever came
+	// next. Both events meant to prevent that miss an ordinary swap, so the
+	// binding is recorded here and checked against the drive on every render.
+	// Empty on a session created before this field existed, which cannot be
+	// proven stale and is therefore kept.
+	DiscLabel         string
 	MediaItemID       string
 	ReleaseID         string
 	DiscID            string
@@ -82,4 +92,22 @@ func (s *DriveSessionStore) SetRawSearchResults(driveIndex int, items []discdb.M
 		s.sessions[driveIndex] = session
 	}
 	session.RawSearchResults = items
+}
+
+// SetDiscLabel records which disc a session belongs to, creating the session if
+// it does not exist. A session created by a search rather than a selection has
+// no label of its own, and without one it cannot be recognised as stale after a
+// disc swap.
+func (s *DriveSessionStore) SetDiscLabel(driveIndex int, label string) {
+	if label == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[driveIndex]
+	if !ok {
+		session = &DriveSession{}
+		s.sessions[driveIndex] = session
+	}
+	session.DiscLabel = label
 }
