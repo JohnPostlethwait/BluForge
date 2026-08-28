@@ -986,7 +986,10 @@ func (o *Orchestrator) cachedEntryForDrive(driveIndex int) *cachedScan {
 // submits all titles for ripping. If a cached disc mapping exists, it is used
 // directly; otherwise the disc name is searched via the DiscDB client.
 func (o *Orchestrator) AutoRip(ctx context.Context, driveIndex int, cfg AutoRipConfig) error {
-	scan, err := o.ScanDisc(ctx, driveIndex)
+	// Narrated, so the drive page shows the scan rather than sitting blank for
+	// however long the disc takes. Nobody pressed a button here, which makes
+	// saying what is happening more important, not less.
+	scan, err := o.ScanNarrated(ctx, driveIndex, false)
 	if err != nil {
 		return fmt.Errorf("auto-rip scan: %w", err)
 	}

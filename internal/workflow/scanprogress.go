@@ -70,38 +70,65 @@ func (o *Orchestrator) startScan(driveIndex int, force bool) error {
 	}
 
 	go func() {
-		// A safety net only. The slot is released explicitly below, before the
+		// A safety net only. runScan releases the slot itself, before the
 		// outcome is announced; this catches the case where scanDisc panics.
 		defer o.endScan(driveIndex)
 
 		// Detached on purpose: nothing about this scan belongs to a request.
-		scan, err := o.scanDisc(context.Background(), driveIndex, force)
-
-		// Release the slot before saying how the scan ended.
-		//
-		// The page reacts to "done" by fetching the titles and resyncing the
-		// drive state, and that resync asks ScanStatus. Announcing first left a
-		// window where it answered "still scanning", which puts the banner back
-		// up over a scan that has finished — and nothing takes it down again,
-		// because the event that would have is the one already spent.
-		o.endScan(driveIndex)
-
-		switch {
-		case errors.Is(err, ErrRecoveryInProgress):
-			// Recovery took over and broadcasts its own progress. Ending the
-			// scan banner here hands the page to the recovery banner.
-			o.broadcastScan(driveIndex, "recovering", "")
-		case err != nil:
-			slog.Error("scan: failed", "drive_index", driveIndex, "error", err)
-			o.broadcastScan(driveIndex, "failed", err.Error())
-		default:
-			slog.Info("scan: complete", "drive_index", driveIndex,
-				"disc", scan.DiscName, "titles", len(scan.Titles))
-			o.broadcastScan(driveIndex, "done", "")
-		}
+		_, _ = o.runScan(context.Background(), driveIndex, force)
 	}()
 
 	return nil
+}
+
+// runScan performs a scan and announces how it ended. The caller must already
+// hold the scan slot, which this releases.
+func (o *Orchestrator) runScan(ctx context.Context, driveIndex int, force bool) (*makemkv.DiscScan, error) {
+	scan, err := o.scanDisc(ctx, driveIndex, force)
+
+	// Release the slot before saying how the scan ended.
+	//
+	// The page reacts to "done" by fetching the titles and resyncing the drive
+	// state, and that resync asks ScanStatus. Announcing first left a window
+	// where it answered "still scanning", which puts the banner back up over a
+	// scan that has finished — and nothing takes it down again, because the
+	// event that would have is the one already spent.
+	o.endScan(driveIndex)
+
+	switch {
+	case errors.Is(err, ErrRecoveryInProgress):
+		// Recovery took over and broadcasts its own progress. Ending the scan
+		// banner here hands the page to the recovery banner.
+		o.broadcastScan(driveIndex, "recovering", "")
+	case err != nil:
+		slog.Error("scan: failed", "drive_index", driveIndex, "error", err)
+		o.broadcastScan(driveIndex, "failed", err.Error())
+	default:
+		slog.Info("scan: complete", "drive_index", driveIndex,
+			"disc", scan.DiscName, "titles", len(scan.Titles))
+		o.broadcastScan(driveIndex, "done", "")
+	}
+	return scan, err
+}
+
+// ScanNarrated reads the disc for a caller that wants the result, and narrates
+// it to the page exactly as the Scan button does.
+//
+// Auto-rip used plain ScanDisc, which does not claim the scan slot — so
+// scanProgressFn found no scanState and returned without emitting anything. A
+// disc inserted with auto-rip on left the drive page blank for the length of
+// the scan, which on a disc that retries unreadable sectors is the better part
+// of an hour with no sign the machine is doing anything.
+//
+// When a scan is already running for this drive, that one is doing the
+// narrating; this waits behind it on the per-drive lock inside scanDisc and
+// takes its result.
+func (o *Orchestrator) ScanNarrated(ctx context.Context, driveIndex int, force bool) (*makemkv.DiscScan, error) {
+	if !o.beginScan(driveIndex) {
+		return o.scanDisc(ctx, driveIndex, force)
+	}
+	defer o.endScan(driveIndex) // safety net; runScan releases it itself
+	return o.runScan(ctx, driveIndex, force)
 }
 
 // scanProgressFn returns the callback that turns makemkvcon's output into
