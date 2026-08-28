@@ -389,7 +389,33 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 		return redirectDriveError(c, idx, err.Error())
 	}
 
+	// The disc the page was built from has to still be the disc in the drive.
+	//
+	// This name arrives in the form, and it used to be taken on trust — along
+	// with the cached scan and the release selection built around it. Swapping
+	// discs between rendering the page and pressing Rip, which is what working
+	// through a box set looks like, ripped the new disc into the previous
+	// disc's filenames and saved a mapping asserting it was that film. Nothing
+	// downstream could notice: every identifier in play described the disc that
+	// had just come out.
+	//
+	// Only a disagreement counts. A disc with no volume label, or a form that
+	// carries no name, cannot be compared and is not evidence of a swap.
 	discName := c.FormValue("disc_name")
+	if drv := s.driveMgr.GetDrive(idx); drv != nil {
+		inDrive := drv.DiscName()
+		if discName != "" && inDrive != "" && discName != inDrive {
+			slog.Warn("refusing a rip for a disc that is no longer in the drive",
+				"drive_index", idx, "form_disc", discName, "drive_disc", inDrive)
+			return redirectDriveError(c, idx, fmt.Sprintf(
+				"%s is no longer in the drive — %s is. Re-scan before ripping.", discName, inDrive))
+		}
+		// The drive is the authority on what it holds, so prefer its name when
+		// the form did not carry one.
+		if discName == "" {
+			discName = inDrive
+		}
+	}
 
 	// Build title selections from form.
 	// Per-title hidden inputs provide match-specific data (season, episode, etc.)
