@@ -85,8 +85,16 @@ RC images are kept, not pruned. Same rule as any tag: only when the current mess
 ### Testing a branch before it is released
 
 An RC still has to be on `origin/master`, which is no use for trying something out before it
-lands. For that, run the **CI** workflow manually (Actions → CI → Run workflow → pick the
-branch). It runs the tests and then builds a dev image from that branch:
+lands. For that, run the **CI** workflow manually — Actions → CI → Run workflow → pick the
+branch, or:
+
+```bash
+gh workflow run CI --ref my-branch-name
+```
+
+The CLI works on a branch whose `ci.yml` is not yet on `master`; the UI button may not appear
+until it is, because GitHub reads the trigger list from the default branch to decide what to
+offer. It runs the tests and then builds a dev image from that branch:
 
 ```bash
 docker pull ghcr.io/johnpostlethwait/bluforge:branch-my-branch-name   # moves with the branch
