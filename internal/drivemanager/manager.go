@@ -266,15 +266,25 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 	}
 	m.mu.RUnlock()
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	// The interval is the rest between polls, not a rate to fire at.
+	//
+	// A ticker fires on a fixed schedule, and a tick that lands while PollOnce
+	// is still running sits waiting in the channel — so a poll that outlasts
+	// the interval is followed by the next one immediately. On real hardware a
+	// listing took sixteen seconds against a five second interval, which meant
+	// the drive was probed continuously, with no rest, for as long as the
+	// process ran. A timer reset after each poll gives the drive the interval
+	// it was promised however long the poll took.
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			m.PollOnce(ctx)
+			timer.Reset(interval)
 		}
 	}
 }
