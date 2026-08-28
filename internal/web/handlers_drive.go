@@ -676,6 +676,21 @@ func (s *Server) driveHoldingDisc(discName string) (int, bool) {
 	return 0, false
 }
 
+// discardHTTPError turns a discard failure into the status that describes it.
+//
+// Both discard endpoints used to answer every failure with 404. "A rip is
+// reading this copy" is not "there is no such copy": the first tells the user
+// to wait, the second sends them looking for something that is right there.
+func discardHTTPError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, workflow.ErrBackupInUse) {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return echo.NewHTTPError(http.StatusNotFound, err.Error())
+}
+
 // handleDiscardBackup deletes a drive's recovery scratch copy on request.
 //
 // A copy is kept whenever a rip did not succeed, because re-reading the disc
@@ -693,7 +708,7 @@ func (s *Server) handleDiscardBackup(c echo.Context) error {
 	dir := s.orchestrator.RecoveredDir(idx)
 	if err := s.orchestrator.DiscardBackup(idx); err != nil {
 		slog.Warn("discard backup failed", "drive_index", idx, "error", err)
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		return discardHTTPError(err)
 	}
 
 	slog.Info("discarded disc backup on request", "drive_index", idx, "dir", dir)

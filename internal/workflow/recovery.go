@@ -52,6 +52,11 @@ var ErrInconclusive = errors.New("could not determine whether the disc payload i
 // rather than as a failure, and wait for the disc_recovery SSE event.
 var ErrRecoveryInProgress = errors.New("disc recovery in progress")
 
+// ErrBackupInUse reports a discard refused because a rip is still reading the
+// copy. Not a failure to act on: the copy becomes discardable the moment the
+// last job finishes with it.
+var ErrBackupInUse = errors.New("a rip is still reading this copy")
+
 // DiscBackupper is the subset of the MakeMKV executor recovery needs.
 type DiscBackupper interface {
 	Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(makemkv.Event)) error
@@ -765,6 +770,15 @@ func (o *Orchestrator) DiscardBackup(driveIndex int) error {
 		o.recoveredMu.Unlock()
 		return fmt.Errorf("no disc backup for drive %d", driveIndex)
 	}
+	// A copy a rip is reading is not spare space. Deleting the directory
+	// makemkvcon has open fails the rip and destroys the copy the retry would
+	// have needed — and this button sits on the drive page throughout the rip.
+	// The refcount is already maintained by retainRecovered/releaseRecovered;
+	// this simply asks it.
+	if rec.refCount > 0 {
+		o.recoveredMu.Unlock()
+		return fmt.Errorf("%w: drive %d has %d rip(s) in flight", ErrBackupInUse, driveIndex, rec.refCount)
+	}
 	dir := rec.dir
 	unmount := rec.unmount
 	delete(o.recovered, driveIndex)
@@ -818,6 +832,29 @@ func (o *Orchestrator) DiscardBackupForDisc(discLabel string) error {
 	}
 
 	o.recoveredMu.Lock()
+	// Refuse before removing anything. This can match copies on more than one
+	// drive, and deleting some of them before discovering the rest are busy
+	// would be worse than refusing the lot.
+	var inUse int
+	var matched int
+	for _, rec := range o.recovered {
+		if !slices.Contains(rec.discLabels, discLabel) {
+			continue
+		}
+		matched++
+		if rec.refCount > 0 {
+			inUse += rec.refCount
+		}
+	}
+	if inUse > 0 {
+		o.recoveredMu.Unlock()
+		return fmt.Errorf("%w: %q has %d rip(s) in flight", ErrBackupInUse, discLabel, inUse)
+	}
+	if matched == 0 {
+		o.recoveredMu.Unlock()
+		return fmt.Errorf("no disc copy for %q", discLabel)
+	}
+
 	var dirs []string
 	var unmounts []func()
 	for idx, rec := range o.recovered {
@@ -831,10 +868,6 @@ func (o *Orchestrator) DiscardBackupForDisc(discLabel string) error {
 		delete(o.recovered, idx)
 	}
 	o.recoveredMu.Unlock()
-
-	if len(dirs) == 0 {
-		return fmt.Errorf("no disc copy for %q", discLabel)
-	}
 
 	for _, dir := range dirs {
 		slog.Info("recovery: discarding disc copy on request", "disc", discLabel, "dir", dir)

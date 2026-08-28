@@ -434,7 +434,7 @@ func (s *Server) handleActivityDiscardBackup(c echo.Context) error {
 
 	if err := s.orchestrator.DiscardBackupForDisc(disc); err != nil {
 		slog.Warn("discard disc copy failed", "disc", disc, "error", err)
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		return discardHTTPError(err)
 	}
 
 	slog.Info("discarded disc copy on request from activity", "disc", disc)
