@@ -20,6 +20,14 @@ type DriveDetailData struct {
 templ DriveDetail(data DriveDetailData) {
 	@Layout(data.DiscName) {
 		@templ.Raw(fmt.Sprintf(`<script>
+// The CSRF token, sent by every fetch on this page.
+//
+// The cookie is HttpOnly, so the server rendering it here is the only way the
+// page can present it. Attached to reads as well as writes deliberately: the
+// middleware ignores it on a GET, and a uniform rule means a fetch that later
+// becomes a POST cannot arrive without one.
+const CSRF_TOKEN = '%s'
+
 document.addEventListener('alpine:init', () => {
 	const store = %s
 	store.searching = false
@@ -212,7 +220,7 @@ async function resyncDriveState() {
 	if (!store) return
 	try {
 		const resp = await fetch('/drives/' + store.driveIndex + '/state', {
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (!resp.ok) return
 		const s = await resp.json()
@@ -278,7 +286,7 @@ async function searchDiscDB(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/search', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 			body: form,
 		})
 
@@ -328,6 +336,7 @@ async function doSelectRelease(driveIndex, result, discID) {
 		headers: {
 			'Content-Type': 'application/json',
 			'Accept': 'application/json',
+			'X-CSRF-Token': CSRF_TOKEN,
 		},
 		body: JSON.stringify({
 			mediaItemID: result.mediaItemID,
@@ -569,7 +578,7 @@ async function discardBackup(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/discard-backup', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (resp.ok) {
 			Alpine.store('drive').hasBackup = false
@@ -599,7 +608,7 @@ async function clearMatch(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/clear-match', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (!resp.ok) {
 			store.searchError = 'Could not clear the match (HTTP ' + resp.status + ')'
@@ -646,7 +655,7 @@ async function scanDisc(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/scan', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 
 		// 202: the scan is running, or the disc carries a spurious AACS
@@ -684,7 +693,7 @@ async function scanDisc(driveIndex) {
 async function loadScanResults(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/scan', {
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (resp.status === 204) {
 			// No scan has run for this drive yet. Nothing to show, not an error.
@@ -739,7 +748,7 @@ function cachedScanAge() {
 	if (secs < 86400) return Math.floor(secs / 3600) + ' hr ago'
 	return Math.floor(secs / 86400) + ' days ago'
 }
-</script>`, data.StoreJSON))
+</script>`, data.CSRFToken, data.StoreJSON))
 
 		if data.Error != "" {
 			<div class="alert alert-error" role="alert">

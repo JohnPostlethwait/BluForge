@@ -100,23 +100,24 @@ func NewServer(deps ServerDeps) *Server {
 
 	// CSRF protection for state-changing endpoints. The middleware must run on
 	// GET requests to set the cookie and generate the token (it only validates
-	// on POST/PUT/DELETE/PATCH). Skip only for JSON API POSTs (Alpine fetch).
+	// on POST/PUT/DELETE/PATCH).
+	//
+	// No skipper. There used to be one exempting any non-GET request whose
+	// Accept header was "application/json", on the reasoning that only this
+	// app's own Alpine fetch() calls send that and the same-origin policy stops
+	// anyone else. It does not: Accept is a CORS-safelisted request header, so
+	// a cross-origin fetch carrying it triggers no preflight. The browser sends
+	// the request with the user's cookies and merely hides the response — by
+	// which point the side effect has happened. Any page the user visited could
+	// POST /activity/clear-history and wipe their rip history.
+	//
+	// BluForge has no authentication, so this is not one layer among several.
+	// The Alpine callers send the token in X-CSRF-Token instead.
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSameSite: http.SameSiteStrictMode,
-		Skipper: func(c echo.Context) bool {
-			// JSON POSTs with Accept: application/json originate from Alpine fetch()
-			// calls within the same origin. Cross-origin requests are blocked by the
-			// browser's same-origin policy because this server sends no permissive
-			// CORS headers, so no alternative CSRF token is needed for these endpoints.
-			if c.Request().Method != http.MethodGet {
-				accept := c.Request().Header.Get("Accept")
-				return accept == "application/json"
-			}
-			return false
-		},
 	}))
 
 	// Rate limiter: 20 requests/second with a burst of 40.

@@ -261,6 +261,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 	return templates.Activity(templates.ActivityPageData{
 		StoreJSON: string(storeBytes),
 		Flash:     truncateFlash(c),
+		CSRFToken: csrfToken(c),
 	}).Render(c.Request().Context(), c.Response().Writer)
 }
 

@@ -9,11 +9,22 @@ import (
 type ActivityPageData struct {
 	StoreJSON string // JSON blob for Alpine.store('activity') hydration
 	Flash     string
+	// CSRFToken is sent in X-CSRF-Token by every fetch on this page. The cookie
+	// is HttpOnly, so the token has to reach the browser through the render.
+	CSRFToken string
 }
 
 templ Activity(data ActivityPageData) {
 	@Layout("Activity") {
 		@templ.Raw(fmt.Sprintf(`<script>
+// The CSRF token, sent by every fetch on this page.
+//
+// The cookie is HttpOnly, so the server rendering it here is the only way the
+// page can present it. Attached to reads as well as writes deliberately: the
+// middleware ignores it on a GET, and a uniform rule means a fetch that later
+// becomes a POST cannot arrive without one.
+const CSRF_TOKEN = '%s'
+
 document.addEventListener('alpine:init', () => {
 	Alpine.store('activity', %s)
 	Alpine.store('activity').contributionAvailable = false
@@ -252,7 +263,7 @@ async function pauseSalvage(driveIndex) {
 	try {
 		const resp = await fetch('/drives/' + driveIndex + '/salvage/pause', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		const info = await resp.json().catch(() => ({}))
 		if (info.message) store.salvageMessage = info.message
@@ -279,7 +290,7 @@ async function resumeSalvage() {
 		const disc = store.salvageDisc || ''
 		await fetch('/drives/' + idx + '/salvage' + (disc ? '?disc=' + encodeURIComponent(disc) : ''), {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 	} catch (err) {
 		store.salvageActive = false
@@ -321,6 +332,7 @@ async function discardDiscBackup(discName) {
 			headers: {
 				'Accept': 'application/json',
 				'Content-Type': 'application/x-www-form-urlencoded',
+				'X-CSRF-Token': CSRF_TOKEN,
 			},
 			body,
 		})
@@ -366,7 +378,7 @@ async function salvageDisc(driveIndex, discName) {
 			(discName ? '?disc=' + encodeURIComponent(discName) : '')
 		const resp = await fetch(url, {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		const info = await resp.json().catch(() => ({}))
 		if (!resp.ok) {
@@ -388,7 +400,7 @@ async function cancelJob(jobId, btn) {
 	try {
 		const resp = await fetch('/activity/' + jobId + '/cancel', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (resp.ok) {
 			const store = Alpine.store('activity')
@@ -410,7 +422,7 @@ async function clearHistory(btn) {
 	try {
 		const resp = await fetch('/activity/clear-history', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json' },
+			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
 		if (resp.ok) {
 			Alpine.store('activity').history = []
@@ -432,7 +444,7 @@ async function clearFiltered(btn, search, status) {
 	try {
 		const resp = await fetch('/activity/clear-filtered', {
 			method: 'POST',
-			headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+			headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 			body: JSON.stringify({ search, status }),
 		})
 		if (resp.ok) {
@@ -466,7 +478,7 @@ function formatDuration(secs) {
 	return h > 0 ? h + 'h ' + m + 'm' : m + 'm'
 }
 
-</script>`, data.StoreJSON))
+</script>`, data.CSRFToken, data.StoreJSON))
 
 		<div class="page-header">
 			<h1>Activity</h1>

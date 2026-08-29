@@ -193,9 +193,16 @@ func TestClearMatchIsReachableThroughTheRealRouter(t *testing.T) {
 		DriveMgr: mgr,
 	})
 
+	// Carrying the token, as the page does. The middleware no longer exempts
+	// JSON requests, so a fixture without one is not reproducing what the
+	// browser sends — it is reproducing a forgery.
+	cookie, token := csrfCredentials(t, srv)
+
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/drives/0/clear-match", nil)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-CSRF-Token", token)
+	req.Header.Set("Cookie", cookie)
 	srv.echo.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
