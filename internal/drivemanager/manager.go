@@ -50,6 +50,19 @@ type DriveExecutor interface {
 	ScanDisc(ctx context.Context, driveIndex int) (*makemkv.DiscScan, error)
 }
 
+// BusyAwareLister lists drives only when none is in use, declining rather than
+// waiting. Optional: a lister without it is simply always asked.
+//
+// Every makemkvcon call shares one mutex on purpose — an unlocked poll every
+// five seconds against a drive ddrescue was reading took a rescue from 14 MB/s
+// down to 2.4 MB/s. Blocking on that mutex keeps out of the way, but it also
+// parks the poller for the length of a rip and then fires the instant the lock
+// frees, with the next poll right behind it. Declining keeps out of the way
+// without either.
+type BusyAwareLister interface {
+	TryListDrives(ctx context.Context) ([]makemkv.DriveInfo, bool, error)
+}
+
 // Manager polls drives and emits events when drive state changes.
 type Manager struct {
 	mu     sync.RWMutex
@@ -79,6 +92,19 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 	}
 }
 
+// listDrives asks the executor for the drive list, declining to wait when the
+// drives are busy. listed is false when the poll should be skipped entirely.
+//
+// A lister that cannot say whether it is busy is simply always asked, which is
+// what every caller did before.
+func (m *Manager) listDrives(ctx context.Context) (infos []makemkv.DriveInfo, listed bool, err error) {
+	if lister, ok := m.exec.(BusyAwareLister); ok {
+		return lister.TryListDrives(ctx)
+	}
+	got, err := m.exec.ListDrives(ctx)
+	return got, true, err
+}
+
 // Ready returns true after the first drive poll has completed.
 func (m *Manager) Ready() bool {
 	m.mu.RLock()
@@ -100,9 +126,16 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		slog.Info("polling drives via makemkvcon…")
 	}
 
-	infos, err := m.exec.ListDrives(ctx)
+	infos, listed, err := m.listDrives(ctx)
 	if err != nil {
 		slog.Error("drive poll failed", "error", err)
+		return
+	}
+	// The drives are in use by something that is not the poller. Nothing is
+	// learned this cycle, and nothing is changed on the strength of a listing
+	// that never happened — in particular, no drive is taken for unplugged.
+	if !listed {
+		slog.Debug("drive poll skipped: the drives are in use")
 		return
 	}
 

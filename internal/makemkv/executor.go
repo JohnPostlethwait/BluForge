@@ -173,7 +173,37 @@ func (e *Executor) UnlockDrive() {
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.listDrives(ctx)
+}
 
+// TryListDrives lists drives only if nothing else is using them, reporting
+// false when it declined.
+//
+// The poller must not talk to a drive that a rip or a ddrescue rescue is
+// reading — an unlocked poll every five seconds took a rescue from 14 MB/s to
+// 2.4 MB/s, which is why every makemkvcon call shares one mutex.
+//
+// But waiting on that mutex is not the same as staying out of the way. A poll
+// queued behind a three-hour rip learns nothing that a skipped poll would not,
+// and it is worse in two ways: the poller goroutine is parked for the duration,
+// and the moment the lock frees, the poll fires instantly and the next one
+// right behind it — the burst the eject debounce was written to survive.
+//
+// Declining costs a stale drive list for the length of the operation, which is
+// what blocking produced anyway.
+func (e *Executor) TryListDrives(ctx context.Context) ([]DriveInfo, bool, error) {
+	if !e.mu.TryLock() {
+		return nil, false, nil
+	}
+	defer e.mu.Unlock()
+
+	drives, err := e.listDrives(ctx)
+	return drives, true, err
+}
+
+// listDrives is the body shared by ListDrives and TryListDrives. Callers must
+// already hold e.mu.
+func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, driveListTimeout)
 	defer cancel()
 
