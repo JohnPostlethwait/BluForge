@@ -115,6 +115,10 @@ func (e *Engine) QueuedJobs() []*Job {
 // rip ever started.
 var ErrRemovedFromQueue = errors.New("cancelled before the rip started")
 
+// ErrDiscRemoved is the reason reported for a queued job whose disc left the
+// drive before its turn came.
+var ErrDiscRemoved = errors.New("cancelled: the disc this rip was queued for is no longer in the drive")
+
 // RemoveQueued removes a pending job from the per-drive queue by job ID.
 // Returns true if the job was found and removed.
 //
@@ -161,6 +165,38 @@ search:
 	}
 	e.notify(removed)
 	return true
+}
+
+// RemoveQueuedForDrive drops every job still waiting on a drive, returning how
+// many there were. The job currently running is left alone.
+//
+// Queued jobs name titles chosen from a particular disc. When that disc leaves,
+// each one used to take its turn, start, fail and write a failure row — nine of
+// them for a ten-title batch the user interrupted once. And if another disc had
+// gone in, they were worse than noise: a list of titles picked from the disc
+// that left, about to be read off the one that replaced it, under the old
+// disc's names.
+//
+// The running job is deliberately not cancelled. It will fail on its own if the
+// disc really is gone, and an eject is a debounced inference — one that has
+// been wrong before — so throwing away a rip that may be most of the way
+// through is the worse mistake to make on it.
+func (e *Engine) RemoveQueuedForDrive(driveIndex int) int {
+	e.mu.Lock()
+	dropped := e.queued[driveIndex]
+	delete(e.queued, driveIndex)
+	e.mu.Unlock()
+
+	// Settle outside the lock: OnComplete writes to the database, broadcasts,
+	// and releases backup claims, any of which can re-enter the engine.
+	for _, job := range dropped {
+		job.Fail(ErrDiscRemoved.Error())
+		if job.OnComplete != nil {
+			_ = job.OnComplete(job, ErrDiscRemoved)
+		}
+		e.notify(job)
+	}
+	return len(dropped)
 }
 
 // notify calls the onUpdate callback if one has been registered.

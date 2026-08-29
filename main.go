@@ -201,6 +201,27 @@ func main() {
 			srv.ClearDriveSession(ev.DriveIndex)
 		}
 
+		// Drop anything still queued for that drive, for the same reason and on
+		// the same two events.
+		//
+		// A queued job is a title chosen from a particular disc. Once that disc
+		// is gone each one would take its turn, start, fail and leave a failure
+		// row — nine of them for a ten-title batch the user interrupted once.
+		// And on a swap they are worse than noise: a list of titles picked from
+		// the disc that left, about to be read off the one that replaced it,
+		// under the old disc's names. handleDriveRip refuses a disc that
+		// changed since the page was rendered; this is the same guarantee for
+		// work already accepted.
+		//
+		// The running job is left to finish or fail on its own; see
+		// RemoveQueuedForDrive.
+		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {
+			if n := ripEngine.RemoveQueuedForDrive(ev.DriveIndex); n > 0 {
+				slog.Info("dropped queued rips for a disc that is no longer in the drive",
+					"drive_index", ev.DriveIndex, "jobs", n, "event", ev.Type)
+			}
+		}
+
 		// Broadcast drive-update with full drive list for dashboard Alpine store.
 		//
 		// Built by the server, not here: the dashboard replaces its whole list
