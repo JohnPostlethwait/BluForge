@@ -209,6 +209,17 @@ func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
 
 	r, err := e.runner.Run(ctx, "-r", "--cache=1", "info", "disc:9999")
 	if err != nil {
+		// A listing we killed ourselves is not a listing. makemkvcon was still
+		// enumerating when the timeout fired, so the DRV lines it emitted are a
+		// prefix rather than a list, and the drives it had not reached yet are
+		// missing for want of time — which the poller would read as unplugged.
+		//
+		// Only makemkvcon's own non-zero exits are salvageable, and those are
+		// ordinary: an empty drive is one, and it still names every drive.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("makemkv: list drives: %w", err)
+		}
+
 		// makemkvcon returns non-zero when no disc is present; try to parse
 		// whatever output we have before returning the error.
 		events, parseErr := ParseAll(r)

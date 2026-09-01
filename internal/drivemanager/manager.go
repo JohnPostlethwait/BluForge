@@ -24,6 +24,23 @@ import (
 // and the cached scan, which they do.
 const ejectConfirmDuration = 30 * time.Second
 
+// driveGoneConfirmDuration is how long a drive must be missing from listings
+// that actually completed before it is taken for unplugged.
+//
+// makemkvcon reports a wedged drive and an empty slot identically — state 256,
+// every string field blank — so a single absent reading says nothing about
+// whether the hardware is there. In production a listing that took twenty-four
+// seconds where four is normal, sandwiched between two that were killed at the
+// timeout, reported the drive as an empty slot; it was believed at once and the
+// drive was removed. Nothing brought it back, because a removed drive is
+// deleted from the map rather than reset, and every subsequent listing timed
+// out.
+//
+// A disc reporting absent has been disbelieved for this long since the first
+// spurious eject. A drive reporting absent is the same claim from the same
+// unreliable source, and earns no more trust.
+const driveGoneConfirmDuration = 30 * time.Second
+
 // EventType describes the kind of drive event that occurred.
 type EventType string
 
@@ -73,6 +90,11 @@ type Manager struct {
 	// being read reports empty transiently, so an eject is only believed once
 	// the absence has lasted ejectConfirmDuration.
 	absentSince map[int]time.Time
+	// goneSince records when a drive was first missing from a listing that
+	// completed, per drive. A wedged drive is reported as an empty slot, so an
+	// unplug is only believed once the absence has lasted
+	// driveGoneConfirmDuration.
+	goneSince map[int]time.Time
 	// now is the clock, injectable so the debounce can be tested without
 	// sleeping through it.
 	now     func() time.Time
@@ -87,6 +109,7 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 		drives:      make(map[int]*DriveStateMachine),
 		known:       make(map[int]string),
 		absentSince: make(map[int]time.Time),
+		goneSince:   make(map[int]time.Time),
 		now:         time.Now,
 		onEvent:     onEvent,
 	}
@@ -173,6 +196,9 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		}
 
 		seen[info.Index] = true
+		// The drive answered, so any earlier absence was the listing's fault
+		// rather than the hardware's, and a later one starts its own clock.
+		delete(m.goneSince, info.Index)
 
 		// Ensure a state machine exists for every visible drive, even if empty.
 		if _, ok := m.drives[info.Index]; !ok {
@@ -238,10 +264,29 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	// seconds for the life of the process — and kept a card on the dashboard
 	// for hardware that is not there. Replugging re-adds it through the
 	// ordinary path above, as a new arrival with its disc detected.
+	//
+	// Because that removal is unrecoverable — there is nothing left to correct
+	// on the next poll — it is only made once the absence has been reported by
+	// listings that completed, over driveGoneConfirmDuration. A drive that has
+	// stopped answering reports exactly as an empty slot does, and removing the
+	// card is the wrong answer for hardware that is still plugged in.
 	for idx, dsm := range m.drives {
 		if seen[idx] {
 			continue
 		}
+
+		now := m.now()
+		since, tracked := m.goneSince[idx]
+		if !tracked {
+			m.goneSince[idx] = now
+			since = now
+		}
+		if now.Sub(since) < driveGoneConfirmDuration {
+			slog.Debug("drive missing from the listing, waiting for the absence to persist",
+				"drive_index", idx, "absent_for", now.Sub(since).String())
+			continue
+		}
+
 		prev := m.known[idx]
 		dsm.ForceReset()
 		delete(m.known, idx)
@@ -249,6 +294,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		// an entry per removal and would misdate the debounce if the same index
 		// were reused by different hardware later.
 		delete(m.absentSince, idx)
+		delete(m.goneSince, idx)
 		delete(m.drives, idx)
 		pending = append(pending, DriveEvent{
 			Type:       EventDriveDisconnect,
