@@ -271,6 +271,33 @@ func TestDiagnoseIsSilentOnAHealthyScan(t *testing.T) {
 	}
 }
 
+// Announcing the angles of a multi-angle title is ordinary enumeration — the
+// same bookkeeping as 3307, which is catalogued as routine for exactly that
+// reason. Uncatalogued codes join the findings list once a scan has any real
+// finding, so on a damaged multi-angle disc these two lines were filed
+// alongside the title that would not read.
+func TestDiagnoseTreatsAngleAnnouncementsAsRoutine(t *testing.T) {
+	d := Diagnose([]Message{
+		{Code: 3307, Text: "File 00303.mpls was added as title #0"},
+		{Code: 3308, Text: "File 00200.mpls (angle 1) was added as title #3"},
+		{Code: 3308, Text: "File 00200.mpls (angle 2) was added as title #4"},
+		{
+			Code:   msgTitleSkipped,
+			Text:   "Title #00018.m2ts was skipped",
+			Params: []string{"00018.m2ts"},
+		},
+	})
+
+	for _, f := range d.Findings {
+		if strings.Contains(f.Text, "angle") {
+			t.Errorf("routine enumeration filed as a finding: %q", f.Text)
+		}
+	}
+	if len(d.Findings) != 1 {
+		t.Errorf("got %d findings, want only the skipped title: %+v", len(d.Findings), d.Findings)
+	}
+}
+
 // The parse must not depend on the English text: MakeMKV localizes it, and the
 // parameters are the stable part of the line.
 func TestDiagnoseUsesMessageParametersNotProse(t *testing.T) {

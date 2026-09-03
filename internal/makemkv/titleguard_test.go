@@ -107,6 +107,88 @@ func TestGuardReportsATitleThatIsGoneEntirely(t *testing.T) {
 	}
 }
 
+// addedAngle builds the enumeration line makemkvcon emits for one angle of a
+// multi-angle title: a different message code from the ordinary one, with the
+// angle number wedged in as a parameter ahead of the title number.
+func addedAngle(source string, angle, index int) Event {
+	return Event{Type: "MSG", Message: &Message{
+		Code:   3308,
+		Text:   "File " + source + " (angle " + itoa(angle) + ") was added as title #" + itoa(index),
+		Format: "File %1 (angle %2) was added as title #%3",
+		Params: []string{source, itoa(angle), "#" + itoa(index)},
+	}}
+}
+
+// Kiki's Delivery Service, 2026-09-03. The feature is a two-angle playlist, and
+// makemkvcon announces those under 3308 rather than 3307. The guard watched only
+// for 3307, so the title it existed to protect was invisible to it: it reached
+// "Saving 1 titles" having recorded nothing at index 3, concluded the drive had
+// dropped the title, and killed a rip that was seconds from succeeding. Both
+// angles failed this way, one after the other.
+func TestGuardAllowsAMultiAngleTitle(t *testing.T) {
+	g := newTitleGuard(3, "00200.mpls")
+
+	for _, ev := range []Event{
+		added("00303.mpls", 0),
+		added("00300.mpls", 1),
+		added("00309.mpls", 2),
+		addedAngle("00200.mpls", 1, 3),
+		addedAngle("00200.mpls", 2, 4),
+		added("00018.m2ts", 5),
+		saving(),
+	} {
+		g.observe(ev)
+	}
+
+	if err := g.verdict(); err != nil {
+		t.Errorf("guard blocked a rip of a title enumerated at the index it asked for: %v", err)
+	}
+}
+
+// Every angle of a multi-angle title carries the same file name, so the file
+// alone no longer identifies one index. Searching for it found whichever angle
+// map iteration reached first, which is deliberately random in Go: the guard
+// failed roughly one rip in two, and reported the title had "moved from index 3
+// to 3" when it did, because the search ran again to build the message and
+// answered differently the second time.
+//
+// The loop is the point. A single pass would pass by luck half the time.
+func TestGuardPrefersTheRequestedIndexAmongIdenticalSources(t *testing.T) {
+	for attempt := 0; attempt < 100; attempt++ {
+		g := newTitleGuard(4, "00200.mpls")
+		g.observe(addedAngle("00200.mpls", 1, 3))
+		g.observe(addedAngle("00200.mpls", 2, 4))
+		g.observe(saving())
+
+		if err := g.verdict(); err != nil {
+			t.Fatalf("attempt %d: guard blocked the angle it was asked for: %v", attempt, err)
+		}
+	}
+}
+
+// When a multi-angle title really has moved, which angle to retry at cannot be
+// read off the file name — both angles carry it. The guard has to pick, and the
+// requirement is that it picks the same one every time: a retry index that
+// varies run to run is a bug that reproduces only half the time.
+func TestGuardNamesTheSameMovedIndexEveryTime(t *testing.T) {
+	for attempt := 0; attempt < 100; attempt++ {
+		g := newTitleGuard(2, "00200.mpls")
+		g.observe(added("00303.mpls", 2))
+		g.observe(addedAngle("00200.mpls", 1, 3))
+		g.observe(addedAngle("00200.mpls", 2, 4))
+		g.observe(saving())
+
+		err := g.verdict()
+		var moved *TitleMovedError
+		if !errors.As(err, &moved) {
+			t.Fatalf("attempt %d: error is %T, want *TitleMovedError", attempt, err)
+		}
+		if moved.CorrectIndex != 3 {
+			t.Fatalf("attempt %d: CorrectIndex = %d, want 3 on every run", attempt, moved.CorrectIndex)
+		}
+	}
+}
+
 // A caller that does not know which title it expects gets the old behaviour
 // rather than a refusal.
 func TestGuardWithoutAnExpectationAllowsTheRip(t *testing.T) {

@@ -11,6 +11,15 @@ import (
 // message codes in source.go.
 const msgTitleAdded = 3307
 
+// msgAngleTitleAdded is "File %1 (angle %2) was added as title #%3" — the same
+// announcement for one angle of a multi-angle title, under its own code.
+//
+// Watching only for 3307 made every angle of such a title invisible to the
+// guard, which then reported the disc's main feature as one the drive had
+// failed to read. Kiki's Delivery Service is a two-angle feature, and both
+// angles were refused on a drive that had read them perfectly.
+const msgAngleTitleAdded = 3308
+
 // TitleMovedError reports that the title number BluForge asked for no longer
 // names the title it was chosen for.
 //
@@ -76,7 +85,7 @@ func (g *titleGuard) observe(ev Event) {
 	switch ev.Message.Code {
 	case MsgSavingTitles:
 		g.copying = true
-	case msgTitleAdded:
+	case msgTitleAdded, msgAngleTitleAdded:
 		if source, index, ok := titleAssignment(*ev.Message); ok {
 			g.seen[index] = source
 		}
@@ -138,26 +147,54 @@ func checkableSource(s string) bool {
 }
 
 // indexOf reports where a source file landed in this pass, or -1.
+//
+// A multi-angle title announces every angle under the same file name, so the
+// name alone no longer picks out one index. The requested index wins whenever it
+// holds the file, since that is the rip proceeding as planned; otherwise the
+// lowest match wins, chosen only because it is the same answer every time.
+// Ranging over the map and taking the first hit is not: Go randomizes that
+// order, and two calls in one verdict disagreed with each other.
+//
+// Which angle a moved multi-angle title should retry at is genuinely ambiguous —
+// the file name cannot tell them apart. The lowest is a guess; it is a
+// deterministic one, and the alternative was a coin flip.
 func (g *titleGuard) indexOf(source string) int {
+	if s, ok := g.seen[g.requested]; ok && s == source {
+		return g.requested
+	}
+	best := -1
 	for i, s := range g.seen {
-		if s == source {
-			return i
+		if s == source && (best < 0 || i < best) {
+			best = i
 		}
 	}
-	return -1
+	return best
 }
 
-// titleAssignment reads "File %1 was added as title #%2" from its parameters.
+// titleAssignment reads a title announcement from its parameters: either
+// "File %1 was added as title #%2" or, for one angle of a multi-angle title,
+// "File %1 (angle %2) was added as title #%3".
 //
 // The parameters are used rather than the text because MakeMKV localizes the
 // prose; a German install reports the same enumeration with none of the same
-// words, and getting this wrong means ripping the wrong title.
+// words, and getting this wrong means ripping the wrong title. The file is the
+// first parameter and the title number is the last in both forms — the angle is
+// inserted between them, which is the whole difference.
 func titleAssignment(m Message) (string, int, bool) {
-	if m.Code != msgTitleAdded || len(m.Params) < 2 {
+	var want int
+	switch m.Code {
+	case msgTitleAdded:
+		want = 2
+	case msgAngleTitleAdded:
+		want = 3
+	default:
+		return "", 0, false
+	}
+	if len(m.Params) < want {
 		return "", 0, false
 	}
 	source := strings.TrimSpace(m.Params[0])
-	index, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(m.Params[1]), "#"))
+	index, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(m.Params[want-1]), "#"))
 	if err != nil || source == "" {
 		return "", 0, false
 	}

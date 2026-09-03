@@ -24,6 +24,7 @@ var routineScanMessages = map[int]bool{
 	3025: true, // Title shorter than the configured minimum — a setting, not a fault
 	3305: true, // AACS directory not present, assuming unencrypted disc
 	3307: true, // File X was added as title #N
+	3308: true, // File X (angle N) was added as title #M — the same, per angle
 	5005: true, // N titles saved
 	5011: true, // Operation successfully completed
 	5014: true, // Saving N titles into directory
