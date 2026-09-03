@@ -186,28 +186,36 @@ func (g *titleGuard) indexOf(source string) int {
 
 // titleAssignment reads a title announcement from its parameters: either
 // "File %1 was added as title #%2" or, for one angle of a multi-angle title,
-// "File %1 (angle %2) was added as title #%3".
+// "File %1 (angle %3) was added as title #%2".
 //
 // The parameters are used rather than the text because MakeMKV localizes the
 // prose; a German install reports the same enumeration with none of the same
-// words, and getting this wrong means ripping the wrong title. The file is the
-// first parameter and the title number is the last in both forms — the angle is
-// inserted between them, which is the whole difference.
+// words. The file is %1 and the title number is %2 in both forms — the angle is
+// appended as %3, so the parameter positions do not move even though the words
+// around them do.
+//
+// Reading the title number from the last parameter instead read the angle. It
+// is the failure this whole function exists to prevent, and it got past every
+// test because the tests were written from the same wrong reading of the prose:
+// "angle 1" was recorded as title 1, "angle 2" as title 2, the real indexes 3
+// and 4 were never seen, and BluForge ripped title 1 — a different cut of the
+// film — and filed it under the name of the one that was asked for.
+//
+// The lesson is in the shape of the bug, not the offset. A misread field here
+// does not produce nonsense that fails loudly; it produces a small plausible
+// integer that is indistinguishable from a title index. Nothing downstream may
+// treat this as authority for changing which title gets copied.
 func titleAssignment(m Message) (string, int, bool) {
-	var want int
 	switch m.Code {
-	case msgTitleAdded:
-		want = 2
-	case msgAngleTitleAdded:
-		want = 3
+	case msgTitleAdded, msgAngleTitleAdded:
 	default:
 		return "", 0, false
 	}
-	if len(m.Params) < want {
+	if len(m.Params) < 2 {
 		return "", 0, false
 	}
 	source := strings.TrimSpace(m.Params[0])
-	index, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(m.Params[want-1]), "#"))
+	index, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(m.Params[1]), "#"))
 	if err != nil || source == "" {
 		return "", 0, false
 	}

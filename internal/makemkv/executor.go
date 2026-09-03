@@ -918,7 +918,11 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	target := src.Arg()
 	titleStr := fmt.Sprintf("%d", titleID)
 
-	slog.Info("makemkvcon: starting rip", "source", target, "title", titleID, "output", outputDir)
+	// expect names the playlist this title number is supposed to be, so the line
+	// can be read on its own. Without it, "title 1" is a number whose meaning
+	// lives in another line somewhere above.
+	slog.Info("makemkvcon: starting rip",
+		"source", target, "title", titleID, "expect", expectSource, "output", outputDir)
 
 	// The guard below stops a rip that is about to copy the wrong title. It does
 	// that by cancelling this context rather than signalling the process itself,
@@ -963,7 +967,8 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
 		return err
 	}
-	slog.Info("makemkvcon: rip command completed successfully", "source", target, "title", titleID)
+	slog.Info("makemkvcon: rip command completed successfully",
+		"source", target, "title", titleID, "expect", expectSource)
 	return nil
 }
 
@@ -1018,7 +1023,7 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 			pct := ev.Progress.Total * 100 / ev.Progress.Max
 			if progress.shouldLog(pct, time.Now()) {
 				slog.Info("makemkvcon: rip progress",
-					"source", target, "title", titleID, "percent", pct)
+					"source", target, "title", titleID, "expect", expectSource, "percent", pct)
 			}
 		}
 		if onEvent != nil {

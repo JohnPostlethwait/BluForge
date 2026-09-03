@@ -50,19 +50,35 @@ func (c *levelCapture) WithGroup(string) slog.Handler      { return c }
 
 // errorText renders every ERROR record, attributes included.
 func (c *levelCapture) errorText() string {
+	return c.render(slog.LevelError, "")
+}
+
+// findAt renders the first record at level whose message contains substr, or
+// "" when there is none.
+func (c *levelCapture) findAt(level slog.Level, substr string) string {
+	return c.render(level, substr)
+}
+
+func (c *levelCapture) render(level slog.Level, substr string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var b strings.Builder
 	for _, r := range c.records {
-		if r.Level != slog.LevelError {
+		if r.Level != level || !strings.Contains(r.Message, substr) {
 			continue
 		}
 		b.WriteString(r.Message)
 		r.Attrs(func(a slog.Attr) bool {
-			b.WriteString(" " + a.Key + "=" + a.Value.String())
+			b.WriteString(" ")
+			b.WriteString(a.Key)
+			b.WriteString("=")
+			b.WriteString(a.Value.String())
 			return true
 		})
 		b.WriteString("\n")
+		if substr != "" {
+			return b.String()
+		}
 	}
 	return b.String()
 }

@@ -160,17 +160,21 @@ func (j *Job) CurrentPhase() string {
 	return j.Phase
 }
 
-// SetTitleIndex records the title number the rip is actually running against.
+// TitleIndex has no setter, deliberately.
 //
-// makemkvcon renumbers titles between invocations on a disc whose titles fail
-// to read, so the index chosen at scan time can be corrected mid-rip. Every
-// page showing the queue reads this field through Snapshot, under the mutex;
-// the correction has to be written under it too.
-func (j *Job) SetTitleIndex(index int) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.TitleIndex = index
-}
+// There was one. makemkvcon renumbers titles between invocations on a disc
+// whose titles fail to read, so a job's index could be corrected mid-rip to
+// wherever the guard believed the title had gone. That correction is a guess
+// derived from matching a filename against an enumeration still arriving, and
+// on a multi-angle disc the filename does not identify a title at all: Kiki's
+// Delivery Service announces both angles as 00200.mpls. The guard misread an
+// angle number as a title number, the job for title 3 was re-pointed at title
+// 1, and a different cut of the film was copied and filed under the requested
+// title's name — reported as a success.
+//
+// The index a job was created for is the only index it may ever rip. Leaving
+// no way to write the field is what keeps that true, rather than a comment
+// asking the next caller not to.
 
 // SetStatus sets the job's lifecycle state without touching its timestamps.
 // Used for the non-terminal transitions; Complete, Fail and Skip settle a job.

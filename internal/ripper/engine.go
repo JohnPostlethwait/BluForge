@@ -270,6 +270,19 @@ func (e *Engine) run(job *Job) {
 	// much of the title exists on disk.
 	job.SetPhase(PhaseAnalyzing)
 
+	// State the intent before acting on it.
+	//
+	// Diagnosing the Kiki's Delivery Service rip meant spotting that a line
+	// reading title=1 sat three lines from a directory named t4-, and that the
+	// two disagreed. Nothing said what the rip was for, so a rip copying the
+	// wrong title read exactly like a rip copying the right one. Everything
+	// needed to contradict what follows belongs on one line, before it happens.
+	slog.Info("rip: starting",
+		"job_id", job.ID, "drive", job.DriveIndex, "disc", job.DiscName,
+		"title_index", job.TitleIndex, "source_file", job.SourceFile,
+		"expected_bytes", job.TrackMetadata.SizeBytes,
+		"output_dir", job.OutputDir)
+
 	// Everything MakeMKV says during the rip, kept in case the rip fails.
 	// Nothing else retains it: the messages are logged as they arrive and then
 	// dropped, so a failure explained by the enumeration could only be
@@ -277,7 +290,7 @@ func (e *Engine) run(job *Job) {
 	capture := makemkv.NewMessageCapture(makemkv.DefaultCaptureLimit)
 
 	var lastPct int
-	err := ripWithRetry(ctx, e.executor, job, func(ev makemkv.Event) {
+	err := ripOnce(ctx, e.executor, job, func(ev makemkv.Event) {
 		capture.Observe(ev)
 
 		// "Saving N titles into directory" is the copy starting.

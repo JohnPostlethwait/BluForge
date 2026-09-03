@@ -108,15 +108,41 @@ func TestGuardReportsATitleThatIsGoneEntirely(t *testing.T) {
 }
 
 // addedAngle builds the enumeration line makemkvcon emits for one angle of a
-// multi-angle title: a different message code from the ordinary one, with the
-// angle number wedged in as a parameter ahead of the title number.
+// multi-angle title.
+//
+// The parameter order is the point, and it is not the order of the prose. The
+// text reads "(angle 1) ... title #3", but MakeMKV keeps %1 as the file and %2
+// as the title number — the same positions as the ordinary announcement — and
+// appends the angle as %3. Reading the title number from the last parameter
+// gets the angle instead, which is a small plausible integer and therefore
+// indistinguishable from a real title index once it is in the map.
 func addedAngle(source string, angle, index int) Event {
 	return Event{Type: "MSG", Message: &Message{
 		Code:   3308,
 		Text:   "File " + source + " (angle " + itoa(angle) + ") was added as title #" + itoa(index),
-		Format: "File %1 (angle %2) was added as title #%3",
-		Params: []string{source, itoa(angle), "#" + itoa(index)},
+		Format: "File %1 (angle %3) was added as title #%2",
+		Params: []string{source, "#" + itoa(index), itoa(angle)},
 	}}
+}
+
+// Kiki's Delivery Service, 2026-09-03, from the container log. Reading the
+// title number from the last parameter recorded "angle 1" as title 1 and
+// "angle 2" as title 2, so indexes 3 and 4 were never seen at all. The guard
+// reported the feature "is at index 1 in this pass, not index 3; index 3 holds
+// nothing" — and index 1 is 00300.mpls, a different 4.3GB cut of the film,
+// which is what got ripped and filed under 00200.mkv.
+func TestAnAngleAnnouncementIsReadForItsTitleNumberNotItsAngle(t *testing.T) {
+	source, index, ok := titleAssignment(*addedAngle("00200.mpls", 1, 3).Message)
+
+	if !ok {
+		t.Fatal("an angle announcement was not understood at all")
+	}
+	if source != "00200.mpls" {
+		t.Errorf("source = %q, want 00200.mpls", source)
+	}
+	if index != 3 {
+		t.Errorf("index = %d, want 3 — %d is the angle number, not the title", index, index)
+	}
 }
 
 // Kiki's Delivery Service, 2026-09-03. The feature is a two-angle playlist, and
