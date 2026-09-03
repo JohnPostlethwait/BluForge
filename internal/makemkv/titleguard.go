@@ -38,18 +38,31 @@ type TitleMovedError struct {
 	CorrectIndex int
 }
 
+// Error states what the enumeration contained and stops there.
+//
+// It used to end "the drive did not read it this time". That was a guess, and
+// on the rip that prompted this it was wrong twice over: the drive had read the
+// title perfectly, and the title was absent from the guard's record only
+// because it was announced under a message code the parser did not recognise.
+// The sentence read like a finding, so it was believed, and it sent the
+// investigation at the hardware for twenty minutes.
+//
+// What this knows is which files MakeMKV listed and where. Why a title is
+// missing is a different question, and interpreting evidence is what
+// ScanDiagnosis does — separately, where a reader can tell it apart from the
+// record of what happened.
 func (e *TitleMovedError) Error() string {
 	if e.CorrectIndex < 0 {
-		return fmt.Sprintf("makemkv: title %s is not in this pass (index %d is %s); the drive did not read it this time",
+		return fmt.Sprintf("makemkv: title %s was not in this pass's title list; index %d holds %s",
 			e.Expected, e.Requested, describeFound(e.Found))
 	}
-	return fmt.Sprintf("makemkv: title %s moved from index %d to %d in this pass (index %d is now %s)",
-		e.Expected, e.Requested, e.CorrectIndex, e.Requested, describeFound(e.Found))
+	return fmt.Sprintf("makemkv: title %s is at index %d in this pass, not index %d; index %d holds %s",
+		e.Expected, e.CorrectIndex, e.Requested, e.Requested, describeFound(e.Found))
 }
 
 func describeFound(found string) string {
 	if found == "" {
-		return "absent"
+		return "nothing"
 	}
 	return found
 }

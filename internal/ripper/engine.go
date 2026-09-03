@@ -3,6 +3,7 @@ package ripper
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -25,6 +26,11 @@ type Engine struct {
 	active   map[int]*Job
 	queued   map[int][]*Job // per-drive FIFO queue
 	onUpdate func(*Job)
+	// failures holds what MakeMKV said during recent failed rips, so the
+	// activity page can show it beside a job it can otherwise only read back
+	// out of the database. Its own lock: it is read by page requests while a
+	// rip goroutine writes it.
+	failures *recentFailures
 }
 
 // NewEngine creates a new Engine with the given RipExecutor.
@@ -33,6 +39,7 @@ func NewEngine(executor RipExecutor) *Engine {
 		executor: executor,
 		active:   make(map[int]*Job),
 		queued:   make(map[int][]*Job),
+		failures: newRecentFailures(),
 	}
 }
 
@@ -263,8 +270,16 @@ func (e *Engine) run(job *Job) {
 	// much of the title exists on disk.
 	job.SetPhase(PhaseAnalyzing)
 
+	// Everything MakeMKV says during the rip, kept in case the rip fails.
+	// Nothing else retains it: the messages are logged as they arrive and then
+	// dropped, so a failure explained by the enumeration could only be
+	// diagnosed from the container's log, by someone who knew the timestamp.
+	capture := makemkv.NewMessageCapture(makemkv.DefaultCaptureLimit)
+
 	var lastPct int
 	err := ripWithRetry(ctx, e.executor, job, func(ev makemkv.Event) {
+		capture.Observe(ev)
+
 		// "Saving N titles into directory" is the copy starting.
 		if ev.Type == "MSG" && ev.Message != nil && ev.Message.Code == makemkv.MsgSavingTitles {
 			job.SetPhase(PhaseCopying)
@@ -293,6 +308,24 @@ func (e *Engine) run(job *Job) {
 			}
 		}
 	})
+
+	// A failed rip reports what MakeMKV said on the way down, at ERROR and
+	// therefore whatever the log level is. The alternative — keeping it for
+	// DEBUG — is no use for a rip: turning the level up afterwards cannot
+	// recover what the failure did not report at the time, and repeating the
+	// rip costs the disc and half an hour.
+	//
+	// Only when the rip itself failed. A rip that copied cleanly and then could
+	// not be moved is not explained by its enumeration.
+	if err != nil {
+		messages, dropped := capture.Result(), capture.Dropped()
+		job.SetFailureOutput(messages, dropped)
+		e.recordFailure(job.ID, messages, dropped)
+		slog.Error("rip: failed, with what MakeMKV said",
+			"job_id", job.ID, "drive", job.DriveIndex, "disc", job.DiscName,
+			"title_index", job.TitleIndex, "source_file", job.SourceFile,
+			"error", err, "messages", messages, "messages_dropped", dropped)
+	}
 
 	// Organizing is the job's state for as long as OnComplete is actually doing
 	// the organizing. Announced before the callback runs and left in place

@@ -146,6 +146,12 @@ document.addEventListener('alpine:init', () => {
 				contentType: active.contentType,
 				status: job.Status,
 				error: job.Error || '',
+				// The rip's own account of itself, so a failure watched as it
+				// happens reads the same as one found later on a reloaded page.
+				// The event carries the job's fields in their Go spelling; the
+				// history rows the server renders use the camelCase ones.
+				failureOutput: job.FailureOutput || [],
+				failureOutputDropped: job.FailureOutputDropped || 0,
 				duration: '',
 				outputPath: '',
 				createdAt: new Date().toLocaleString(),
@@ -779,6 +785,33 @@ function formatDuration(secs) {
 								-->
 								<template x-if="r.salvageNote">
 									<div class="text-warning text-sm mt-1" x-text="r.salvageNote"></div>
+								</template>
+								<!--
+									What MakeMKV said on the way down. A one-line error names the
+									symptom; the account of what MakeMKV was doing is what tells
+									you which title it had reached and what it had listed — the
+									difference between "the drive did not read it" and "the title
+									was announced under a code we ignored".
+
+									Held in memory, so it is here for a failure this process saw
+									and absent for anything older. Absent is the ordinary case:
+									the disclosure simply is not drawn, rather than announcing
+									that something is missing.
+								-->
+								<template x-if="r.failureOutput && r.failureOutput.length">
+									<details class="scan-warning-details mt-1">
+										<summary class="text-muted">What MakeMKV reported during this rip</summary>
+										<ul class="scan-warning-list">
+											<template x-for="w in (r.failureOutput || [])" x-bind:key="w.code + w.text">
+												<li>
+													<span x-text="w.text"></span>
+													<span class="text-muted" x-show="w.count > 1" x-text="' (×' + w.count + ')'"></span>
+												</li>
+											</template>
+										</ul>
+										<div class="text-muted text-sm" x-show="r.failureOutputDropped > 0"
+											x-text="r.failureOutputDropped + ' more kinds of message are not shown'"></div>
+									</details>
 								</template>
 								<!--
 									The copy this rip came off is still on disk, holding up to

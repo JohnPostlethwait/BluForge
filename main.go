@@ -19,6 +19,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
+	"github.com/johnpostlethwait/bluforge/internal/logging"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
@@ -28,9 +29,11 @@ import (
 )
 
 func main() {
-	// 1. Structured JSON logging to stdout.
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+	// 1. Structured JSON logging to stdout, filtered at BLUFORGE_LOG_LEVEL.
+	//
+	// First statement in the process: everything below this line logs, and a
+	// level read any later could not govern the lines already emitted.
+	logging.Configure(os.Stdout, os.Getenv(logging.LevelEnv))
 
 	// 1b. Capture the umask before anything else starts a goroutine. Reading it
 	// means briefly setting it to 0, so this has to happen while the process is

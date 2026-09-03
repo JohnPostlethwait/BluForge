@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/templates"
 )
@@ -43,14 +44,22 @@ type activityJobJSON struct {
 	Salvageable bool `json:"salvageable,omitempty"`
 	// Phase is "analyzing" or "copying" for a running rip. Progress advances
 	// through both, but only means bytes written during the copy.
-	Phase             string              `json:"phase,omitempty"`
-	SizeBytes         int64               `json:"sizeBytes,omitempty"`
-	SizeHuman         string              `json:"sizeHuman,omitempty"`
-	Duration          string              `json:"duration,omitempty"`
-	AudioTracks       []ripper.AudioTrack `json:"audioTracks,omitempty"`
-	SubtitleLanguages []string            `json:"subtitleLanguages,omitempty"`
-	OutputPath        string              `json:"outputPath,omitempty"`
-	CreatedAt         string              `json:"createdAt,omitempty"`
+	Phase string `json:"phase,omitempty"`
+	// FailureOutput is what MakeMKV said during a rip that failed, repeats
+	// collapsed into counts. It is held in memory only, so it is present for a
+	// failure this process saw and absent for one read back out of the database
+	// after a restart. Absent is the ordinary case and must not read as a fault.
+	FailureOutput []makemkv.ScanWarning `json:"failureOutput,omitempty"`
+	// FailureOutputDropped counts distinct messages the capture turned away at
+	// its limit, so a truncated list is not shown as the whole account.
+	FailureOutputDropped int                 `json:"failureOutputDropped,omitempty"`
+	SizeBytes            int64               `json:"sizeBytes,omitempty"`
+	SizeHuman            string              `json:"sizeHuman,omitempty"`
+	Duration             string              `json:"duration,omitempty"`
+	AudioTracks          []ripper.AudioTrack `json:"audioTracks,omitempty"`
+	SubtitleLanguages    []string            `json:"subtitleLanguages,omitempty"`
+	OutputPath           string              `json:"outputPath,omitempty"`
+	CreatedAt            string              `json:"createdAt,omitempty"`
 }
 
 // activityStoreJSON is the Alpine.store('activity') shape.
@@ -223,6 +232,15 @@ func (s *Server) handleActivity(c echo.Context) error {
 			continue
 		}
 		meta := parseTrackMetadata(j.TrackMetadata)
+		// A failed rip leaves the engine's active map before it settles, so it
+		// reaches this page through the database, which does not carry the
+		// capture. The engine holds the last few in memory; anything older, or
+		// from before a restart, simply has none.
+		var failureOutput []makemkv.ScanWarning
+		var failureDropped int
+		if s.ripEngine != nil {
+			failureOutput, failureDropped, _ = s.ripEngine.RecentFailure(j.ID)
+		}
 		store.History = append(store.History, activityJobJSON{
 			ID:                j.ID,
 			DiscName:          j.DiscName,
@@ -235,6 +253,9 @@ func (s *Server) handleActivity(c echo.Context) error {
 			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
 			Salvageable:       salvageable(j.Status, j.ErrorMessage),
 			SalvageNote:       j.SalvageNote,
+
+			FailureOutput:        failureOutput,
+			FailureOutputDropped: failureDropped,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,

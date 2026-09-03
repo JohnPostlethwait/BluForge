@@ -65,6 +65,18 @@ type Job struct {
 	Error      string    `json:"Error,omitempty"`
 	StartedAt  time.Time `json:"StartedAt"`
 	FinishedAt time.Time `json:"FinishedAt"`
+	// FailureOutput is what MakeMKV said during a rip that failed, repeats
+	// collapsed into counts. Empty on a rip that succeeded.
+	//
+	// It is not written to rip_jobs, by decision: a job reloaded from the
+	// database after a restart has its error and none of this. The page showing
+	// it has to treat that absence as ordinary, because it is the state most
+	// failed jobs will be in by the time anyone looks.
+	FailureOutput []makemkv.ScanWarning `json:"FailureOutput,omitempty"`
+	// FailureOutputDropped counts distinct messages the capture turned away at
+	// its limit. Non-zero means FailureOutput is incomplete and must not be
+	// presented as the whole account.
+	FailureOutputDropped int `json:"FailureOutputDropped,omitempty"`
 	// OnStart is an optional callback invoked just before the rip begins.
 	// Returning a non-nil error aborts the job and transitions it to Failed.
 	// Typical use: lazy creation of the per-title temp directory.
@@ -226,7 +238,22 @@ func (j *Job) Snapshot() Job {
 		StartedAt:     j.StartedAt,
 		FinishedAt:    j.FinishedAt,
 		TrackMetadata: j.TrackMetadata,
+
+		FailureOutput:        j.FailureOutput,
+		FailureOutputDropped: j.FailureOutputDropped,
 	}
+}
+
+// SetFailureOutput records what MakeMKV said during a rip that failed.
+//
+// Through a setter for the same reason as the other fields: this runs on the
+// rip goroutine while the activity and dashboard pages read the job through
+// Snapshot.
+func (j *Job) SetFailureOutput(messages []makemkv.ScanWarning, dropped int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.FailureOutput = messages
+	j.FailureOutputDropped = dropped
 }
 
 // Cancel stops a running job by cancelling its context.

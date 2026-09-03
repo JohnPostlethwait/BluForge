@@ -120,6 +120,34 @@ func TestRipOutcomeReportsAnEmptyCopy(t *testing.T) {
 	if !strings.Contains(err.Error(), "saved no titles") {
 		t.Errorf("error does not say what happened: %v", err)
 	}
+
+	// "saved no titles" is load-bearing beyond its reading: salvageable() in
+	// internal/web keys the salvage button off this substring, so rewording it
+	// away removes the button and nothing fails to say so.
+	if !salvageable(err.Error()) {
+		t.Errorf("the wording no longer marks this failure as salvageable: %v", err)
+	}
+
+	// MakeMKV reported that the copy failed and saved nothing. Why is not
+	// something this knows: a rip saves nothing when the guard stops it, when
+	// the selection matches no track, and when the disc really is unreadable.
+	if strings.Contains(strings.ToLower(err.Error()), "drive") {
+		t.Errorf("the error blames the drive for something it did not observe: %v", err)
+	}
+}
+
+// salvageable mirrors the substring match in internal/web/handlers_activity.go.
+// Duplicated rather than imported because that function is unexported and web
+// imports makemkv, not the other way round; if the two drift, the test that
+// notices is this one.
+func salvageable(errMessage string) bool {
+	msg := strings.ToLower(errMessage)
+	for _, sign := range []string{"saved no titles", "could not read it", "no .mkv file found"} {
+		if strings.Contains(msg, sign) {
+			return true
+		}
+	}
+	return false
 }
 
 // An ordinary failure is still reported as itself.

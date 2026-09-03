@@ -98,13 +98,14 @@ go build -o bluforge .
 
 ## Configuration
 
-BluForge loads configuration from `/config/config.yaml` with environment variable overrides (`BLUFORGE_` prefix). All settings have sensible defaults and can also be changed from the Settings page in the web UI.
+BluForge loads configuration from `/config/config.yaml` with environment variable overrides (`BLUFORGE_` prefix). All settings have sensible defaults, and those with a name in the Setting column can also be changed from the Settings page in the web UI. The rest are environment-only and take effect at startup.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | *(required)* | `MAKEMKV_ACCEPT_EULA` | *(none)* | Must be `yes` to confirm acceptance of the [MakeMKV EULA](https://www.makemkv.com/eula/) and allow the container to start |
 | *(install)* | `MAKEMKV_VERSION` | `1.18.3` | MakeMKV version to download and compile at first startup. Tested version: `1.18.3` |
 | *(optional)* | `MAKEMKV_KEY` | *(none)* | MakeMKV registration key. Can also be set at runtime via the Settings page. Free beta key available at the [MakeMKV forum](https://www.makemkv.com/forum/viewtopic.php?t=1053). |
+| *(optional)* | `BLUFORGE_LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error`. `debug` adds every `makemkvcon` invocation, including the drive poll — useful when diagnosing, noisy otherwise. A failed rip reports what MakeMKV said at any level. |
 | `port` | `BLUFORGE_PORT` | `9160` | HTTP server port |
 | `output_dir` | `BLUFORGE_OUTPUT_DIR` | `/output` | Ripped content destination |
 | `auto_rip` | `BLUFORGE_AUTO_RIP` | `false` | Rip automatically on disc insert |

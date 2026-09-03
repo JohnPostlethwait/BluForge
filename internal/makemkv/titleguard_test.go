@@ -189,6 +189,26 @@ func TestGuardNamesTheSameMovedIndexEveryTime(t *testing.T) {
 	}
 }
 
+// The guard knows what the enumeration contained. It does not know why, and
+// saying "the drive did not read it this time" cost the first twenty minutes of
+// the investigation into a rip that failed because a message code was not
+// recognised — the drive had read the title perfectly. An error reports what was
+// seen; interpreting it is what ScanDiagnosis is for.
+func TestTheAbsentTitleErrorStatesWhatWasSeenAndNoCause(t *testing.T) {
+	err := &TitleMovedError{Requested: 3, Expected: "00200.mpls", Found: "", CorrectIndex: -1}
+	msg := err.Error()
+
+	if strings.Contains(strings.ToLower(msg), "drive") {
+		t.Errorf("the error blames the drive for something it did not observe: %q", msg)
+	}
+	if !strings.Contains(msg, "00200.mpls") {
+		t.Errorf("the error does not name the title: %q", msg)
+	}
+	if !strings.Contains(msg, "3") {
+		t.Errorf("the error does not name the index that was asked for: %q", msg)
+	}
+}
+
 // A caller that does not know which title it expects gets the old behaviour
 // rather than a refusal.
 func TestGuardWithoutAnExpectationAllowsTheRip(t *testing.T) {

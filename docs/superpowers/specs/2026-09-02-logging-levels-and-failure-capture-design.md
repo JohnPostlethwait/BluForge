@@ -112,6 +112,45 @@ kind of error should log regardless of level." A failure emits its captured
 messages as part of the ERROR record. Nothing about reporting a failure is
 conditional on DEBUG having been enabled beforehand.
 
+## Corrections found during implementation
+
+Three, all of which changed the work.
+
+### 1. The operations already log themselves
+
+The design said each operation would "gain its own start and finish lines" once
+the runner went quiet. They already have them: `ScanDisc` (`executor.go:365`,
+`:439`), `StartBackup` (`:806`, `:846`) and `StartRip` (`:900`, `:939`) each
+announce themselves at INFO. The runner's two lines were duplication for every
+real operation and the only record of the poll, which is precisely why demoting
+them costs nothing. No INFO lines were added anywhere.
+
+### 2. A memory-only capture could not have reached the UI
+
+The design has the capture attach to the in-memory `Job` and the activity page
+read it from there. The page cannot: a failed job is deleted from the engine's
+active map before it settles, and `handleActivity` builds its history list from
+`ListAllJobs` — the database — for everything that is not currently active or
+queued. A job's in-memory fields are never consulted for a failure.
+
+So the capture would have reached the log and stopped there, and the UI half of
+the feature would have been dead code that looked implemented.
+
+The fix keeps the memory-only decision: `ripper.recentFailures`, a map of the
+last 50 failed rips' messages held by the engine, which the activity handler
+consults by job ID. Restart-scoped, like everything else here.
+
+### 3. Rewording the empty-copy error would have removed the salvage button
+
+`salvageable` (`internal/web/handlers_activity.go:381`) decides whether to offer
+salvage by matching the error text against `"saved no titles"` and
+`"could not read it"`. Rewording that message freely would have taken the
+button off those failures with nothing failing to report it.
+
+`"saved no titles"` is kept verbatim — it is an observation, and it is what
+MakeMKV said. Only the causal clause was removed. Both signs stay in
+`salvageable`: jobs already in the database carry the old wording.
+
 ## Design
 
 ### 1. Level control

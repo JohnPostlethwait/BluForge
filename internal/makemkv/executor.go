@@ -40,8 +40,16 @@ const scanTimeout = 60 * time.Minute
 // lightweight operation that should complete quickly.
 const driveListTimeout = 30 * time.Second
 
+// The runner records its invocations at DEBUG, not INFO.
+//
+// It is plumbing shared by every caller, so it cannot tell a disc scan from the
+// drive poll — and the poll runs `info disc:9999` every five seconds, which put
+// roughly 17,000 lines a day into the log to report that nothing had happened.
+// Deciding what is worth announcing belongs to the operation, which knows what
+// it is doing: ScanDisc, StartBackup and StartRip each log their own start and
+// finish at INFO.
 func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
-	slog.Info("makemkvcon: executing", "args", args)
+	slog.Debug("makemkvcon: executing", "args", args)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
 	configureTeardown(cmd)
@@ -52,7 +60,7 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 		return strings.NewReader(string(out)), err
 	}
 
-	slog.Info("makemkvcon: command completed", "args", args, "output_bytes", len(out))
+	slog.Debug("makemkvcon: command completed", "args", args, "output_bytes", len(out))
 	return strings.NewReader(string(out)), nil
 }
 
@@ -69,7 +77,7 @@ type StreamRunner interface {
 
 // RunStream executes makemkvcon and invokes onLine for each output line.
 func (r *realRunner) RunStream(ctx context.Context, onLine func(string), args ...string) error {
-	slog.Info("makemkvcon: streaming", "args", args)
+	slog.Debug("makemkvcon: streaming", "args", args)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
 	configureTeardown(cmd)
@@ -1041,7 +1049,12 @@ func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID
 	// as a success that merely left no file behind.
 	if copyFailed {
 		slog.Error("makemkvcon: rip saved no titles", "source", target, "title", titleID)
-		return fmt.Errorf("makemkv: rip %s title %d: makemkvcon saved no titles — the drive could not read it", target, titleID)
+		// "saved no titles" is what MakeMKV reported and is all this knows: a
+		// rip also saves nothing when the guard stops it and when the track
+		// selection matches nothing. The phrase is load-bearing beyond its
+		// reading — salvageable() in internal/web keys the salvage button off
+		// it — so it stays exactly as written.
+		return fmt.Errorf("makemkv: rip %s title %d: makemkvcon reported the copy failed and saved no titles", target, titleID)
 	}
 	return nil
 }
