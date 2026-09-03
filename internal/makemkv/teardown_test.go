@@ -35,12 +35,12 @@ func shortGrace(t *testing.T, d time.Duration) {
 
 // MakeMKV holds the drive open and locks the tray for the length of an
 // operation, and releases both on its way out. SIGKILL cannot be caught, so a
-// makemkvcon killed at a timeout never gets to do that — the drive is left
-// locked, the next listing blocks on it, and that one is killed too.
+// makemkvcon killed at a timeout never gets to do that.
 //
-// In production a drive that had answered twenty-eight polls in a row in four
-// to five seconds each went to permanently unresponsive in one step, and that
-// step was the first timeout we killed. Ask first.
+// This is hygiene rather than a cure: a process already blocked on a dead
+// bridge is in uninterruptible sleep and takes no signal at all, SIGTERM or
+// SIGKILL alike. It matters for the process that can still answer. See
+// configureTeardown for why the stronger claim was withdrawn.
 func TestACancelledCommandIsAskedToStopBeforeItIsKilled(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "m")
 

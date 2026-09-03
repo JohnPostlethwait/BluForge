@@ -28,15 +28,26 @@ var terminateGrace = 10 * time.Second
 // of an operation on purpose — and anything it spawned survives, still holding
 // the device.
 //
-// In production a drive that had answered twenty-eight consecutive polls in
-// four to five seconds each went to permanently unresponsive in a single step,
-// and that step was the first listing we killed. Every listing afterwards
-// blocked and was killed in turn.
-//
 // So: the command gets its own process group, cancellation asks the whole group
 // to stop, and only a process that will not go is killed. Go escalates to
 // SIGKILL on the direct child once terminateGrace expires, which is the
 // backstop rather than the first move.
+//
+// This is hygiene, not a cure for a wedged drive, and it is worth being precise
+// about why — an earlier version of this comment claimed otherwise.
+//
+// The claim was that killing makemkvcon at the timeout was what put a drive
+// beyond recovery. Two observations killed it. A process blocked on I/O to a
+// dead USB bridge is in uninterruptible sleep, where SIGTERM lands exactly as
+// well as SIGKILL does: not at all — a plain sg_inq against such a device could
+// not be killed either. And the kernel's USB resets began about two seconds
+// after each poll opened the device, before any kill: thirteen resets against
+// five kills over the same window. Whatever wedges the drive happens on the way
+// in, not on the way out. See internal/mpls.MountRegistry for what does.
+//
+// What survives is worth keeping on its own: a process that can answer gets to
+// close the drive and unlock the tray, and nothing it spawned is orphaned still
+// holding the device. It costs up to terminateGrace on a timeout.
 func configureTeardown(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return terminate(cmd) }
