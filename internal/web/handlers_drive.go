@@ -123,7 +123,14 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	// search handlers write SearchResults, RawSearchResults and DiscLabel into
 	// that same object. One tab searching while another renders the page is
 	// enough to be reading a field mid-write.
+	// A release match, when one was chosen, lives in the drive session. A scan
+	// does not: pressing "Scan Disc" without searching creates no session at
+	// all, so anything gated on a session is invisible when the user returns to
+	// a disc they only scanned.
+	var releaseID, discID string
+	var rawResults []discdb.MediaItem
 	if session, ok := s.driveSessions.Snapshot(idx); ok {
+		releaseID, discID, rawResults = session.ReleaseID, session.DiscID, session.RawSearchResults
 		if session.ReleaseID != "" {
 			driveStore.SelectedRelease = &SelectedReleaseJSON{
 				MediaItemID: session.MediaItemID,
@@ -139,19 +146,20 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 			}
 		}
 		driveStore.SearchResults = session.SearchResults
-		if driveStore.SearchResults == nil {
-			driveStore.SearchResults = make([]SearchResultJSON, 0)
-		}
+	}
+	if driveStore.SearchResults == nil {
+		driveStore.SearchResults = make([]SearchResultJSON, 0)
+	}
 
-		// Rehydrate the title list from the cached scan on every page load, so a
-		// refresh or a navigation back to a scanned disc shows the titles again
-		// rather than a blank table. Match data is applied when a release was
-		// selected; without one the titles are still listed and named, just
-		// unmatched. The same builder serves both.
-		if s.orchestrator != nil {
-			if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-				driveStore.Titles = titlesForScan(scan, session.RawSearchResults, session.ReleaseID, session.DiscID)
-			}
+	// Rehydrate the title list from the cached scan on every page load — with or
+	// without a session — so returning to a scanned disc shows its titles and
+	// lands on the review step, rather than a blank table on step one with no
+	// way forward. The scan lives in the orchestrator cache, keyed by the disc,
+	// independent of any session. Match data is applied when a release was
+	// selected; without one the titles are still listed and named, unmatched.
+	if s.orchestrator != nil {
+		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
+			driveStore.Titles = titlesForScan(scan, rawResults, releaseID, discID)
 		}
 	}
 

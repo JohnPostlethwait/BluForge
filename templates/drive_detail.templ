@@ -1308,14 +1308,30 @@ function cachedScanAge() {
 					</div>
 				</template>
 
-				<template x-if="$store.drive.titles.length === 0">
+				<!-- A rescan clears the titles and reads the disc again. Show that
+					it is working, not the "found nothing" state, which is only
+					true once a scan has actually finished empty. -->
+				<template x-if="$store.drive.scanning">
+					<div class="empty-state" role="status" aria-live="polite" style="padding: 2rem 1rem;">
+						<div class="flex items-center justify-center gap-2">
+							<span class="spinner" aria-hidden="true"></span>
+							<span>
+								Reading disc&hellip;
+								<span class="scan-elapsed" x-text="formatElapsed($store.drive.scanElapsed)"></span>
+							</span>
+						</div>
+						<p class="text-muted scan-operation" x-show="$store.drive.scanOperation" x-text="$store.drive.scanOperation"></p>
+					</div>
+				</template>
+
+				<template x-if="$store.drive.titles.length === 0 && !$store.drive.scanning">
 					<div class="empty-state">
 						<p>No titles found on this disc.</p>
 						@templ.Raw(fmt.Sprintf(`<button class="btn btn-secondary btn-sm mt-3" x-on:click="scanDisc(%d)">Try Scanning Again</button>`, data.DriveIndex))
 					</div>
 				</template>
 
-				<div class="mt-3 flex justify-end">
+				<div class="mt-3 flex justify-end" x-show="!$store.drive.scanning">
 					@templ.Raw(`<button class="btn btn-primary" x-on:click="goToStep(5)" x-bind:disabled="!$store.drive.titles.some(t => t.selected)">Continue to Rip</button>`)
 				</div>
 			</div>

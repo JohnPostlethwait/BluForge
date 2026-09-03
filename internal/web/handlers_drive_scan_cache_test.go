@@ -132,3 +132,27 @@ func TestDriveStateReportsNoCacheBeforeAnyScan(t *testing.T) {
 		t.Errorf("ScanCachedAt = %d before any scan, want 0", got)
 	}
 }
+
+// Scanning a disc without first searching creates no drive session. Returning
+// to that disc must still show its titles and land on the review step — the
+// scan lives in the orchestrator cache, keyed by the disc, not the session.
+// Before this, the title hydration was gated on a session, so a scan-only disc
+// came back blank on step one with no way to reach the titles again.
+func TestDriveStateHydratesTitlesFromCacheWithoutASession(t *testing.T) {
+	srv, orch := newScanServer(t, &blockingScanner{release: make(chan struct{})})
+	orch.InjectCachedScan(0, cachedDiscScan("SOME_DISC", "00800.mpls", "00200.mpls", "00200.mpls"))
+
+	state := driveState(t, srv)
+
+	if len(state.Titles) != 3 {
+		t.Fatalf("got %d titles from cache with no session, want 3", len(state.Titles))
+	}
+	for _, tj := range state.Titles {
+		if tj.OutputName == "" {
+			t.Errorf("title %d (%s) came back without an output name", tj.Index, tj.SourceFile)
+		}
+	}
+	if state.CurrentStep != 4 {
+		t.Errorf("CurrentStep = %d, want 4 so the page lands on Review Titles", state.CurrentStep)
+	}
+}
