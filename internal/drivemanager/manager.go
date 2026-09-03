@@ -59,6 +59,12 @@ type DriveEvent struct {
 	DriveIndex int        `json:"DriveIndex"`
 	DiscName   string     `json:"DiscName"`
 	State      DriveState `json:"State"`
+	// DevicePath is the node the event happened to, e.g. "/dev/sr1".
+	//
+	// Carried on the event rather than looked up by index, because the handler
+	// has to release the disc mount keyed by this path — and on a disconnect the
+	// state machine holding it has already been removed from the map.
+	DevicePath string `json:"DevicePath"`
 }
 
 // DriveExecutor is the interface for querying MakeMKV drive information.
@@ -222,6 +228,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 					DriveIndex: info.Index,
 					DiscName:   info.DiscName,
 					State:      dsm.State(),
+					DevicePath: dsm.DevicePath(),
 				})
 			}
 		} else {
@@ -251,6 +258,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 					DriveIndex: info.Index,
 					DiscName:   prev,
 					State:      dsm.State(),
+					DevicePath: dsm.DevicePath(),
 				})
 			}
 		}
@@ -301,6 +309,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 			DriveIndex: idx,
 			DiscName:   prev,
 			State:      dsm.State(),
+			DevicePath: dsm.DevicePath(),
 		})
 	}
 
@@ -391,6 +400,7 @@ func (m *Manager) SetDriveState(index int, state DriveState) {
 			DriveIndex: index,
 			DiscName:   dsm.DiscName(),
 			State:      state,
+			DevicePath: dsm.DevicePath(),
 		})
 	}
 }

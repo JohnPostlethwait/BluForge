@@ -982,6 +982,46 @@ func (o *Orchestrator) releaseRecovered(claim *recoveredDisc, ripSucceeded bool)
 // Ejecting a disc used to throw the copy away. It no longer does: a copy that
 // never produced a successful rip is exactly the one worth keeping, and
 // removing it is an explicit action.
+// DropEphemeralForDrive discards a drive's symlink recovery once its disc has
+// gone.
+//
+// A symlink recovery is a tree of links pointing into the disc's mount, and
+// that mount is now taken down the moment the media changes — a live filesystem
+// on absent media is what wedges the drive. The links dangle from then on, so
+// the record cannot be allowed to survive: SetDriveDisc un-retires a record when
+// the same disc label returns, and the drive would go straight back to reading
+// through links that lead nowhere.
+//
+// A real copy on disk is untouched. It does not depend on the mount, it cost
+// tens of minutes to make, and it is exactly what a retry wants.
+//
+// A tree with a rip still in flight is retired rather than removed. The disc is
+// gone either way and the rip fails on its own; pulling the record out from
+// under it would only strand the job and its claim.
+func (o *Orchestrator) DropEphemeralForDrive(driveIndex int) {
+	o.recoveredMu.Lock()
+	rec, ok := o.recovered[driveIndex]
+	if !ok || !rec.ephemeral {
+		o.recoveredMu.Unlock()
+		return
+	}
+	if rec.refCount > 0 {
+		rec.retired = true
+		o.recoveredMu.Unlock()
+		slog.Warn("recovery: the disc left while its link tree was being ripped from",
+			"drive_index", driveIndex, "dir", rec.dir, "rips_in_flight", rec.refCount)
+		return
+	}
+	dir := rec.dir
+	delete(o.recovered, driveIndex)
+	o.recoveredMu.Unlock()
+
+	slog.Info("recovery: releasing the disc link tree, its disc has left the drive",
+		"drive_index", driveIndex, "dir", dir)
+	o.forgetBackup(dir)
+	removeBackupDir(dir)
+}
+
 func (o *Orchestrator) ReleaseRecoveredForDrive(driveIndex int) {
 	o.recoveredMu.Lock()
 	defer o.recoveredMu.Unlock()

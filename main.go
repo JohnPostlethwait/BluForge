@@ -20,6 +20,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/web"
@@ -175,6 +176,32 @@ func main() {
 			return
 		}
 		sseHub.Broadcast(web.SSEEvent{Event: "drive-event", Data: string(data)})
+
+		// Release any mount BluForge holds on this drive the moment the media
+		// changes or the drive goes.
+		//
+		// A mounted optical disc is pinned by the kernel: the UDF driver keeps a
+		// live reference to the block device. Leave that in place across a disc
+		// swap and every I/O to it fails, the driver retries, and the bridge
+		// takes a continuous storm of failing commands until the drive stops
+		// answering at all — recoverable only by a power cycle. Nothing else in
+		// the process did this: every path meaning "the disc is gone" set a
+		// retired flag and left the mount live.
+		//
+		// It happens regardless of who still holds a claim. A reader part-way
+		// through has already lost the media; the mount is not worth the drive.
+		switch ev.Type {
+		case drivemanager.EventDiscEjected, drivemanager.EventDiscInserted, drivemanager.EventDriveDisconnect:
+			if ev.DevicePath != "" {
+				if err := mpls.ForceUnmount(ev.DevicePath); err != nil {
+					slog.Warn("could not release the disc mount after a drive event",
+						"device", ev.DevicePath, "event", ev.Type, "error", err)
+				}
+			}
+			// A symlink recovery reads through that mount, so it goes with it.
+			// A copy on disk does not and is kept.
+			orch.DropEphemeralForDrive(ev.DriveIndex)
+		}
 
 		// Invalidate cached scan when disc changes.
 		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {

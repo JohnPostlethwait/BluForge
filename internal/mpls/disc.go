@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -35,45 +34,16 @@ func ReadDiscLanguages(devicePath string, sourceFiles []string) (map[string]Play
 // OpenDiscRoot makes the disc at devicePath readable as a directory tree and
 // returns its root along with a cleanup function that must always be called.
 //
-// If the disc is already mounted its existing mount point is used and cleanup
-// is a no-op; otherwise the disc is mounted temporarily and cleanup unmounts
-// it. Callers that need more than playlist data — inspecting stream packets,
-// checking for an AACS directory — use this directly.
+// The mount is owned by the shared MountRegistry, which refcounts concurrent
+// readers and — the point of it — takes the mount down when the disc leaves the
+// drive, whoever is still holding it. See MountRegistry for what a mount that
+// outlives its disc does to a drive.
+//
+// A device already mounted is adopted rather than reused-and-left: the previous
+// behaviour returned a no-op cleanup for it, so a single leaked mount became
+// permanent.
 func OpenDiscRoot(devicePath string) (string, func(), error) {
-	mp, err := findMountPoint(devicePath)
-	if err == nil {
-		// A mount entry is not proof of a readable disc. A drive that is reset
-		// -- which a USB drive under sustained error handling does -- can leave
-		// its entry in /proc/mounts pointing at a directory with nothing in it,
-		// and returning that sent a salvage walking into an empty /mnt/sr0 and
-		// failing two steps later about a path the user had never seen.
-		if err := hasContent(mp); err != nil {
-			slog.Warn("mpls: mount point is not a readable disc, remounting",
-				"device", devicePath, "mount_point", mp, "error", err)
-			_ = exec.Command("umount", mp).Run()
-		} else {
-			slog.Debug("mpls: disc mount point found", "device", devicePath, "mount_point", mp)
-			return mp, func() {}, nil
-		}
-	}
-
-	// Device not mounted — try to mount it temporarily. This relies on fstab
-	// entries created by the entrypoint (with the "user" option) so the
-	// non-root process can mount optical devices.
-	slog.Debug("mpls: disc not mounted, attempting auto-mount", "device", devicePath, "error", err)
-	mp, cleanup, mountErr := tryMount(devicePath)
-	if mountErr != nil {
-		return "", func() {}, fmt.Errorf("mpls: disc at %s not accessible (mount failed: %v): %w", devicePath, mountErr, err)
-	}
-	// The same check after mounting: a mount that reports success without
-	// giving a readable disc is worse than one that fails, because everything
-	// downstream then blames the disc for being empty.
-	if err := hasContent(mp); err != nil {
-		cleanup()
-		return "", func() {}, fmt.Errorf("mpls: mounted %s at %s but %w", devicePath, mp, err)
-	}
-	slog.Info("mpls: auto-mounted disc", "device", devicePath, "mount_point", mp)
-	return mp, cleanup, nil
+	return discMounts.Open(devicePath)
 }
 
 // ReadFrom reads MPLS playlists from an accessible disc root — a mount point or
@@ -83,65 +53,6 @@ func OpenDiscRoot(devicePath string) (string, func(), error) {
 // playlist filenames are read, otherwise every *.mpls in the directory is.
 func ReadFrom(root string, sourceFiles []string) (map[string]PlayItemLanguages, error) {
 	return readFromMountPoint(root, sourceFiles)
-}
-
-// tryMount attempts to mount devicePath at the conventional mount point
-// /mnt/<devname> (e.g. /mnt/sr0). This relies on an fstab entry with the
-// "user" option, which the Docker entrypoint creates for each /dev/sr*
-// device so the non-root bluforge process can mount optical drives.
-//
-// Returns the mount point path and a cleanup function that unmounts the
-// device. The cleanup function is safe to call even if unmount fails.
-func tryMount(devicePath string) (string, func(), error) {
-	devName := filepath.Base(devicePath)
-	mp := filepath.Join("/mnt", devName)
-
-	// Ensure mount point exists (best effort — entrypoint should have created it).
-	if err := os.MkdirAll(mp, 0o755); err != nil {
-		return "", nil, fmt.Errorf("mpls: create mount point %s: %w", mp, err)
-	}
-
-	var lastErr error
-	var lastOut string
-	mounted := false
-	for _, argv := range mountAttempts(devicePath, mp) {
-		cmd := exec.Command(argv[0], argv[1:]...)
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			mounted = true
-			break
-		}
-		lastErr = err
-		lastOut = strings.TrimSpace(string(out))
-		slog.Debug("mpls: mount attempt failed", "argv", argv, "error", err, "output", lastOut)
-	}
-	if !mounted {
-		return "", nil, fmt.Errorf("mpls: mount %s failed: %w (%s)", devicePath, lastErr, lastOut)
-	}
-
-	cleanup := func() {
-		if err := exec.Command("umount", mp).Run(); err != nil {
-			slog.Debug("mpls: umount failed (may already be unmounted)", "mount_point", mp, "error", err)
-		}
-	}
-
-	return mp, cleanup, nil
-}
-
-// mountAttempts returns the mount command lines to try, in order.
-//
-// The bare form comes first because it consults fstab, which is where the
-// Docker entrypoint records the "user" option a non-root process needs. It only
-// works for drives that had an fstab entry written, so an explicit read-only
-// UDF mount follows for everything else — a drive that appeared after container
-// start, or any environment without those entries. Without the fallback such a
-// drive can never be inspected, and recovery reports "could not determine"
-// indefinitely rather than doing its job.
-func mountAttempts(devicePath, mountPoint string) [][]string {
-	return [][]string{
-		{"mount", devicePath},
-		{"mount", "-t", "udf", "-o", "ro", devicePath, mountPoint},
-	}
 }
 
 // findMountPoint returns the filesystem path where devicePath is mounted.
