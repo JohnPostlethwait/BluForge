@@ -63,7 +63,7 @@ func TestActivityHandlerDoesNotRaceWithARunningRip(t *testing.T) {
 
 	srv, _ := setupDashboardServer(t, mgr)
 	srv.ripEngine = engine
-	srv.echo.GET("/activity", srv.handleActivity)
+	srv.echo.GET("/activity/state", srv.handleActivityState)
 
 	tmp := t.TempDir()
 	job := ripper.NewJob(0, 0, "RACE_DISC", filepath.Join(tmp, "out"))
@@ -94,7 +94,7 @@ func TestActivityHandlerDoesNotRaceWithARunningRip(t *testing.T) {
 			defer wg.Done()
 			for n := 0; n < 25; n++ {
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodGet, "/activity", nil)
+				req := httptest.NewRequest(http.MethodGet, "/activity/state", nil)
 				req.Header.Set("Accept", "application/json")
 				srv.echo.ServeHTTP(rec, req)
 				if rec.Code != http.StatusOK {

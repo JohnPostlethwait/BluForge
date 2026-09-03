@@ -228,7 +228,7 @@ async function resyncActivity() {
 	const store = Alpine.store('activity')
 	if (!store) return
 	try {
-		const resp = await fetch('/activity', { headers: { 'Accept': 'application/json' } })
+		const resp = await fetch('/activity/state', { headers: { 'Accept': 'application/json' } })
 		if (!resp.ok) return
 		const s = await resp.json()
 

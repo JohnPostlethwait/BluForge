@@ -21,7 +21,7 @@ import (
 func TestActivityListsAJobOnlyOnce(t *testing.T) {
 	mgr := drivemanager.NewManager(&stubExecutor{}, nil)
 	srv, store := setupDashboardServer(t, mgr)
-	srv.echo.GET("/activity", srv.handleActivity)
+	srv.echo.GET("/activity/state", srv.handleActivityState)
 
 	const jobs = 60
 	for i := 0; i < jobs; i++ {
@@ -36,7 +36,7 @@ func TestActivityListsAJobOnlyOnce(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/activity", nil)
+	req := httptest.NewRequest(http.MethodGet, "/activity/state", nil)
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 	srv.echo.ServeHTTP(rec, req)

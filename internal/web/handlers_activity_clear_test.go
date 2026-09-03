@@ -306,12 +306,12 @@ func TestHandleActivity_ActiveJobIncludesStartedAt(t *testing.T) {
 	}
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/activity", nil)
+	req := httptest.NewRequest(http.MethodGet, "/activity/state", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	if err := srv.handleActivity(c); err != nil {
-		t.Fatalf("handleActivity: %v", err)
+	if err := srv.handleActivityState(c); err != nil {
+		t.Fatalf("handleActivityState: %v", err)
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)

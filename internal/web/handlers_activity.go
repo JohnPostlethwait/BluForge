@@ -102,7 +102,11 @@ func parseTrackMetadata(raw string) ripper.TrackMetadata {
 	return m
 }
 
-func (s *Server) handleActivity(c echo.Context) error {
+// buildActivityStore assembles the Alpine store for the activity view: the
+// engine's active and queued jobs, the current salvage, and a page of history.
+// Both representations of the page — the rendered HTML and the JSON resync
+// endpoint — are built from this one value.
+func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 	store := activityStoreJSON{
 		Active:    make([]activityJobJSON, 0),
 		Pending:   make([]activityJobJSON, 0),
@@ -219,7 +223,7 @@ func (s *Server) handleActivity(c echo.Context) error {
 	dbJobs, err := s.store.ListAllJobs(activityHistoryPageSize+1, offset)
 	if err != nil {
 		slog.Error("failed to list history jobs", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load job history.")
+		return store, echo.NewHTTPError(http.StatusInternalServerError, "Failed to load job history.")
 	}
 
 	store.HasMore = len(dbJobs) > activityHistoryPageSize
@@ -266,11 +270,21 @@ func (s *Server) handleActivity(c echo.Context) error {
 		store.DiscsWithBackup = s.orchestrator.DiscsWithBackup()
 	}
 
-	// A page that lost its event stream has no way to catch up: events are
-	// delivered once and never replayed. This is the same store the render
-	// embeds, served so the page can ask again on reconnect.
-	if wantsJSON(c) {
-		return c.JSON(http.StatusOK, store)
+	return store, nil
+}
+
+// handleActivity renders the activity page. It never returns JSON, even when the
+// request's Accept header asks for it. /activity is the page's own URL, so a
+// reverse proxy (the user runs Caddy) or the browser's HTTP cache that stored a
+// JSON body under this key would then hand it to a plain top-level navigation —
+// e.g. Vivaldi reloading the tab after waking it from sleep — and the page would
+// come back as raw JSON until a hard reload. The JSON store lives at its own URL
+// (handleActivityState) so the two representations can never share a cache
+// entry. This mirrors the /drives/:id vs /drives/:id/state split.
+func (s *Server) handleActivity(c echo.Context) error {
+	store, err := s.buildActivityStore(c)
+	if err != nil {
+		return err
 	}
 
 	storeBytes, err := json.Marshal(store)
@@ -284,6 +298,22 @@ func (s *Server) handleActivity(c echo.Context) error {
 		Flash:     truncateFlash(c),
 		CSRFToken: csrfToken(c),
 	}).Render(c.Request().Context(), c.Response().Writer)
+}
+
+// handleActivityState serves the Alpine store as JSON for the page's resync
+// fetch, which fires on tab focus and SSE reconnect. It lives at its own URL,
+// distinct from the page, so no cache can confuse the two representations. It
+// also sends Vary: Accept and Cache-Control: no-store as defence in depth: this
+// is live rip state, never worth caching.
+func (s *Server) handleActivityState(c echo.Context) error {
+	store, err := s.buildActivityStore(c)
+	if err != nil {
+		return err
+	}
+	h := c.Response().Header()
+	h.Set("Vary", "Accept")
+	h.Set("Cache-Control", "no-store")
+	return c.JSON(http.StatusOK, store)
 }
 
 // handleActivityCancel cancels an active job or removes a queued job.
