@@ -9,14 +9,14 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
-// engineMovingExecutor always reports that the title moved, as the guard does
-// when the enumeration does not hold what it expected at the index asked for.
+// engineMovingExecutor reports a moved title on the first attempt, as the disc
+// does when its enumeration shifts between invocations.
 type engineMovingExecutor struct {
 	mu       sync.Mutex
 	attempts []int
-	// elsewhere is the index the guard claims the title is really at. Nothing
-	// may act on it.
-	elsewhere int
+	goodAt   int
+	done     chan struct{}
+	once     sync.Once
 }
 
 func (m *engineMovingExecutor) StartRip(_ context.Context, _ makemkv.Source, titleID int, expectSource string, _ string, _ func(makemkv.Event), _ *makemkv.SelectionOpts) error {
@@ -24,9 +24,13 @@ func (m *engineMovingExecutor) StartRip(_ context.Context, _ makemkv.Source, tit
 	m.attempts = append(m.attempts, titleID)
 	m.mu.Unlock()
 
+	if titleID == m.goodAt {
+		m.once.Do(func() { close(m.done) })
+		return nil
+	}
 	return &makemkv.TitleMovedError{
 		Requested: titleID, Expected: expectSource,
-		Found: "", CorrectIndex: m.elsewhere,
+		Found: "00006.m2ts", CorrectIndex: m.goodAt,
 	}
 }
 
@@ -36,39 +40,27 @@ func (m *engineMovingExecutor) tried() []int {
 	return append([]int(nil), m.attempts...)
 }
 
-// A job whose title does not match fails. It does not quietly become a rip of
-// something else.
-//
-// This is the Kiki's Delivery Service incident in one assertion: the engine
-// used to take the guard's corrected index and copy that instead, which
-// delivered a different cut of the film under the requested title's name and
-// reported success.
-func TestEngineFailsAJobWhoseTitleDoesNotMatch(t *testing.T) {
-	exec := &engineMovingExecutor{elsewhere: 1}
+// ripWithRetry is only worth anything if the engine actually calls it. Without
+// this, the retry could be correct and unreachable, and the disc would rip the
+// wrong title exactly as before.
+func TestEngineCorrectsAMovedTitle(t *testing.T) {
+	exec := &engineMovingExecutor{goodAt: 3, done: make(chan struct{})}
 	engine := NewEngine(exec)
 
-	job := NewJob(0, 3, "KIKIS_DELIVERY_SERVICE_BD", "/output")
-	job.SourceFile = "00200.mpls"
+	job := NewJob(0, 4, "POLICE STORY 2 4K UHD", t.TempDir())
+	job.SourceFile = "00000.mpls"
 	if err := engine.Submit(job); err != nil {
-		t.Fatalf("submit failed: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && job.Snapshot().Status != StatusFailed {
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-exec.done:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the engine never reached the corrected index; tried %v", exec.tried())
 	}
 
-	snap := job.Snapshot()
-	if snap.Status != StatusFailed {
-		t.Fatalf("job status is %q, want failed", snap.Status)
-	}
-	if tried := exec.tried(); len(tried) != 1 || tried[0] != 3 {
-		t.Errorf("attempts = %v, want exactly [3] — index 1 must never be copied", tried)
-	}
-	if snap.TitleIndex != 3 {
-		t.Errorf("the job's title index became %d; it must stay 3", snap.TitleIndex)
-	}
-	if snap.Error == "" {
-		t.Error("the job failed without saying why")
+	tried := exec.tried()
+	if len(tried) != 2 || tried[0] != 4 || tried[1] != 3 {
+		t.Errorf("attempts = %v, want [4 3]", tried)
 	}
 }

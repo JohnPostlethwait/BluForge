@@ -290,7 +290,7 @@ func (e *Engine) run(job *Job) {
 	capture := makemkv.NewMessageCapture(makemkv.DefaultCaptureLimit)
 
 	var lastPct int
-	err := ripOnce(ctx, e.executor, job, func(ev makemkv.Event) {
+	err := ripWithRetry(ctx, e.executor, job, func(ev makemkv.Event) {
 		capture.Observe(ev)
 
 		// "Saving N titles into directory" is the copy starting.

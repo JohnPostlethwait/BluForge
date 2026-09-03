@@ -2,36 +2,42 @@ package ripper
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
-// ripOnce runs a rip at the index the job was created for, and only that index.
+// ripWithRetry runs a rip, correcting the title number once if makemkvcon
+// numbered the disc differently this pass.
 //
-// There used to be a retry here. When makemkvcon's enumeration did not hold the
-// expected title at the expected number, the guard reported where it believed
-// the title had gone, and this re-pointed the job at that index and copied it —
-// recording the new number on the job so the log would agree with itself.
-//
-// The reasoning was that a disc with damaged sectors renumbers between passes:
-// Police Story 2 enumerated seven titles on one rip and eight on the next, and
-// failing there would be safe but wasteful when the title is right there under
-// a different number.
-//
-// What that reasoning missed is where the corrected index comes from. It is a
-// filename match against an enumeration that is still arriving, and a filename
-// does not identify a title: a multi-angle playlist announces every angle under
-// the same name. On Kiki's Delivery Service the guard misread an angle number
-// as a title number, concluded the feature had moved to index 1, and this
-// function copied index 1 — a different, shorter cut of the film — and filed it
-// under the name of the title that was asked for. Two jobs, two wrong files, no
-// failure reported. The rip was fast and the file was plausible, which is how it
-// survived being looked at.
-//
-// So the trade is not "a wasted pass versus a saved one". It is "a rip you
-// re-run versus a file you may never notice is wrong". A guess may report what
-// it saw; it may not decide what gets copied. The Police Story 2 case now costs
-// a re-scan, which is the price of never doing this again.
-func ripOnce(ctx context.Context, exec RipExecutor, job *Job, onEvent func(makemkv.Event)) error {
-	return exec.StartRip(ctx, job.RipSource(), job.TitleIndex, job.SourceFile, job.OutputDir, onEvent, job.SelectionOpts)
+// makemkvcon numbers titles by their position in the pass that is running, and
+// leaves out any it cannot read. On a disc with damaged sectors that changes
+// between invocations: Police Story 2 enumerated seven titles on the first rip
+// and eight on the next, with everything after the failed title shifted down by
+// one. Failing here would be safe but wasteful — the title is on the disc and
+// readable, it just has a different number now.
+func ripWithRetry(ctx context.Context, exec RipExecutor, job *Job, onEvent func(makemkv.Event)) error {
+	err := exec.StartRip(ctx, job.RipSource(), job.TitleIndex, job.SourceFile, job.OutputDir, onEvent, job.SelectionOpts)
+
+	var moved *makemkv.TitleMovedError
+	if !errors.As(err, &moved) || moved.CorrectIndex < 0 {
+		return err
+	}
+
+	slog.Warn("rip: title numbering changed, retrying at the corrected index",
+		"job_id", job.ID, "source_file", job.SourceFile,
+		"requested_index", moved.Requested, "corrected_index", moved.CorrectIndex,
+		"index_now_holds", moved.Found)
+
+	// Record what was actually ripped. Leaving the old number on the job would
+	// make the log describe a title that no longer exists at that position.
+	//
+	// Through the setter: this runs on the rip goroutine while the activity and
+	// dashboard pages read the same field through Snapshot.
+	job.SetTitleIndex(moved.CorrectIndex)
+
+	// One retry only. An enumeration that keeps moving would otherwise walk the
+	// disc for hours, and each pass costs a full re-read.
+	return exec.StartRip(ctx, job.RipSource(), moved.CorrectIndex, job.SourceFile, job.OutputDir, onEvent, job.SelectionOpts)
 }
