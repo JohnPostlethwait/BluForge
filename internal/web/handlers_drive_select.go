@@ -69,15 +69,12 @@ func (s *Server) handleDriveSelectAlpine(c echo.Context) error {
 	// return them so the frontend updates the Titles table immediately.
 	if s.orchestrator != nil {
 		if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-			session, ok := s.driveSessions.Snapshot(idx)
-			if ok && session.RawSearchResults != nil {
-				if disc := findDiscForRelease(session.RawSearchResults, req.ReleaseID, req.DiscID); disc != nil {
-					titles := enrichTitlesWithMatches(scan, *disc)
-					return c.JSON(http.StatusOK, map[string]interface{}{
-						"status": "ok",
-						"titles": titles,
-					})
-				}
+			if session, ok := s.driveSessions.Snapshot(idx); ok && session.RawSearchResults != nil {
+				titles := titlesForScan(scan, session.RawSearchResults, req.ReleaseID, req.DiscID)
+				return c.JSON(http.StatusOK, map[string]interface{}{
+					"status": "ok",
+					"titles": titles,
+				})
 			}
 		}
 	}

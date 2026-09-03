@@ -366,15 +366,23 @@ func TestFindDiscForRelease(t *testing.T) {
 // because that is what the rip writes and the page is the authority on the name.
 // Kiki's Delivery Service lists 00200.mpls twice; both once showed, and once
 // wrote, KIKIS - 00200.mkv, and one overwrote the other.
-func TestEnrichNamesTwoAnglesDistinctly(t *testing.T) {
-	scan := makeWebScan("KIKIS_DELIVERY_SERVICE_BD", "00303.mpls", "00200.mpls", "00200.mpls")
+// titlesForScan is the single builder every UI path uses. The bug that blanked
+// the Output Filename column was an unmatched fork that skipped naming, so the
+// property that matters is: no title this function returns ever lacks a name,
+// with or without a release match, and two angles never share one.
+func TestTitlesForScanAlwaysNamesEveryTitle(t *testing.T) {
+	scan := makeWebScan("KIKIS_DELIVERY_SERVICE_BD", "00303.mpls", "00200.mpls", "00200.mpls", "00018.m2ts")
 
-	titles := enrichTitlesWithMatches(scan, discdb.Disc{})
+	// No release selected — the unmatched path Kiki's takes.
+	titles := titlesForScan(scan, nil, "", "")
 
+	if len(titles) != 4 {
+		t.Fatalf("got %d titles, want 4", len(titles))
+	}
 	names := map[string]int{}
 	for _, tj := range titles {
 		if tj.OutputName == "" {
-			t.Errorf("title %d (%s) has no output name", tj.Index, tj.SourceFile)
+			t.Errorf("title %d (%s) has a blank output name", tj.Index, tj.SourceFile)
 		}
 		names[tj.OutputName]++
 	}
@@ -382,5 +390,48 @@ func TestEnrichNamesTwoAnglesDistinctly(t *testing.T) {
 		if n > 1 {
 			t.Errorf("%d titles share the output name %q", n, name)
 		}
+	}
+}
+
+// The same builder, given a release, names from the match — proving the one flow
+// serves matched discs too, not just the unmatched case.
+func TestTitlesForScanUsesMatchDataWhenAReleaseIsGiven(t *testing.T) {
+	scan := makeWebScan("SOME_SHOW_S1_D1", "00001.mpls")
+	results := []discdb.MediaItem{
+		{
+			ID:    1,
+			Title: "Some Show",
+			Releases: []discdb.Release{
+				{
+					ID: 100,
+					Discs: []discdb.Disc{
+						{
+							ID: 10,
+							Titles: []discdb.DiscTitle{
+								{
+									SourceFile: "00001.mpls",
+									ItemType:   "episode",
+									Season:     "1",
+									Episode:    "1",
+									Item:       &discdb.DiscItemReference{Title: "Pilot", Type: "episode"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	titles := titlesForScan(scan, results, "100", "10")
+
+	if len(titles) != 1 {
+		t.Fatalf("got %d titles, want 1", len(titles))
+	}
+	if !titles[0].Matched {
+		t.Fatalf("title was not matched against the given release")
+	}
+	if want := "S01E01 - Pilot.mkv"; titles[0].OutputName != want {
+		t.Errorf("OutputName = %q, want %q", titles[0].OutputName, want)
 	}
 }

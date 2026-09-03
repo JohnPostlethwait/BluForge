@@ -55,7 +55,7 @@ func TestStreamDataFlowEndToEnd(t *testing.T) {
 	}
 
 	// Step 1: Convert to TitleJSON (same function used by scan handler).
-	titles := scanToTitleJSON(scan)
+	titles := titlesForScan(scan, nil, "", "")
 	if len(titles) != 2 {
 		t.Fatalf("expected 2 TitleJSON entries, got %d", len(titles))
 	}
@@ -70,7 +70,7 @@ func TestStreamDataFlowEndToEnd(t *testing.T) {
 	}
 
 	if len(t0.Streams) == 0 {
-		t.Fatalf("title 0 has 0 StreamJSON entries — streams lost in scanToTitleJSON")
+		t.Fatalf("title 0 has 0 StreamJSON entries — streams lost in titlesForScan")
 	}
 
 	// We expect: 1 video, 2 audio (eng, fra), 2 subtitle (eng, spa) = 5 streams.
@@ -209,7 +209,7 @@ func TestStreamDataFlowEndToEnd_MPLSCreated(t *testing.T) {
 	}
 
 	// Verify scanToTitleJSON includes the MPLS-created streams.
-	titles := scanToTitleJSON(scan)
+	titles := titlesForScan(scan, nil, "", "")
 	if len(titles) != 1 {
 		t.Fatalf("expected 1 title, got %d", len(titles))
 	}

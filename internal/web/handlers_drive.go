@@ -143,13 +143,14 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 			driveStore.SearchResults = make([]SearchResultJSON, 0)
 		}
 
-		// If both a cached scan and selected release exist, hydrate with
-		// enriched titles so match data survives page refreshes.
-		if session.ReleaseID != "" && session.RawSearchResults != nil && s.orchestrator != nil {
+		// Rehydrate the title list from the cached scan on every page load, so a
+		// refresh or a navigation back to a scanned disc shows the titles again
+		// rather than a blank table. Match data is applied when a release was
+		// selected; without one the titles are still listed and named, just
+		// unmatched. The same builder serves both.
+		if s.orchestrator != nil {
 			if scan := s.orchestrator.GetCachedScanByDrive(idx); scan != nil {
-				if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
-					driveStore.Titles = enrichTitlesWithMatches(scan, *disc)
-				}
+				driveStore.Titles = titlesForScan(scan, session.RawSearchResults, session.ReleaseID, session.DiscID)
 			}
 		}
 	}
@@ -592,16 +593,14 @@ func (s *Server) handleDriveScanResult(c echo.Context) error {
 	//
 	// ManualRip saves the mapping, at the point the user commits to the match.
 
-	// If a release is selected, enrich titles with DiscDB match data.
-	var titles []TitleJSON
-	if session, ok := s.driveSessions.Snapshot(idx); ok && session.ReleaseID != "" && session.RawSearchResults != nil {
-		if disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID); disc != nil {
-			titles = enrichTitlesWithMatches(scan, *disc)
-		}
+	// One builder for every path: it matches against the selected release when
+	// there is one and names every title either way.
+	var releaseID, discID string
+	var rawResults []discdb.MediaItem
+	if session, ok := s.driveSessions.Snapshot(idx); ok {
+		releaseID, discID, rawResults = session.ReleaseID, session.DiscID, session.RawSearchResults
 	}
-	if titles == nil {
-		titles = scanToTitleJSON(scan)
-	}
+	titles := titlesForScan(scan, rawResults, releaseID, discID)
 
 	slog.Info("scan results served", "drive_index", idx,
 		"title_count", len(titles), "cached_at", info.CachedAt)
@@ -782,12 +781,11 @@ func (s *Server) handleDriveMatch(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "no search results cached — search first")
 	}
 
-	disc := findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID)
-	if disc == nil {
+	if findDiscForRelease(session.RawSearchResults, session.ReleaseID, session.DiscID) == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "release disc not found in search results")
 	}
 
-	titles := enrichTitlesWithMatches(scan, *disc)
+	titles := titlesForScan(scan, session.RawSearchResults, session.ReleaseID, session.DiscID)
 	return c.JSON(http.StatusOK, titles)
 }
 

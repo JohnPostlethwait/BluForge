@@ -20,9 +20,31 @@ func parseSizeBytes(s string) int64 {
 	return n
 }
 
+// titlesForScan is the one way a title list for the UI is built.
+//
+// Every path that shows titles — first scan, page refresh, release selection,
+// the scan-results fetch — goes through here, so there is a single place that
+// resolves the disc match and a single place that names the files. There used
+// to be several: an unmatched fork that skipped naming left the Output Filename
+// column blank, and each fork was a fresh chance for one field to be forgotten.
+//
+// A release identifies the disc to match against; with none, or one not found
+// in the search results, every title is unmatched. Either way the result is
+// fully named.
+func titlesForScan(scan *makemkv.DiscScan, rawResults []discdb.MediaItem, releaseID, discID string) []TitleJSON {
+	var disc discdb.Disc
+	if releaseID != "" && rawResults != nil {
+		if d := findDiscForRelease(rawResults, releaseID, discID); d != nil {
+			disc = *d
+		}
+	}
+	return enrichTitlesWithMatches(scan, disc)
+}
+
 // enrichTitlesWithMatches builds TitleJSON entries for all titles in scan,
 // enriched with match data from disc. Matched titles have Selected=true;
-// unmatched titles have Selected=false.
+// unmatched titles have Selected=false. Callers go through titlesForScan rather
+// than here directly, so the disc-resolution step is not duplicated.
 func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJSON {
 	matches := discdb.MatchTitles(scan, disc)
 
@@ -377,29 +399,6 @@ func streamToJSON(s *makemkv.StreamInfo) StreamJSON {
 		IsDefault:   s.IsDefault(),
 		IsForced:    s.IsForced(),
 	}
-}
-
-// scanToTitleJSON converts a makemkv.DiscScan's titles into TitleJSON slices.
-func scanToTitleJSON(scan *makemkv.DiscScan) []TitleJSON {
-	titles := make([]TitleJSON, 0, len(scan.Titles))
-	for _, t := range scan.Titles {
-		var streams []StreamJSON
-		for i := range t.Streams {
-			streams = append(streams, streamToJSON(&t.Streams[i]))
-		}
-		sizeBytes := parseSizeBytes(t.SizeBytes())
-		titles = append(titles, TitleJSON{
-			Index:      t.Index,
-			Name:       t.Name(),
-			Duration:   t.Duration(),
-			Size:       t.SizeHuman(),
-			SizeBytes:  sizeBytes,
-			SourceFile: t.SourceFile(),
-			Selected:   true,
-			Streams:    streams,
-		})
-	}
-	return titles
 }
 
 // extractDiscLanguages aggregates unique audio and subtitle languages across all
