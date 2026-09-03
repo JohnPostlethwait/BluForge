@@ -3,6 +3,7 @@ package drivemanager
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -30,6 +31,8 @@ func TestDisconnectIsAnnouncedOnceNotOnEveryPoll(t *testing.T) {
 		{Index: 0, State: makemkv.DriveStateInserted, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
 	}}
 	mgr := NewManager(mock, func(e DriveEvent) { events = append(events, e) })
+	now := time.Date(2026, 8, 11, 20, 49, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return now }
 
 	mgr.PollOnce(context.Background())
 	if countEvents(events, EventDiscInserted) != 1 {
@@ -40,15 +43,20 @@ func TestDisconnectIsAnnouncedOnceNotOnEveryPoll(t *testing.T) {
 	mock.drives = nil
 	events = nil
 
+	// One listing without it proves nothing — a wedged drive reads the same —
+	// so the absence has to persist before it is believed.
+	mgr.PollOnce(context.Background())
+	now = now.Add(driveGoneConfirmDuration)
 	mgr.PollOnce(context.Background())
 	if got := countEvents(events, EventDriveDisconnect); got != 1 {
-		t.Fatalf("first poll after removal: got %d disconnect events, want 1", got)
+		t.Fatalf("once the absence had persisted: got %d disconnect events, want 1", got)
 	}
 
 	events = nil
-	mgr.PollOnce(context.Background())
-	mgr.PollOnce(context.Background())
-	mgr.PollOnce(context.Background())
+	for range 3 {
+		now = now.Add(5 * time.Second)
+		mgr.PollOnce(context.Background())
+	}
 
 	if got := countEvents(events, EventDriveDisconnect); got != 0 {
 		t.Errorf("got %d further disconnect events over three polls, want 0", got)
@@ -61,6 +69,8 @@ func TestADisconnectedDriveIsNoLongerListed(t *testing.T) {
 		{Index: 0, State: makemkv.DriveStateInserted, DriveName: "BD-RE ASUS", DiscName: "A_DISC", Flags: 1, DevicePath: "/dev/sr0"},
 	}}
 	mgr := NewManager(mock, func(DriveEvent) {})
+	now := time.Date(2026, 8, 11, 20, 49, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return now }
 
 	mgr.PollOnce(context.Background())
 	if len(mgr.GetAllDrives()) != 1 {
@@ -68,6 +78,8 @@ func TestADisconnectedDriveIsNoLongerListed(t *testing.T) {
 	}
 
 	mock.drives = nil
+	mgr.PollOnce(context.Background())
+	now = now.Add(driveGoneConfirmDuration)
 	mgr.PollOnce(context.Background())
 
 	if got := len(mgr.GetAllDrives()); got != 0 {
@@ -84,13 +96,18 @@ func TestAReconnectedDriveIsDetectedAgain(t *testing.T) {
 	}
 	mock := &mockExecutor{drives: present}
 	mgr := NewManager(mock, func(e DriveEvent) { events = append(events, e) })
+	now := time.Date(2026, 8, 11, 20, 49, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return now }
 
 	mgr.PollOnce(context.Background())
 	mock.drives = nil
 	mgr.PollOnce(context.Background())
+	now = now.Add(driveGoneConfirmDuration)
+	mgr.PollOnce(context.Background())
 
 	events = nil
 	mock.drives = present
+	now = now.Add(5 * time.Second)
 	mgr.PollOnce(context.Background())
 
 	if got := countEvents(events, EventDiscInserted); got != 1 {

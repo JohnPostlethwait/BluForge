@@ -44,6 +44,7 @@ func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, 
 	slog.Info("makemkvcon: executing", "args", args)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
+	configureTeardown(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("makemkvcon: command failed", "args", args, "error", err, "output_bytes", len(out))
@@ -71,6 +72,7 @@ func (r *realRunner) RunStream(ctx context.Context, onLine func(string), args ..
 	slog.Info("makemkvcon: streaming", "args", args)
 
 	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
+	configureTeardown(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("makemkv: stdout pipe: %w", err)
@@ -209,6 +211,17 @@ func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
 
 	r, err := e.runner.Run(ctx, "-r", "--cache=1", "info", "disc:9999")
 	if err != nil {
+		// A listing we killed ourselves is not a listing. makemkvcon was still
+		// enumerating when the timeout fired, so the DRV lines it emitted are a
+		// prefix rather than a list, and the drives it had not reached yet are
+		// missing for want of time — which the poller would read as unplugged.
+		//
+		// Only makemkvcon's own non-zero exits are salvageable, and those are
+		// ordinary: an empty drive is one, and it still names every drive.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("makemkv: list drives: %w", err)
+		}
+
 		// makemkvcon returns non-zero when no disc is present; try to parse
 		// whatever output we have before returning the error.
 		events, parseErr := ParseAll(r)
@@ -899,7 +912,17 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 
 	slog.Info("makemkvcon: starting rip", "source", target, "title", titleID, "output", outputDir)
 
-	cmd := exec.CommandContext(ctx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
+	// The guard below stops a rip that is about to copy the wrong title. It does
+	// that by cancelling this context rather than signalling the process itself,
+	// so the stop goes through exactly the machinery a timeout uses: ask the
+	// process group first, kill only what will not go. Signalling directly would
+	// send SIGTERM with nothing behind it, and a makemkvcon that ignored it would
+	// hang Wait — and the executor mutex with it — for good.
+	runCtx, stopRip := context.WithCancel(ctx)
+	defer stopRip()
+
+	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
+	configureTeardown(cmd)
 
 	// Apply track selection via a temporary HOME directory when requested.
 	if selection != nil && !selection.IsEmpty() {
@@ -926,11 +949,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// Verify makemkvcon still numbers this title the way the scan did. It
 	// re-enumerates the disc every run and leaves out titles it cannot read, so
 	// an index captured at scan time can address a different title now.
-	kill := func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	}
+	kill := func() { stopRip() }
 	guardErr, copyFailed := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
 
 	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
