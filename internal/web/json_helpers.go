@@ -2,11 +2,14 @@ package web
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
+	"github.com/johnpostlethwait/bluforge/internal/organizer"
+	"github.com/johnpostlethwait/bluforge/internal/workflow"
 )
 
 // parseSizeBytes parses a decimal integer from s (e.g. "4294967296") and returns
@@ -57,7 +60,6 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			tj.ContentType = normalizeContentType(m.ContentType)
 			tj.Season = m.Season
 			tj.Episode = m.Episode
-			tj.OutputName = buildOutputName(m)
 		} else if !hasAnyIdentified {
 			// Fully-stub disc: select everything so the user isn't left with
 			// nothing checked.
@@ -65,7 +67,60 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 		}
 		titles = append(titles, tj)
 	}
+
+	// Name every title through the one authority, so the page shows exactly what
+	// the rip will write — collisions resolved and all. The names are computed
+	// over the whole scanned set, and the review form carries each back so the
+	// rip writes the same string rather than recomputing it. See
+	// workflow.OutputPaths.
+	applyOutputNames(titles, scan.DiscName, mediaTitleOf(matches))
 	return titles
+}
+
+// mediaTitleOf returns the media title shared by the matched titles, or "" when
+// the disc is unmatched. Naming a matched title uses it as the directory; an
+// unmatched disc is named from its disc label instead.
+func mediaTitleOf(matches []discdb.ContentMatch) string {
+	for _, m := range matches {
+		if m.Matched && m.ContentTitle != "" {
+			return m.ContentTitle
+		}
+	}
+	return ""
+}
+
+// applyOutputNames fills each title's OutputName with the file name the rip will
+// produce, computed by workflow.OutputPaths over the full set.
+func applyOutputNames(titles []TitleJSON, discName, mediaTitle string) {
+	sels := make([]workflow.TitleSelection, len(titles))
+	for i, t := range titles {
+		name := ""
+		if t.Matched {
+			name = buildMatchedName(t)
+		}
+		sels[i] = workflow.TitleSelection{
+			TitleIndex: t.Index,
+			SourceFile: t.SourceFile,
+			TitleName:  name,
+		}
+	}
+	paths := workflow.OutputPaths(organizer.New(), discName, mediaTitle, sels)
+	for i := range titles {
+		if p, ok := paths[titles[i].Index]; ok {
+			titles[i].OutputName = filepath.Base(p)
+		}
+	}
+}
+
+// buildMatchedName is the file stem for a matched title: the episode designation
+// when there is one, else the content title.
+func buildMatchedName(t TitleJSON) string {
+	if t.Season != "" && t.Episode != "" && discdb.IsEpisodeType(t.ContentType) {
+		sn, _ := strconv.Atoi(t.Season)
+		ep, _ := strconv.Atoi(t.Episode)
+		return fmt.Sprintf("S%02dE%02d - %s", sn, ep, t.ContentTitle)
+	}
+	return t.ContentTitle
 }
 
 // findDiscForRelease finds the first disc of the release identified by releaseID
@@ -147,20 +202,6 @@ type TitleJSON struct {
 	Season       string       `json:"season,omitempty"`
 	Episode      string       `json:"episode,omitempty"`
 	Streams      []StreamJSON `json:"streams,omitempty"`
-}
-
-// buildOutputName returns a human-readable preview of the output filename
-// based on match data. Returns empty string if not matched.
-func buildOutputName(m discdb.ContentMatch) string {
-	if !m.Matched || m.ContentTitle == "" {
-		return ""
-	}
-	if m.Season != "" && m.Episode != "" && discdb.IsEpisodeType(m.ContentType) {
-		sn, _ := strconv.Atoi(m.Season)
-		ep, _ := strconv.Atoi(m.Episode)
-		return fmt.Sprintf("S%02dE%02d - %s.mkv", sn, ep, m.ContentTitle)
-	}
-	return m.ContentTitle + ".mkv"
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.

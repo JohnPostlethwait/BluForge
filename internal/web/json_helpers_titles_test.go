@@ -193,54 +193,47 @@ func TestEnrichTitlesWithMatches_AllStubs(t *testing.T) {
 	}
 }
 
-func TestBuildOutputName(t *testing.T) {
+// buildMatchedName is the file stem for a matched title; OutputPaths appends the
+// .mkv and the directory. It is the episode-formatting rule that used to live in
+// buildOutputName, now feeding the single naming authority.
+func TestBuildMatchedName(t *testing.T) {
 	tests := []struct {
 		name string
-		m    discdb.ContentMatch
+		t    TitleJSON
 		want string
 	}{
 		{
 			name: "episode with season and episode",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Male Unbonding", ContentType: "series", Season: "1", Episode: "2"},
-			want: "S01E02 - Male Unbonding.mkv",
+			t:    TitleJSON{Matched: true, ContentTitle: "Male Unbonding", ContentType: "series", Season: "1", Episode: "2"},
+			want: "S01E02 - Male Unbonding",
 		},
 		{
 			name: "extra with season and episode gets no prefix",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Inside Look: Male Unbonding", ContentType: "extra", Season: "1", Episode: "2"},
-			want: "Inside Look: Male Unbonding.mkv",
+			t:    TitleJSON{Matched: true, ContentTitle: "Inside Look: Male Unbonding", ContentType: "extra", Season: "1", Episode: "2"},
+			want: "Inside Look: Male Unbonding",
 		},
 		{
 			name: "Extra capitalized with season and episode gets no prefix",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Behind the Scenes", ContentType: "Extra", Season: "1", Episode: "2"},
-			want: "Behind the Scenes.mkv",
+			t:    TitleJSON{Matched: true, ContentTitle: "Behind the Scenes", ContentType: "Extra", Season: "1", Episode: "2"},
+			want: "Behind the Scenes",
 		},
 		{
 			name: "DeletedScene with season and episode gets no prefix",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "Deleted Scenes: Male Unbonding", ContentType: "DeletedScene", Season: "1", Episode: "2"},
-			want: "Deleted Scenes: Male Unbonding.mkv",
+			t:    TitleJSON{Matched: true, ContentTitle: "Deleted Scenes: Male Unbonding", ContentType: "DeletedScene", Season: "1", Episode: "2"},
+			want: "Deleted Scenes: Male Unbonding",
 		},
 		{
 			name: "movie with no season or episode",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "The Matrix", ContentType: "movie"},
-			want: "The Matrix.mkv",
-		},
-		{
-			name: "unmatched returns empty",
-			m:    discdb.ContentMatch{Matched: false},
-			want: "",
-		},
-		{
-			name: "matched but no content title returns empty",
-			m:    discdb.ContentMatch{Matched: true, ContentTitle: "", ContentType: "series", Season: "1", Episode: "1"},
-			want: "",
+			t:    TitleJSON{Matched: true, ContentTitle: "The Matrix", ContentType: "movie"},
+			want: "The Matrix",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildOutputName(tt.m)
+			got := buildMatchedName(tt.t)
 			if got != tt.want {
-				t.Errorf("buildOutputName() = %q, want %q", got, tt.want)
+				t.Errorf("buildMatchedName() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -367,4 +360,27 @@ func TestFindDiscForRelease(t *testing.T) {
 			t.Errorf("expected disc.ID=50 (fallback to first), got %d", disc.ID)
 		}
 	})
+}
+
+// The review page must show two angles of one playlist as two different files,
+// because that is what the rip writes and the page is the authority on the name.
+// Kiki's Delivery Service lists 00200.mpls twice; both once showed, and once
+// wrote, KIKIS - 00200.mkv, and one overwrote the other.
+func TestEnrichNamesTwoAnglesDistinctly(t *testing.T) {
+	scan := makeWebScan("KIKIS_DELIVERY_SERVICE_BD", "00303.mpls", "00200.mpls", "00200.mpls")
+
+	titles := enrichTitlesWithMatches(scan, discdb.Disc{})
+
+	names := map[string]int{}
+	for _, tj := range titles {
+		if tj.OutputName == "" {
+			t.Errorf("title %d (%s) has no output name", tj.Index, tj.SourceFile)
+		}
+		names[tj.OutputName]++
+	}
+	for name, n := range names {
+		if n > 1 {
+			t.Errorf("%d titles share the output name %q", n, name)
+		}
+	}
 }

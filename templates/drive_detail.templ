@@ -1297,7 +1297,7 @@ function cachedScanAge() {
 											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`)
-											@templ.Raw(`<td class="text-secondary" x-text="t.outputName || (($store.drive.discName ? $store.drive.discName + ' - ' : '') + (t.sourceFile ? t.sourceFile.replace(/\.[^.]+$/, '') : 'title') + '.mkv')"></td>`)
+											@templ.Raw(`<td class="text-secondary" x-text="t.outputName"></td>`)
 											<td class="text-secondary" x-text="t.duration"></td>
 											<td class="text-secondary" x-text="t.size"></td>
 										</tr>
@@ -1417,6 +1417,7 @@ function cachedScanAge() {
 								<div>
 									@templ.Raw(`<input type="hidden" name="titles" :value="t.index"/>`)
 									@templ.Raw(`<input type="hidden" :name="'title_name_' + t.index" :value="t.outputName || t.sourceFile"/>`)
+								@templ.Raw(`<input type="hidden" :name="'title_output_name_' + t.index" :value="t.outputName || ''"/>`)
 									@templ.Raw(`<input type="hidden" :name="'title_content_type_' + t.index" :value="t.contentType || ''"/>`)
 									@templ.Raw(`<input type="hidden" :name="'title_content_title_' + t.index" :value="t.contentTitle || ''"/>`)
 									@templ.Raw(`<input type="hidden" :name="'title_season_' + t.index" :value="t.season || ''"/>`)

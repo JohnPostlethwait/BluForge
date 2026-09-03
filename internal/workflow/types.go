@@ -10,9 +10,14 @@ import (
 
 // TitleSelection represents a user's choice of which title to rip and its metadata.
 type TitleSelection struct {
-	TitleIndex   int
-	TitleName    string
-	SourceFile   string
+	TitleIndex int
+	TitleName  string
+	SourceFile string
+	// OutputName is the file name the review page showed for this title,
+	// carried back so the rip writes exactly what the user was shown rather
+	// than recomputing and risking a different answer. Empty on paths that did
+	// not go through the review page, e.g. auto-rip, which name via OutputPaths.
+	OutputName   string
 	SizeBytes    int64
 	ContentType  string // "movie", "series", "extra", or "" for unmatched
 	ContentTitle string

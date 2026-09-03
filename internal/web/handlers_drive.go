@@ -816,8 +816,11 @@ func parseTitleSelection(c echo.Context, titleIdx int) workflow.TitleSelection {
 		}
 	}
 	return workflow.TitleSelection{
-		TitleIndex:   titleIdx,
-		TitleName:    c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
+		TitleIndex: titleIdx,
+		TitleName:  c.FormValue(fmt.Sprintf("title_name_%d", titleIdx)),
+		// The file name the review page showed for this title, carried back so
+		// the rip writes exactly what was shown rather than recomputing it.
+		OutputName:   c.FormValue(fmt.Sprintf("title_output_name_%d", titleIdx)),
 		ContentType:  contentType,
 		ContentTitle: contentTitle,
 		Year:         c.FormValue("content_year"),

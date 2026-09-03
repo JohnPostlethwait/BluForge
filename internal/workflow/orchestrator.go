@@ -507,118 +507,34 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 // Only the colliding titles are renamed. Suffixing every rip to prevent a
 // collision that is not happening would be the worse bug.
 func (o *Orchestrator) buildDestPaths(params ManualRipParams) []string {
+	// A name the user already saw wins. The review page computed it through
+	// OutputPaths and carried it here in the form, so the file is written under
+	// exactly the name that was shown — not a second computation that has to be
+	// trusted to agree.
+	named := OutputPaths(o.organizer, params.DiscName, params.MediaTitle, params.Titles)
+
 	paths := make([]string, len(params.Titles))
-	build := func(disambiguate func(TitleSelection) TitleSelection) map[string]int {
-		counts := make(map[string]int, len(params.Titles))
-		for i, sel := range params.Titles {
-			if disambiguate != nil {
-				sel = disambiguate(sel)
-			}
-			paths[i] = o.buildDestPath(params, sel)
-			counts[paths[i]]++
+	for i, sel := range params.Titles {
+		if sel.OutputName != "" {
+			paths[i] = o.organizer.BuildPath(discOutputDir(params, sel), sel.OutputName)
+			continue
 		}
-		return counts
+		paths[i] = named[sel.TitleIndex]
 	}
-
-	counts := build(nil)
-	if !hasCollision(counts) {
-		return paths
-	}
-
-	// The source file is what tells two otherwise identical names apart: a
-	// playlist from the stream it points at, or two titles matched to the same
-	// episode. Only the colliding entries are renamed — suffixing every rip to
-	// prevent a collision that is not happening would be the worse bug.
-	collided := counts
-	counts = build(func(sel TitleSelection) TitleSelection {
-		if collided[o.buildDestPath(params, sel)] < 2 {
-			return sel
-		}
-		return withSuffix(sel, sourceDisambiguator(sel))
-	})
-	if !hasCollision(counts) {
-		return paths
-	}
-
-	// Nothing about the source distinguished them, so fall back to the one
-	// thing that always does.
-	stillCollided := counts
-	build(func(sel TitleSelection) TitleSelection {
-		base := o.buildDestPath(params, sel)
-		if collided[base] < 2 {
-			return sel
-		}
-		suffixed := withSuffix(sel, sourceDisambiguator(sel))
-		if stillCollided[o.buildDestPath(params, suffixed)] < 2 {
-			return suffixed
-		}
-		return withSuffix(sel, fmt.Sprintf("title %d", sel.TitleIndex))
-	})
 	return paths
 }
 
-func hasCollision(counts map[string]int) bool {
-	for _, n := range counts {
-		if n > 1 {
-			return true
-		}
-	}
-	return false
-}
-
-// sourceDisambiguator returns the part of a title's source that distinguishes
-// it from another with the same destination name.
-//
-// A matched title is named from its episode, so the whole source file is what
-// differs. An unmatched title is already named from its source file with the
-// extension stripped, so the extension is the difference — that is exactly the
-// 00000.mpls versus 00000.m2ts case.
-func sourceDisambiguator(sel TitleSelection) string {
-	if sel.SourceFile == "" {
-		return fmt.Sprintf("title %d", sel.TitleIndex)
-	}
-	if sel.TitleName != "" {
-		return sel.SourceFile
-	}
-	if ext := strings.TrimPrefix(filepath.Ext(sel.SourceFile), "."); ext != "" {
-		return ext
-	}
-	return fmt.Sprintf("title %d", sel.TitleIndex)
-}
-
-// withSuffix appends a parenthesised marker to whichever field the destination
-// name is built from.
-func withSuffix(sel TitleSelection, suffix string) TitleSelection {
-	if sel.TitleName != "" {
-		sel.TitleName += " (" + suffix + ")"
-		return sel
-	}
-	// The extension is stripped when the path is built, so the marker has to be
-	// folded into the name rather than left on the end.
-	sel.SourceFile = strings.TrimSuffix(sel.SourceFile, filepath.Ext(sel.SourceFile)) + " (" + suffix + ")"
-	return sel
-}
-
-// buildDestPath builds the output path for a title.
-// Matched titles use: <MediaTitle>/<TitleName>.mkv
-// Unmatched titles use: <DiscName>/<DiscName> - <SourceFile>.mkv
-func (o *Orchestrator) buildDestPath(params ManualRipParams, sel TitleSelection) string {
+// discOutputDir is the directory a title's file lives under: the media title
+// for a matched rip, the disc name otherwise. It mirrors the directory
+// OutputPaths chooses, so a carried file name lands in the same place.
+func discOutputDir(params ManualRipParams, sel TitleSelection) string {
 	if sel.TitleName != "" && params.MediaTitle != "" {
-		return o.organizer.BuildPath(params.MediaTitle, sel.TitleName)
+		return params.MediaTitle
 	}
-	// Unmatched: use disc name as directory, prepend disc name to source file.
-	dirName := params.DiscName
-	if dirName == "" {
-		dirName = params.MediaTitle
+	if params.DiscName != "" {
+		return params.DiscName
 	}
-	fileName := sel.SourceFile
-	if fileName == "" {
-		fileName = sel.TitleName
-	}
-	if dirName != "" {
-		fileName = dirName + " - " + fileName
-	}
-	return o.organizer.BuildPath(dirName, fileName)
+	return params.MediaTitle
 }
 
 // cachedScan is a scan together with what identifies the disc it came from.
