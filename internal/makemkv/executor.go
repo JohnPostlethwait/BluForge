@@ -921,7 +921,10 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// expect names the playlist this title number is supposed to be, so the line
 	// can be read on its own. Without it, "title 1" is a number whose meaning
 	// lives in another line somewhere above.
-	slog.Info("makemkvcon: starting rip",
+	// DEBUG: the ripper already announces the rip at INFO with fuller context
+	// ("rip: starting"). This is the plumbing echo, useful when tracing the
+	// makemkvcon invocation itself, not a second headline.
+	slog.Debug("makemkvcon: starting rip",
 		"source", target, "title", titleID, "expect", expectSource, "output", outputDir)
 
 	// The guard below stops a rip that is about to copy the wrong title. It does
@@ -967,7 +970,9 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
 		return err
 	}
-	slog.Info("makemkvcon: rip command completed successfully",
+	// DEBUG: the ripper reports the job's completion as a state event; this is
+	// the plumbing echo of the makemkvcon command returning cleanly.
+	slog.Debug("makemkvcon: rip command completed successfully",
 		"source", target, "title", titleID, "expect", expectSource)
 	return nil
 }
@@ -1048,6 +1053,16 @@ func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID
 	}
 	if waitErr != nil {
 		slog.Error("makemkvcon: rip command failed", "source", target, "title", titleID, "error", waitErr)
+		// A clean nonzero exit reports as "exit status N" — a number that says
+		// nothing on its own. When makemkvcon quits with a code, say so in words
+		// and name the code, without inventing a meaning for it. A stop by
+		// signal (a cancelled context, a timeout) is a different thing and keeps
+		// its own wording.
+		var exitErr *exec.ExitError
+		if errors.As(waitErr, &exitErr) && exitErr.ExitCode() >= 0 {
+			return fmt.Errorf("makemkv: rip %s title %d: makemkvcon exited with status %d and reported no reason — the disc may be damaged or unreadable at this point",
+				target, titleID, exitErr.ExitCode())
+		}
 		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, waitErr)
 	}
 	// makemkvcon exits zero after saving nothing, so without this the run reads

@@ -25,11 +25,13 @@ var routineScanMessages = map[int]bool{
 	3305: true, // AACS directory not present, assuming unencrypted disc
 	3307: true, // File X was added as title #N
 	3308: true, // File X (angle N) was added as title #M — the same, per angle
+	3309: true, // Title X is equal to title Y and was skipped — per-title bookkeeping
 	5005: true, // N titles saved
 	5011: true, // Operation successfully completed
 	5014: true, // Saving N titles into directory
 	5036: true, // Copy complete
 	5042: true, // No usable optical drives — noise on every invocation
+	5074: true, // Automatic update check notice — emitted on nearly every run
 	5085: true, // Loaded content hash table
 }
 

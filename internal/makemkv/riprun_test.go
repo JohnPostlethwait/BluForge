@@ -2,6 +2,7 @@ package makemkv
 
 import (
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -162,5 +163,45 @@ func TestRipOutcomePassesAnOrdinaryFailureThrough(t *testing.T) {
 func TestRipOutcomeIsSilentOnSuccess(t *testing.T) {
 	if err := ripOutcome(nil, nil, false, "disc:0", 1); err != nil {
 		t.Errorf("a clean rip reported %v", err)
+	}
+}
+
+// makemkvcon exited 12 on Toy Story 4 and BluForge reported the bare "exit
+// status 12" — a number that says nothing. When makemkvcon quits with a code
+// and no message of its own, the error says so in words and names the code,
+// without inventing a specific meaning for it.
+func TestRipOutcomeExplainsANonzeroExit(t *testing.T) {
+	waitErr := exec.Command("sh", "-c", "exit 12").Run() // a real *exec.ExitError, code 12
+	if waitErr == nil {
+		t.Fatal("expected a nonzero exit to produce an error")
+	}
+
+	err := ripOutcome(nil, waitErr, false, "disc:1", 3)
+	if err == nil {
+		t.Fatal("a nonzero exit was reported as success")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "12") {
+		t.Errorf("the error does not name the exit code: %q", msg)
+	}
+	if !strings.Contains(strings.ToLower(msg), "exited") {
+		t.Errorf("the error does not say makemkvcon exited: %q", msg)
+	}
+}
+
+// A process stopped by a signal — a cancelled context, a timeout — is not the
+// same as makemkvcon choosing to exit, and must stay recognisable as a stop
+// rather than be dressed up as an exit code.
+func TestRipOutcomeLeavesASignalStopRecognisable(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "sleep 10")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	_ = cmd.Process.Kill()
+	waitErr := cmd.Wait() // "signal: killed"
+
+	err := ripOutcome(nil, waitErr, false, "disc:1", 3)
+	if err == nil || !strings.Contains(err.Error(), "signal") {
+		t.Errorf("a signal stop was not left recognisable: %v", err)
 	}
 }

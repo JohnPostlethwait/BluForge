@@ -334,10 +334,14 @@ func (e *Engine) run(job *Job) {
 		messages, dropped := capture.Result(), capture.Dropped()
 		job.SetFailureOutput(messages, dropped)
 		e.recordFailure(job.ID, messages, dropped)
-		slog.Error("rip: failed, with what MakeMKV said",
+		// One actionable line: what failed, on which disc and title, and why.
+		// The captured MakeMKV messages are NOT dumped here — that was a wall of
+		// text that buried the point. They live on the job (FailureOutput) for
+		// the activity page, and "captured" says how many there are to look at.
+		slog.Error("rip failed",
 			"job_id", job.ID, "drive", job.DriveIndex, "disc", job.DiscName,
-			"title_index", job.TitleIndex, "source_file", job.SourceFile,
-			"error", err, "messages", messages, "messages_dropped", dropped)
+			"title_index", job.TitleIndex, "playlist", job.SourceFile,
+			"error", err, "captured", len(messages))
 	}
 
 	// Organizing is the job's state for as long as OnComplete is actually doing

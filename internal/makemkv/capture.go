@@ -43,8 +43,23 @@ func NewMessageCapture(limit int) *MessageCapture {
 //
 // Progress is ignored. It is the bulk of the stream and explains nothing that
 // the decile logging has not already reported.
+// perTitleSkipNotices are makemkvcon's routine "this title was left out"
+// messages. A feature disc emits dozens to hundreds of them in one run, and
+// none says anything about why a rip failed. Toy Story 4's failure capture was
+// ~80 of these and nothing else — the disclosure meant to explain the failure
+// was pure noise. They are dropped from the capture; the enumeration and any
+// real error are kept, because those are the signal.
+var perTitleSkipNotices = map[int]bool{
+	3016: true, // Title #X was skipped
+	3025: true, // Title #X has length ... less than minimum ... skipped
+	3309: true, // Title X is equal to title Y and was skipped
+}
+
 func (c *MessageCapture) Observe(ev Event) {
 	if ev.Type != "MSG" || ev.Message == nil || ev.Message.Text == "" {
+		return
+	}
+	if perTitleSkipNotices[ev.Message.Code] {
 		return
 	}
 

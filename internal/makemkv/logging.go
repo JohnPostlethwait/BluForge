@@ -1,6 +1,7 @@
 package makemkv
 
 import (
+	"context"
 	"log/slog"
 	"time"
 )
@@ -19,13 +20,16 @@ func logMakeMKVEvent(ev Event, phase string) {
 		return
 	}
 	m := ev.Message
-	// 5042 is emitted on nearly every invocation and means nothing on its own;
-	// it stays at debug so it cannot bury the messages that matter.
-	if m.Code == MsgNoUsableDrives {
-		slog.Debug("makemkvcon message", "phase", phase, "code", m.Code, "text", m.Text)
-		return
+	// Routine per-title chatter — the title-too-short skips, the enumeration,
+	// the update-check notice — is DEBUG. A rip emits dozens to hundreds of
+	// these in a healthy run; at INFO they bury the handful of lines that carry
+	// meaning. Anything not catalogued as routine (an error, a warning, a code
+	// nobody has classified) stays at INFO, where a default-level log shows it.
+	level := slog.LevelInfo
+	if routineScanMessages[m.Code] {
+		level = slog.LevelDebug
 	}
-	slog.Info("makemkvcon message", "phase", phase, "code", m.Code, "text", m.Text)
+	slog.Log(context.Background(), level, "makemkvcon message", "phase", phase, "code", m.Code, "text", m.Text)
 }
 
 // progressHeartbeat is the longest a long-running operation may go without a

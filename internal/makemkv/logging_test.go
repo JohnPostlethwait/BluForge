@@ -75,3 +75,39 @@ func TestRipLogsMakeMKVMessages(t *testing.T) {
 func makeMsgEvent(code int, text string) Event {
 	return Event{Type: "MSG", Message: &Message{Code: code, Text: text}}
 }
+
+// The rip of Toy Story 4 dumped ~80 "title too short, skipped" lines into the
+// log at INFO, twice, burying the two lines that mattered. Routine per-title
+// chatter belongs at DEBUG: if it fires dozens of times in a normal run it does
+// not earn INFO. Only genuinely notable messages stay at INFO.
+func TestRoutineMakeMKVChatterIsDebugNotInfo(t *testing.T) {
+	c := captureRecords(t, slog.LevelDebug, func() {
+		logMakeMKVEvent(makeMsgEvent(3025, "Title #00019.m2ts has length of 8 seconds ... was therefore skipped"), "rip")
+		logMakeMKVEvent(makeMsgEvent(3307, "File 00800.mpls was added as title #3"), "rip")
+		logMakeMKVEvent(makeMsgEvent(3309, "Title 00004.mpls is equal to title 00800.mpls and was skipped"), "rip")
+		logMakeMKVEvent(makeMsgEvent(5074, "Automatic checking for updates is enabled"), "rip")
+	})
+
+	if got := c.messagesAt(slog.LevelInfo); len(got) != 0 {
+		t.Errorf("routine chatter reached INFO, want none: %d records", len(got))
+	}
+	if got := c.messagesAt(slog.LevelDebug); len(got) != 4 {
+		t.Errorf("routine chatter at DEBUG = %d records, want all 4", len(got))
+	}
+}
+
+// A message that is not routine — an error, a warning, an uncatalogued code —
+// is what INFO is for. It must not be demoted into the DEBUG stream where a
+// default-level log would never show it.
+func TestNotableMakeMKVMessagesStayAtInfo(t *testing.T) {
+	c := captureRecords(t, slog.LevelDebug, func() {
+		logMakeMKVEvent(makeMsgEvent(5010, "Failed to open disc"), "rip")
+	})
+
+	if got := c.messagesAt(slog.LevelInfo); len(got) != 1 {
+		t.Errorf("a notable message was not at INFO: %d INFO records", len(got))
+	}
+	if got := c.messagesAt(slog.LevelDebug); len(got) != 0 {
+		t.Errorf("a notable message was demoted to DEBUG: %d DEBUG records", len(got))
+	}
+}

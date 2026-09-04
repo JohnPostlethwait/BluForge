@@ -147,14 +147,29 @@ func TestAFailedRipDoesNotKeepProgressEvents(t *testing.T) {
 // The detail rides on the error, not on the level. Turning the log level up
 // afterwards cannot recover what a failure did not report at the time, and a
 // rip costs a disc and half an hour to repeat.
-func TestTheFailureReportCarriesTheMessagesAtTheDefaultLevel(t *testing.T) {
-	_, cap := runFailingJob(t)
+// The failure is one actionable ERROR line: what failed, on which disc and
+// title, and why. It does NOT dump the whole captured message list into the log
+// — that was a wall of text nobody could read. The captured detail lives on the
+// job for the activity page; the log stays legible.
+func TestTheFailureIsOneActionableLineNotADump(t *testing.T) {
+	job, cap := runFailingJob(t)
 
 	out := cap.errorText()
 	if out == "" {
 		t.Fatal("the rip failed without an ERROR record")
 	}
-	if !strings.Contains(out, "00200.mpls (angle 1)") {
-		t.Errorf("the failure was reported without what MakeMKV said:\n%s", out)
+	// Actionable context is present.
+	for _, want := range []string{"KIKIS_DELIVERY_SERVICE_BD", "00200.mpls"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the failure line is missing context %q:\n%s", want, out)
+		}
+	}
+	// The enumeration blob is NOT dumped into the log line.
+	if strings.Contains(out, "was added as title") {
+		t.Errorf("the captured message blob was dumped into the ERROR line:\n%s", out)
+	}
+	// But it is still on the job, for the UI to show.
+	if len(job.Snapshot().FailureOutput) == 0 {
+		t.Error("the captured detail was lost instead of kept on the job")
 	}
 }

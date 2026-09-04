@@ -1,6 +1,9 @@
 package makemkv
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func msg(code int, text string) Event {
 	return Event{Type: "MSG", Message: &Message{Code: code, Text: text}}
@@ -114,5 +117,35 @@ func TestCaptureKeepsCountingKnownMessagesAfterTheCap(t *testing.T) {
 	}
 	if c.Dropped() != 1 {
 		t.Errorf("Dropped() = %d, want 1 for the distinct message turned away", c.Dropped())
+	}
+}
+
+// Toy Story 4's failure capture was ~80 "title too short, skipped" lines and
+// nothing else — the disclosure meant to explain a failure was pure noise. The
+// per-title skip notices are dropped from the capture; the enumeration and any
+// real error, which are the signal, are kept.
+func TestCaptureDropsPerTitleSkipNoise(t *testing.T) {
+	c := NewMessageCapture(200)
+	c.Observe(msg(3025, "Title #00019.m2ts has length of 8 seconds ... was therefore skipped"))
+	c.Observe(msg(3309, "Title 00004.mpls is equal to title 00800.mpls and was skipped"))
+	c.Observe(msg(3016, "Title #00005.mpls was skipped"))
+	c.Observe(msg(3307, "File 00800.mpls was added as title #3"))
+	c.Observe(msg(2003, "Error 'Scsi error' occurred while reading '/BDMV/STREAM/00800.m2ts'"))
+
+	got := c.Result()
+	if len(got) != 2 {
+		t.Fatalf("captured %d messages, want 2 (enumeration + error): %+v", len(got), got)
+	}
+	texts := got[0].Text + "\n" + got[1].Text
+	if !strings.Contains(texts, "added as title") {
+		t.Errorf("the enumeration was dropped: %+v", got)
+	}
+	if !strings.Contains(texts, "Scsi error") {
+		t.Errorf("the read error was dropped: %+v", got)
+	}
+	for _, g := range got {
+		if strings.Contains(g.Text, "skipped") {
+			t.Errorf("a per-title skip notice was kept: %q", g.Text)
+		}
 	}
 }
