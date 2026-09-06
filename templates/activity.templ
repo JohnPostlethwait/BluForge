@@ -811,6 +811,13 @@ function formatDuration(secs) {
 										</ul>
 										<div class="text-muted text-sm" x-show="r.failureOutputDropped > 0"
 											x-text="r.failureOutputDropped + ' more kinds of message are not shown'"></div>
+										<!--
+											Selecting the list by hand drags in the whole activity
+											log — a browser quirk with these stacked rows. A button
+											that copies exactly these lines sidesteps it: one click,
+											just this rip's output, nothing else.
+										-->
+										@templ.Raw(`<div x-data="{ copied: false }" class="mt-2"><button type="button" class="btn btn-secondary btn-sm" x-on:click.stop.prevent="navigator.clipboard.writeText((r.failureOutput||[]).map(function(w){return w.text + (w.count>1 ? ' (×'+w.count+')' : '')}).join('\n')).then(function(){copied=true;setTimeout(function(){copied=false},1500)})"><span x-show="!copied">Copy these lines</span><span x-show="copied" x-cloak>Copied</span></button></div>`)
 									</details>
 								</template>
 								<!--

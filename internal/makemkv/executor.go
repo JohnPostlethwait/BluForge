@@ -936,7 +936,19 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	runCtx, stopRip := context.WithCancel(ctx)
 	defer stopRip()
 
-	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
+	// A debug log to catch the reason for a fatal exit. makemkvcon returns a
+	// nonzero code only on a fatal error, and it writes that reason to the debug
+	// file — never to the robot stream we parse. Always on (cheap), deleted on
+	// success, read on failure.
+	debugPath, cleanupDebug := newDebugLog()
+	defer cleanupDebug()
+
+	args := []string{"-r", "--progress=-same"}
+	if debugPath != "" {
+		args = append(args, "--debug="+debugPath)
+	}
+	args = append(args, "mkv", target, titleStr, outputDir)
+	cmd := exec.CommandContext(runCtx, "makemkvcon", args...)
 	configureTeardown(cmd)
 
 	// Apply track selection via a temporary HOME directory when requested.
@@ -967,7 +979,17 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	kill := func() { stopRip() }
 	guardErr, copyFailed := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
 
-	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
+	waitErr := cmd.Wait()
+	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
+		// A fatal exit (nonzero code, not a guard kill) has its reason in the
+		// debug log. Surface the tail through the same event stream the failure
+		// capture reads, so the activity page shows why — not just the code.
+		var exitErr *exec.ExitError
+		if guardErr == nil && errors.As(waitErr, &exitErr) && onEvent != nil {
+			for _, line := range tailLines(debugPath, debugTailLines) {
+				onEvent(Event{Type: "MSG", Message: &Message{Text: "makemkvcon debug: " + line}})
+			}
+		}
 		return err
 	}
 	// DEBUG: the ripper reports the job's completion as a state event; this is
