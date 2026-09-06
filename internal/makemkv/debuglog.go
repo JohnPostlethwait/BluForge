@@ -22,17 +22,32 @@ const debugTailLines = 40
 // all that is needed and reading the whole file is avoided.
 const debugTailBytes = 64 * 1024
 
-// newDebugLog creates an empty file for makemkvcon's --debug output and returns
-// its path plus a cleanup. cleanup is always safe to call, including when
-// creation failed (path is then empty).
-func newDebugLog() (path string, cleanup func()) {
-	f, err := os.CreateTemp("", "bluforge-makemkv-debug-*.log")
-	if err != nil {
-		return "", func() {}
+// debugAnnouncePrefix is the start of the line makemkvcon prints to say where it
+// put its debug log. makemkvcon ignores the path passed to --debug and chooses
+// its own ($HOME/MakeMKV_log.txt), so we take the path from this announcement
+// rather than assume it.
+const debugAnnouncePrefix = "Debug logging enabled, log will be saved as "
+
+// parseDebugLogPath extracts the debug log's path from makemkvcon's announce
+// line, stripping the file:// URL prefix. Returns false for any other line.
+func parseDebugLogPath(line string) (string, bool) {
+	if !strings.HasPrefix(line, debugAnnouncePrefix) {
+		return "", false
 	}
-	p := f.Name()
-	_ = f.Close()
-	return p, func() { _ = os.Remove(p) }
+	p := strings.TrimSpace(strings.TrimPrefix(line, debugAnnouncePrefix))
+	p = strings.TrimPrefix(p, "file://")
+	if p == "" {
+		return "", false
+	}
+	return p, true
+}
+
+// isDebugNoise reports lines that --debug adds to stdout but that mean nothing
+// to a person: the announce line, and the obfuscated "DEBUG: Code N at <hash>"
+// markers makemkvcon scrambles for its own support. The real reason lives in the
+// log file, so these are dropped from the failure capture rather than shown.
+func isDebugNoise(line string) bool {
+	return strings.HasPrefix(line, debugAnnouncePrefix) || strings.HasPrefix(line, "DEBUG:")
 }
 
 // tailLines returns up to maxLines non-blank lines from the end of the file at

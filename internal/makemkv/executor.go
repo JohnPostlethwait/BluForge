@@ -936,19 +936,13 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	runCtx, stopRip := context.WithCancel(ctx)
 	defer stopRip()
 
-	// A debug log to catch the reason for a fatal exit. makemkvcon returns a
-	// nonzero code only on a fatal error, and it writes that reason to the debug
-	// file — never to the robot stream we parse. Always on (cheap), deleted on
-	// success, read on failure.
-	debugPath, cleanupDebug := newDebugLog()
-	defer cleanupDebug()
-
-	args := []string{"-r", "--progress=-same"}
-	if debugPath != "" {
-		args = append(args, "--debug="+debugPath)
-	}
-	args = append(args, "mkv", target, titleStr, outputDir)
-	cmd := exec.CommandContext(runCtx, "makemkvcon", args...)
+	// --debug turns on makemkvcon's own log, which is the only place it records
+	// why a rip exits fatally (the robot stream never carries the reason).
+	// makemkvcon ignores any path given here and writes to $HOME/MakeMKV_log.txt,
+	// announcing where — streamRip reads that announcement and, on a fatal exit,
+	// we read the log's tail. The log lives under the selection HOME below, so it
+	// is cleaned up with it.
+	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "--debug", "mkv", target, titleStr, outputDir)
 	configureTeardown(cmd)
 
 	// Apply track selection via a temporary HOME directory when requested.
@@ -977,16 +971,17 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// re-enumerates the disc every run and leaves out titles it cannot read, so
 	// an index captured at scan time can address a different title now.
 	kill := func() { stopRip() }
-	guardErr, copyFailed := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
+	guardErr, copyFailed, debugLogPath := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
 
 	waitErr := cmd.Wait()
 	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
 		// A fatal exit (nonzero code, not a guard kill) has its reason in the
-		// debug log. Surface the tail through the same event stream the failure
-		// capture reads, so the activity page shows why — not just the code.
+		// debug log makemkvcon just wrote. Surface its tail through the same
+		// event stream the failure capture reads, so the activity page shows why
+		// — not just the code. Read before the deferred HOME cleanup removes it.
 		var exitErr *exec.ExitError
 		if guardErr == nil && errors.As(waitErr, &exitErr) && onEvent != nil {
-			for _, line := range tailLines(debugPath, debugTailLines) {
+			for _, line := range tailLines(debugLogPath, debugTailLines) {
 				onEvent(Event{Type: "MSG", Message: &Message{Text: "makemkvcon debug: " + line}})
 			}
 		}
@@ -1008,10 +1003,8 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 //
 // Returns the guard's objection, if any, and whether makemkvcon reported that
 // it saved nothing.
-func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onEvent func(Event), target string) (error, bool) {
+func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onEvent func(Event), target string) (guardErr error, copyFailed bool, debugLogPath string) {
 	guard := newTitleGuard(titleID, expectSource)
-	var guardErr error
-	copyFailed := false
 
 	progress := newProgressTracker()
 	scanner := bufio.NewScanner(out)
@@ -1022,13 +1015,20 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 		}
 		ev, err := ParseLine(line)
 		if err != nil {
-			// makemkvcon returns a nonzero exit only on a fatal error, and it
-			// prints that error as a plain line rather than robot format — so
-			// ParseLine rejects it. Dropping it here is how a fatal rip came to
-			// "report no reason": the reason was on the line we threw away. Keep
-			// it, as its own event, so it reaches the log and the failure
-			// capture the activity page shows. It is not fed to the guard or the
-			// progress tracker — it is not a title event.
+			// makemkvcon's --debug announces where it wrote its log; take that
+			// path so a fatal exit can be explained from the log file.
+			if p, ok := parseDebugLogPath(line); ok {
+				debugLogPath = p
+			}
+			// Drop the obfuscated "DEBUG: Code N at <hash>" markers and the
+			// announce line — noise a person can't read. The real reason is in
+			// the log file we just learned the path to.
+			if isDebugNoise(line) {
+				continue
+			}
+			// Any other unparsed line is kept as its own event, so a plain-text
+			// message reaches the log and the failure capture rather than the
+			// floor. Not fed to the guard or progress — it is not a title event.
 			raw := Event{Type: "MSG", Message: &Message{Text: line}}
 			logMakeMKVEvent(raw, "rip")
 			if onEvent != nil {
@@ -1072,7 +1072,7 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 	if scanErr := scanner.Err(); scanErr != nil {
 		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
 	}
-	return guardErr, copyFailed
+	return guardErr, copyFailed, debugLogPath
 }
 
 // ripOutcome decides which of a rip's several failure signals to report.

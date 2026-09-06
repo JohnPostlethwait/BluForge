@@ -26,7 +26,7 @@ func TestStreamRipStopsAMovedTitleBeforeCopying(t *testing.T) {
 	killed := false
 	kill := func() { killed = true }
 
-	guardErr, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, nil, "disc:0")
+	guardErr, _, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, nil, "disc:0")
 
 	if guardErr == nil {
 		t.Fatal("the rip was allowed to proceed at an index holding another title")
@@ -93,7 +93,7 @@ func TestStreamRipKeepsAnUnparseableFatalLine(t *testing.T) {
 // A correct rip must be left completely alone.
 func TestStreamRipLeavesACorrectRipAlone(t *testing.T) {
 	killed := false
-	guardErr, copyFailed := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls",
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls",
 		func() { killed = true }, nil, "disc:0")
 
 	if guardErr != nil {
@@ -114,7 +114,7 @@ func TestStreamRipNoticesACopyThatSavedNothing(t *testing.T) {
 MSG:5004,0,2,"0 titles saved, 1 failed","%1","0"
 MSG:5037,0,2,"Copy complete. 0 titles saved, 1 failed.","%1","0"`
 
-	guardErr, copyFailed := streamRip(strings.NewReader(out), 0, "00005.mpls", func() {}, nil, "disc:0")
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(out), 0, "00005.mpls", func() {}, nil, "disc:0")
 
 	if guardErr != nil {
 		t.Errorf("unexpected guard objection: %v", guardErr)
