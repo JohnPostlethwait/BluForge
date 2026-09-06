@@ -62,6 +62,34 @@ func TestStreamRipKillsBeforeTheCopyEvents(t *testing.T) {
 	}
 }
 
+// makemkvcon returns a nonzero exit only on a fatal error, and it prints that
+// error as a plain line — not robot format — so ParseLine rejects it. Dropping
+// it is how a fatal rip came to "report no reason" in the log. The reason has to
+// reach onEvent (and thus the failure capture) instead of the floor.
+func TestStreamRipKeepsAnUnparseableFatalLine(t *testing.T) {
+	input := "MSG:3307,0,2,\"File 00001.mpls was added as title #5\",\"File %1 was added as title #%2\",\"00001.mpls\",\"5\"\n" +
+		"Fatal error occurred, program will now exit.\n"
+
+	var texts []string
+	onEvent := func(ev Event) {
+		if ev.Message != nil {
+			texts = append(texts, ev.Message.Text)
+		}
+	}
+
+	streamRip(strings.NewReader(input), 5, "00001.mpls", func() {}, onEvent, "disc:1")
+
+	found := false
+	for _, tx := range texts {
+		if strings.Contains(tx, "Fatal error occurred") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the fatal reason was dropped; onEvent saw %v", texts)
+	}
+}
+
 // A correct rip must be left completely alone.
 func TestStreamRipLeavesACorrectRipAlone(t *testing.T) {
 	killed := false
@@ -186,6 +214,16 @@ func TestRipOutcomeExplainsANonzeroExit(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(msg), "exited") {
 		t.Errorf("the error does not say makemkvcon exited: %q", msg)
+	}
+	// makemkvcon exits nonzero only on a fatal error, and it prints the reason.
+	// The message must say "fatal" and point at the captured output — not claim
+	// there was no reason, which was false and sent us looking in the wrong
+	// place.
+	if !strings.Contains(strings.ToLower(msg), "fatal") {
+		t.Errorf("a nonzero exit is a fatal error and should say so: %q", msg)
+	}
+	if strings.Contains(strings.ToLower(msg), "no reason") {
+		t.Errorf("the message still claims makemkvcon gave no reason: %q", msg)
 	}
 }
 

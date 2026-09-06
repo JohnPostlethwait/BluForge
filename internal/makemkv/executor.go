@@ -1000,6 +1000,18 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 		}
 		ev, err := ParseLine(line)
 		if err != nil {
+			// makemkvcon returns a nonzero exit only on a fatal error, and it
+			// prints that error as a plain line rather than robot format — so
+			// ParseLine rejects it. Dropping it here is how a fatal rip came to
+			// "report no reason": the reason was on the line we threw away. Keep
+			// it, as its own event, so it reaches the log and the failure
+			// capture the activity page shows. It is not fed to the guard or the
+			// progress tracker — it is not a title event.
+			raw := Event{Type: "MSG", Message: &Message{Text: line}}
+			logMakeMKVEvent(raw, "rip")
+			if onEvent != nil {
+				onEvent(raw)
+			}
 			continue
 		}
 		// Ripping from a stripped backup folder is the least-exercised path in
@@ -1060,7 +1072,12 @@ func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID
 		// its own wording.
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) && exitErr.ExitCode() >= 0 {
-			return fmt.Errorf("makemkv: rip %s title %d: makemkvcon exited with status %d and reported no reason — the disc may be damaged or unreadable at this point",
+			// makemkvcon returns zero even when it fails to save a title; a
+			// nonzero code means a fatal error, and it prints the reason as it
+			// dies. That reason is captured with the rip's other output (see
+			// streamRip) and shown on the activity page — point there rather
+			// than guessing at a cause.
+			return fmt.Errorf("makemkv: rip %s title %d: makemkvcon exited with status %d — a fatal error; see the captured MakeMKV output for the reason",
 				target, titleID, exitErr.ExitCode())
 		}
 		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, waitErr)
