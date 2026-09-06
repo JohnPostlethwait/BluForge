@@ -37,10 +37,14 @@ func shortGrace(t *testing.T, d time.Duration) {
 // operation, and releases both on its way out. SIGKILL cannot be caught, so a
 // makemkvcon killed at a timeout never gets to do that.
 //
+// We ask with SIGINT — the interactive Ctrl-C a CLI tool implements to abort
+// and clean up — rather than SIGTERM, because killing makemkvcon mid-read with
+// SIGTERM/SIGKILL was leaving the USB bridge mid-command and wedging the drive
+// on seamless-branching discs. SIGINT gives it the shutdown it knows.
+//
 // This is hygiene rather than a cure: a process already blocked on a dead
-// bridge is in uninterruptible sleep and takes no signal at all, SIGTERM or
-// SIGKILL alike. It matters for the process that can still answer. See
-// configureTeardown for why the stronger claim was withdrawn.
+// bridge is in uninterruptible sleep and takes no signal at all. It matters for
+// the process that can still answer. See configureTeardown.
 func TestACancelledCommandIsAskedToStopBeforeItIsKilled(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "m")
 
@@ -48,7 +52,7 @@ func TestACancelledCommandIsAskedToStopBeforeItIsKilled(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c",
-		`trap 'touch "$0.term"; exit 0' TERM; touch "$0.ready"; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
+		`trap 'touch "$0.int"; exit 0' INT; touch "$0.ready"; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
 		marker)
 	configureTeardown(cmd)
 
@@ -60,8 +64,8 @@ func TestACancelledCommandIsAskedToStopBeforeItIsKilled(t *testing.T) {
 	cancel()
 	_ = cmd.Wait()
 
-	if _, err := os.Stat(marker + ".term"); err != nil {
-		t.Error("the process was killed outright — it never got the chance to release the drive")
+	if _, err := os.Stat(marker + ".int"); err != nil {
+		t.Error("the process was killed outright — it never got the SIGINT to release the drive")
 	}
 }
 
@@ -76,7 +80,7 @@ func TestAProcessThatIgnoresTheRequestIsStillKilled(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c",
-		`trap "" TERM; touch "$0.ready"; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
+		`trap "" INT; touch "$0.ready"; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
 		marker)
 	configureTeardown(cmd)
 
@@ -102,17 +106,23 @@ func TestAProcessThatIgnoresTheRequestIsStillKilled(t *testing.T) {
 // Killing only the process we started leaves anything it spawned holding the
 // device, which is the same wedge by another route. The command runs in its own
 // process group and the whole group is asked to stop.
+//
+// The grandchild runs in the foreground, not with `&`. A POSIX non-interactive
+// shell forces background jobs to ignore SIGINT and a trap cannot re-arm a
+// signal that was SIG_IGN on entry — a shell quirk, not how makemkvcon's real
+// child behaves. makemkvcon spawns a Java runtime for BD-Java discs and the JVM
+// installs its own SIGINT handler, so group-delivered SIGINT reaches it; a
+// foreground child with the default disposition models that faithfully.
 func TestTheWholeProcessGroupIsToldToStop(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "m")
 	script := filepath.Join(dir, "parent.sh")
 
+	// The parent has no trap, so a group SIGINT terminates it by default. The
+	// foreground grandchild handles SIGINT and writes its marker; that it runs
+	// at all proves the signal reached past the process we started.
 	body := `m="$1"
-( trap "touch \"$m.grand\"; exit 0" TERM
-  touch "$m.gready"
-  i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done ) &
-touch "$m.ready"
-wait
+sh -c 'trap "touch \"$0.grand\"; exit 0" INT; touch "$0.gready"; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done' "$m"
 `
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatalf("write script: %v", err)
@@ -127,13 +137,12 @@ wait
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	waitForFile(t, marker+".ready")
 	waitForFile(t, marker+".gready")
 
 	cancel()
 	_ = cmd.Wait()
 
-	// The grandchild writes its marker from its own TERM handler; it only runs
+	// The grandchild writes its marker from its own INT handler; it only runs
 	// if the signal reached past the process we started.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

@@ -29,36 +29,45 @@ var terminateGrace = 10 * time.Second
 // the device.
 //
 // So: the command gets its own process group, cancellation asks the whole group
-// to stop, and only a process that will not go is killed. Go escalates to
-// SIGKILL on the direct child once terminateGrace expires, which is the
-// backstop rather than the first move.
+// to stop with SIGINT (see terminate for why that signal), and only a process
+// that will not go is killed. Go escalates to SIGKILL on the direct child once
+// terminateGrace expires, which is the backstop rather than the first move.
 //
-// This is hygiene, not a cure for a wedged drive, and it is worth being precise
-// about why — an earlier version of this comment claimed otherwise.
+// This is hygiene, not a guaranteed cure for a wedged drive — a process already
+// blocked on I/O to a dead USB bridge is in uninterruptible sleep and takes no
+// signal at all, SIGINT or SIGKILL alike. It matters for the process that can
+// still answer: it gets to close the drive and unlock the tray, and nothing it
+// spawned is orphaned still holding the device. It costs up to terminateGrace on
+// a timeout.
 //
-// The claim was that killing makemkvcon at the timeout was what put a drive
-// beyond recovery. Two observations killed it. A process blocked on I/O to a
-// dead USB bridge is in uninterruptible sleep, where SIGTERM lands exactly as
-// well as SIGKILL does: not at all — a plain sg_inq against such a device could
-// not be killed either. And the kernel's USB resets began about two seconds
-// after each poll opened the device, before any kill: thirteen resets against
-// five kills over the same window. Whatever wedges the drive happens on the way
-// in, not on the way out. See internal/mpls.MountRegistry for what does.
-//
-// What survives is worth keeping on its own: a process that can answer gets to
-// close the drive and unlock the tray, and nothing it spawned is orphaned still
-// holding the device. It costs up to terminateGrace on a timeout.
+// What we stop mid-rip in the first place is the guard killing makemkvcon on a
+// seamless-branching disc, whose title index churn is the only thing that forces
+// a stop before the copy finishes. Those are exactly the discs that came back
+// wedged, and the difference from a clean SIGKILL is that SIGINT lets makemkvcon
+// unwind the in-flight SCSI command instead of leaving the bridge mid-command.
+// See internal/mpls.MountRegistry for the mount side of drive hygiene.
 func configureTeardown(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return terminate(cmd) }
 	cmd.WaitDelay = terminateGrace
 }
 
-// terminate asks a command's process group to stop.
+// terminate asks a command's process group to stop, with SIGINT.
+//
+// SIGINT, not SIGTERM: SIGINT is the interactive interrupt (Ctrl-C) that a CLI
+// tool implements to abort its current operation and clean up. Killing
+// makemkvcon mid-read with SIGTERM — and, after the grace period, SIGKILL —
+// left the USB bridge mid-SCSI-command and wedged the drive on seamless-
+// branching discs, the only discs whose index churn forces a stop mid-rip.
+// SIGINT gives makemkvcon the shutdown path it knows, so it closes the drive
+// and unlocks the tray instead of dying with a command in flight. An unhandled
+// SIGINT still terminates the process by default, so this is never worse than
+// SIGTERM was.
 //
 // The negative pid addresses the group, which is the point: killing the process
 // we started while a child of it still has the drive open leaves the drive
-// exactly as wedged as killing nothing would.
+// exactly as wedged as killing nothing would. makemkvcon spawns a Java runtime
+// for BD-Java discs, and that child holds the device too.
 //
 // A process that has already exited is not an error — it is the outcome we
 // wanted — and os.ErrProcessDone tells Wait to report the context's error
@@ -68,7 +77,7 @@ func terminate(cmd *exec.Cmd) error {
 		return os.ErrProcessDone
 	}
 
-	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
 	if err == nil {
 		return nil
 	}
@@ -78,5 +87,5 @@ func terminate(cmd *exec.Cmd) error {
 
 	// No group to signal — fall back to the process itself rather than leaving
 	// it running.
-	return cmd.Process.Signal(syscall.SIGTERM)
+	return cmd.Process.Signal(syscall.SIGINT)
 }
