@@ -2,6 +2,9 @@ package makemkv
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -19,6 +22,56 @@ const msgTitleAdded = 3307
 // failed to read. Kiki's Delivery Service is a two-angle feature, and both
 // angles were refused on a drive that had read them perfectly.
 const msgAngleTitleAdded = 3308
+
+// msgTitleEqual is "Title %1 is equal to title %2 and was skipped" — makemkvcon
+// declaring one playlist a duplicate of another and collapsing them. On a
+// seamless-branching disc several playlists are the same feature, and this is
+// how makemkvcon says so during a scan.
+const msgTitleEqual = 3309
+
+// playlistFileRE matches the playlist/stream file names makemkvcon uses in its
+// enumeration messages, e.g. "00869.mpls" or "00001.m2ts". These are literals,
+// not translated, so they can be read out of a message whose surrounding words
+// are localized — which is why the equal-title set is read from the text rather
+// than from a parameter position we have never confirmed.
+var playlistFileRE = regexp.MustCompile(`\d+\.(?:mpls|m2ts)`)
+
+// DuplicatePlaylistsOf returns the playlists a scan reported as equal to (and
+// skipped in favour of) the given playlist.
+//
+// It matters at rip time: makemkvcon collapses equal playlists and renumbers,
+// but only after emitting the "added as title #N" lines the guard reads. So on
+// these discs the guard sees a duplicate at the requested index and, knowing
+// nothing of the equality, mistakes the feature for a moved title and kills a
+// correct rip. Feeding it this set lets it recognise the duplicate as the
+// feature. See titleGuard.allowDuplicates.
+//
+// The two names are taken order-agnostically: whichever is not `playlist` is its
+// duplicate, so we need not know which parameter makemkvcon puts the skipped
+// title in.
+func DuplicatePlaylistsOf(messages []Message, playlist string) []string {
+	if playlist == "" {
+		return nil
+	}
+	var dups []string
+	seen := make(map[string]bool)
+	for _, m := range messages {
+		if m.Code != msgTitleEqual {
+			continue
+		}
+		names := playlistFileRE.FindAllString(m.Text, -1)
+		if !slices.Contains(names, playlist) {
+			continue
+		}
+		for _, n := range names {
+			if n != playlist && !seen[n] {
+				seen[n] = true
+				dups = append(dups, n)
+			}
+		}
+	}
+	return dups
+}
 
 // TitleMovedError reports that the title number BluForge asked for no longer
 // names the title it was chosen for.
@@ -77,11 +130,39 @@ type titleGuard struct {
 	requested int
 	expect    string
 	seen      map[int]string
-	copying   bool
+	// duplicates are the playlists a scan declared equal to expect. A title in
+	// this set at the requested index is the feature by another name, so the
+	// guard must not treat it as drift. See DuplicatePlaylistsOf.
+	duplicates map[string]bool
+	copying    bool
 }
 
 func newTitleGuard(requested int, expect string) *titleGuard {
-	return &titleGuard{requested: requested, expect: expect, seen: make(map[int]string)}
+	return &titleGuard{
+		requested:  requested,
+		expect:     expect,
+		seen:       make(map[int]string),
+		duplicates: make(map[string]bool),
+	}
+}
+
+// allowDuplicates tells the guard which playlists a scan declared equal to the
+// expected title, so a duplicate at the requested index is accepted rather than
+// mistaken for a moved title.
+func (g *titleGuard) allowDuplicates(playlists []string) {
+	for _, p := range playlists {
+		g.duplicates[p] = true
+	}
+}
+
+// acceptableAtRequest reports whether the title now at the requested index is the
+// feature, or a declared duplicate of it — either way the copy is correct.
+func (g *titleGuard) acceptableAtRequest() bool {
+	s, ok := g.seen[g.requested]
+	if !ok {
+		return false
+	}
+	return s == g.expect || g.duplicates[s]
 }
 
 // observe records one event from the rip's output stream.
@@ -105,6 +186,24 @@ func (g *titleGuard) observe(ev Event) {
 	}
 }
 
+// titleView is one title as the guard saw it — its index and playlist — for
+// logging the enumeration the guard is deciding on.
+type titleView struct {
+	Index  int
+	Source string
+}
+
+// snapshot returns every title the guard has recorded so far, sorted by index,
+// so a kill can be read against the exact enumeration makemkvcon reported.
+func (g *titleGuard) snapshot() []titleView {
+	views := make([]titleView, 0, len(g.seen))
+	for i, s := range g.seen {
+		views = append(views, titleView{Index: i, Source: s})
+	}
+	sort.Slice(views, func(a, b int) bool { return views[a].Index < views[b].Index })
+	return views
+}
+
 // verdict returns non-nil only when drift is proven and there is nothing more
 // to learn by waiting.
 //
@@ -120,6 +219,17 @@ func (g *titleGuard) verdict() error {
 	// like "1,2,3" on standard Blu-ray, and enforcing that would fail every rip
 	// on those discs rather than catch anything.
 	if !checkableSource(g.expect) {
+		return nil
+	}
+
+	// The requested index holds the feature, or a playlist the scan declared
+	// equal to it. makemkvcon collapses equal playlists and copies one of them,
+	// so the rip is producing the right content whatever its pre-collapse "added
+	// as title #N" numbering claims. Monty Python fails without this: index 3
+	// holds 00869.mpls, a duplicate of the expected 00001.mpls, and the guard
+	// used to kill a correct rip and retry at a post-collapse index that no
+	// longer exists.
+	if g.acceptableAtRequest() {
 		return nil
 	}
 

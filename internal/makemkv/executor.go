@@ -128,6 +128,14 @@ func WithRunner(r CmdRunner) Option {
 	}
 }
 
+// WithFailureLogDir sets the directory where a failed rip's makemkvcon debug
+// log is saved. Empty (the default) keeps the whole file off disk, as before.
+func WithFailureLogDir(dir string) Option {
+	return func(e *Executor) {
+		e.failureLogDir = dir
+	}
+}
+
 // Executor wraps makemkvcon and exposes high-level operations.
 // All commands are serialized via mu because makemkvcon does not support
 // concurrent execution — running multiple instances simultaneously produces
@@ -135,6 +143,9 @@ func WithRunner(r CmdRunner) Option {
 type Executor struct {
 	runner CmdRunner
 	mu     sync.Mutex
+	// failureLogDir is where a failed rip's makemkvcon debug log is copied so it
+	// survives the temp HOME cleanup. Empty disables saving. See WithFailureLogDir.
+	failureLogDir string
 }
 
 // NewExecutor creates an Executor. By default it uses the real makemkvcon
@@ -936,10 +947,22 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	runCtx, stopRip := context.WithCancel(ctx)
 	defer stopRip()
 
-	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "mkv", target, titleStr, outputDir)
+	// --debug turns on makemkvcon's own log, which is the only place it records
+	// why a rip exits fatally (the robot stream never carries the reason).
+	// makemkvcon ignores any path given here and writes to $HOME/MakeMKV_log.txt,
+	// announcing where — streamRip reads that announcement and, on a fatal exit,
+	// we read the log's tail. The log lives under the selection HOME below, so it
+	// is cleaned up with it.
+	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "--debug", "mkv", target, titleStr, outputDir)
 	configureTeardown(cmd)
 
 	// Apply track selection via a temporary HOME directory when requested.
+	//
+	// homeDebugLog is where makemkvcon's --debug log lands by default:
+	// $HOME/MakeMKV_log.txt. Because we set HOME here, we know that path without
+	// having to be told — a fallback for the fatal-reason capture below in case
+	// the announce line is ever absent from the stream.
+	var homeDebugLog string
 	if selection != nil && !selection.IsEmpty() {
 		selStr := BuildSelectionString(*selection)
 		homeDir, cleanup, err := WriteTempHome(selStr)
@@ -948,6 +971,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		}
 		defer cleanup()
 		cmd.Env = append(os.Environ(), "HOME="+homeDir)
+		homeDebugLog = filepath.Join(homeDir, "MakeMKV_log.txt")
 		slog.Info("makemkvcon: using track selection", "selection_string", selStr, "temp_home", homeDir)
 	}
 
@@ -965,9 +989,49 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// re-enumerates the disc every run and leaves out titles it cannot read, so
 	// an index captured at scan time can address a different title now.
 	kill := func() { stopRip() }
-	guardErr, copyFailed := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
+	guardErr, copyFailed, debugLogPath := streamRip(stdout, titleID, expectSource, expectedDuplicatesFromContext(ctx), kill, onEvent, target)
 
-	if err := ripOutcome(guardErr, cmd.Wait(), copyFailed, target, titleID); err != nil {
+	waitErr := cmd.Wait()
+	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
+		// A makemkv-level failure — a nonzero exit, or a copy that saved nothing —
+		// has its reason in the debug log makemkvcon just wrote. (A guard kill is
+		// not one of these: its reason is the title-moved error itself, and the
+		// process was stopped mid-log, so its debug log explains nothing.) Get that
+		// reason onto all three surfaces before the deferred HOME cleanup deletes
+		// the log: the whole file to a persistent path for reading later, and its
+		// tail to both stdout (docker logs) and the failure capture (activity page)
+		// so the reason is visible at a glance without opening the file.
+		//
+		// Prefer the path makemkvcon announced; fall back to the default location
+		// under the HOME we set, so a missing announce still finds the log.
+		if guardErr == nil {
+			if debugLogPath == "" {
+				debugLogPath = homeDebugLog
+			}
+
+			if e.failureLogDir != "" {
+				dst := filepath.Join(e.failureLogDir, failureLogName(ctx, target, titleID))
+				if saveErr := saveDebugLog(debugLogPath, dst); saveErr != nil {
+					slog.Error("makemkvcon: could not save the failed rip's debug log",
+						"source", target, "title", titleID, "from", debugLogPath, "error", saveErr)
+				} else {
+					slog.Error("makemkvcon: saved the failed rip's makemkv debug log",
+						"source", target, "title", titleID, "path", dst)
+				}
+			}
+
+			tail := tailLines(debugLogPath, debugTailLines)
+			if len(tail) > 0 {
+				slog.Error("makemkvcon: rip failure reason (makemkv debug log tail)",
+					"source", target, "title", titleID, "lines", len(tail),
+					"detail", "\n"+strings.Join(tail, "\n"))
+			}
+			if onEvent != nil {
+				for _, line := range tail {
+					onEvent(Event{Type: "MSG", Message: &Message{Text: "makemkvcon debug: " + line}})
+				}
+			}
+		}
 		return err
 	}
 	// DEBUG: the ripper reports the job's completion as a state event; this is
@@ -986,10 +1050,9 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 //
 // Returns the guard's objection, if any, and whether makemkvcon reported that
 // it saved nothing.
-func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onEvent func(Event), target string) (error, bool) {
+func streamRip(out io.Reader, titleID int, expectSource string, duplicates []string, kill func(), onEvent func(Event), target string) (guardErr error, copyFailed bool, debugLogPath string) {
 	guard := newTitleGuard(titleID, expectSource)
-	var guardErr error
-	copyFailed := false
+	guard.allowDuplicates(duplicates)
 
 	progress := newProgressTracker()
 	scanner := bufio.NewScanner(out)
@@ -1000,7 +1063,42 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 		}
 		ev, err := ParseLine(line)
 		if err != nil {
+			// makemkvcon's --debug announces where it wrote its log; take that
+			// path so a fatal exit can be explained from the log file.
+			if p, ok := parseDebugLogPath(line); ok {
+				debugLogPath = p
+			}
+			// Drop the obfuscated "DEBUG: Code N at <hash>" markers and the
+			// announce line — noise a person can't read. The real reason is in
+			// the log file we just learned the path to.
+			if isDebugNoise(line) {
+				continue
+			}
+			// Any other unparsed line is kept as its own event, so a plain-text
+			// message reaches the log and the failure capture rather than the
+			// floor. Not fed to the guard or progress — it is not a title event.
+			raw := Event{Type: "MSG", Message: &Message{Text: line}}
+			logMakeMKVEvent(raw, "rip")
+			if onEvent != nil {
+				onEvent(raw)
+			}
 			continue
+		}
+		// In -r mode makemkvcon states where it wrote its debug log, and prints
+		// its obfuscated "DEBUG: Code N at <hash>" markers, as parsed MSG lines
+		// (codes 1004 and 1003) — not the plain text the branch above handles.
+		// Take the log path from makemkvcon's own announcement (its word for
+		// where the log is beats any assumption of ours) and drop both the
+		// announce and the markers as noise, so they reach neither the log nor
+		// the failure capture. Without reading the parsed form, debugLogPath
+		// stayed empty and a fatal exit was left with no reason.
+		if ev.Type == "MSG" && ev.Message != nil {
+			if p, ok := parseDebugLogPath(ev.Message.Text); ok {
+				debugLogPath = p
+			}
+			if isDebugNoise(ev.Message.Text) {
+				continue
+			}
 		}
 		// Ripping from a stripped backup folder is the least-exercised path in
 		// the whole pipeline; if MakeMKV objects to the folder source, its
@@ -1017,9 +1115,11 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 			guard.observe(ev)
 			if verr := guard.verdict(); verr != nil {
 				guardErr = verr
+				// Log the full enumeration the guard is killing on, so a kill can
+				// be judged against what makemkvcon actually reported at each index.
 				slog.Error("makemkvcon: aborting rip, the title moved",
 					"source", target, "requested_index", titleID,
-					"expected", expectSource, "error", verr)
+					"expected", expectSource, "error", verr, "titles", guard.snapshot())
 				kill()
 			}
 		}
@@ -1038,7 +1138,7 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 	if scanErr := scanner.Err(); scanErr != nil {
 		slog.Error("makemkvcon: rip scanner error", "error", scanErr)
 	}
-	return guardErr, copyFailed
+	return guardErr, copyFailed, debugLogPath
 }
 
 // ripOutcome decides which of a rip's several failure signals to report.
@@ -1060,7 +1160,12 @@ func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID
 		// its own wording.
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) && exitErr.ExitCode() >= 0 {
-			return fmt.Errorf("makemkv: rip %s title %d: makemkvcon exited with status %d and reported no reason — the disc may be damaged or unreadable at this point",
+			// makemkvcon returns zero even when it fails to save a title; a
+			// nonzero code means a fatal error, and it prints the reason as it
+			// dies. That reason is captured with the rip's other output (see
+			// streamRip) and shown on the activity page — point there rather
+			// than guessing at a cause.
+			return fmt.Errorf("makemkv: rip %s title %d: makemkvcon exited with status %d — a fatal error; see the captured MakeMKV output for the reason",
 				target, titleID, exitErr.ExitCode())
 		}
 		return fmt.Errorf("makemkv: rip %s title %d: %w", target, titleID, waitErr)

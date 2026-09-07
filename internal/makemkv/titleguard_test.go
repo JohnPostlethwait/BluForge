@@ -34,6 +34,26 @@ func saving() Event {
 	}}
 }
 
+// The snapshot is the enumeration a kill is logged against: every title the
+// guard saw, index and playlist, in index order.
+func TestGuardSnapshotListsTheEnumerationInOrder(t *testing.T) {
+	g := newTitleGuard(3, "00001.mpls")
+	g.observe(added("00001.mpls", 3))
+	g.observe(added("00102.mpls", 0))
+	g.observe(added("00871.mpls", 1))
+
+	snap := g.snapshot()
+	if len(snap) != 3 {
+		t.Fatalf("snapshot has %d titles, want 3: %+v", len(snap), snap)
+	}
+	if snap[0].Index != 0 || snap[0].Source != "00102.mpls" {
+		t.Errorf("first entry = %+v, want index 0, 00102.mpls (sorted by index)", snap[0])
+	}
+	if snap[2].Index != 3 || snap[2].Source != "00001.mpls" {
+		t.Errorf("last entry = %+v, want index 3, 00001.mpls", snap[2])
+	}
+}
+
 // Police Story 2, 2026-08-12. The first rip failed on 00005.mpls; every rip
 // after it skipped that title during enumeration, shifting all the numbers down
 // by one. BluForge asked for index 4 believing it was the 67GB feature and got
@@ -232,6 +252,82 @@ func TestTheAbsentTitleErrorStatesWhatWasSeenAndNoCause(t *testing.T) {
 	}
 	if !strings.Contains(msg, "3") {
 		t.Errorf("the error does not name the index that was asked for: %q", msg)
+	}
+}
+
+// Monty Python and the Holy Grail, 2026-09-07. The feature 00001.mpls has two
+// duplicate playlists, 00869 and 00870, that makemkvcon collapses. The scan puts
+// 00001.mpls at index 3, but the rip pass — before the collapse — puts 00869 at
+// index 3 and 00001 at index 5. The guard used to see 00869 at the requested
+// index, call the feature moved, kill a correct rip, and retry at index 5, which
+// does not exist once the duplicates collapse. Told that 00869 is a duplicate of
+// the feature, the guard accepts it: the copy at index 3 is the movie.
+func TestGuardAcceptsADeclaredDuplicateAtTheRequestedIndex(t *testing.T) {
+	g := newTitleGuard(3, "00001.mpls")
+	g.allowDuplicates([]string{"00869.mpls", "00870.mpls"})
+
+	for _, ev := range []Event{
+		added("00102.mpls", 0),
+		added("00871.mpls", 1),
+		added("00872.mpls", 2),
+		added("00869.mpls", 3), // a duplicate of the feature, at the requested index
+		added("00870.mpls", 4),
+		added("00001.mpls", 5), // the feature's own playlist, elsewhere
+		saving(),
+	} {
+		g.observe(ev)
+		if err := g.verdict(); err != nil {
+			t.Fatalf("guard killed a rip whose requested index holds a duplicate of the feature: %v", err)
+		}
+	}
+}
+
+// A duplicate set must not blind the guard to a genuinely different title. If the
+// requested index holds a title that was not declared equal to the feature, the
+// guard still stops the rip — this is the Police Story 2 protection, intact.
+func TestGuardStillKillsANonDuplicateEvenWithDuplicatesKnown(t *testing.T) {
+	g := newTitleGuard(4, "00000.mpls")
+	g.allowDuplicates([]string{"00869.mpls"}) // unrelated duplicate, not at index 4
+
+	for _, ev := range []Event{
+		added("00003.mpls", 0),
+		added("00002.mpls", 1),
+		added("00001.mpls", 2),
+		added("00000.mpls", 3), // the feature moved to 3
+		added("00006.m2ts", 4), // a different title at the requested index
+	} {
+		g.observe(ev)
+	}
+
+	if err := g.verdict(); err == nil {
+		t.Fatal("guard allowed a rip of a genuinely different title because some duplicate was known")
+	}
+}
+
+// The equal-title set is read from a scan's messages, order-agnostically: the
+// playlist that is not the one asked about is its duplicate, whichever parameter
+// slot makemkvcon used. Localized prose around the file names must not matter.
+func TestDuplicatePlaylistsOf(t *testing.T) {
+	messages := []Message{
+		{Code: 3307, Text: "File 00001.mpls was added as title #5"},
+		{Code: msgTitleEqual, Text: "Title 00869.mpls is equal to title 00001.mpls and was skipped"},
+		{Code: msgTitleEqual, Text: "Title 00870.mpls is equal to title 00001.mpls and was skipped"},
+		{Code: msgTitleEqual, Text: "Title 00555.mpls is equal to title 00222.mpls and was skipped"}, // unrelated
+	}
+
+	dups := DuplicatePlaylistsOf(messages, "00001.mpls")
+	got := map[string]bool{}
+	for _, d := range dups {
+		got[d] = true
+	}
+	if len(dups) != 2 || !got["00869.mpls"] || !got["00870.mpls"] {
+		t.Errorf("duplicates = %v, want exactly 00869.mpls and 00870.mpls", dups)
+	}
+	if got["00001.mpls"] {
+		t.Error("the playlist listed itself as its own duplicate")
+	}
+	if got["00555.mpls"] {
+		t.Error("an unrelated equality was attributed to this playlist")
 	}
 }
 

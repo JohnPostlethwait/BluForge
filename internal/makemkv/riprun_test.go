@@ -26,7 +26,7 @@ func TestStreamRipStopsAMovedTitleBeforeCopying(t *testing.T) {
 	killed := false
 	kill := func() { killed = true }
 
-	guardErr, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, nil, "disc:0")
+	guardErr, _, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", nil, kill, nil, "disc:0")
 
 	if guardErr == nil {
 		t.Fatal("the rip was allowed to proceed at an index holding another title")
@@ -55,17 +55,96 @@ func TestStreamRipKillsBeforeTheCopyEvents(t *testing.T) {
 		}
 	}
 
-	streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, onEvent, "disc:0")
+	streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", nil, kill, onEvent, "disc:0")
 
 	if len(seen) < 2 || seen[0] != "KILL" {
 		t.Errorf("event order was %v; the kill must precede the save", seen)
 	}
 }
 
+// makemkvcon returns a nonzero exit only on a fatal error, and it prints that
+// error as a plain line — not robot format — so ParseLine rejects it. Dropping
+// it is how a fatal rip came to "report no reason" in the log. The reason has to
+// reach onEvent (and thus the failure capture) instead of the floor.
+func TestStreamRipKeepsAnUnparseableFatalLine(t *testing.T) {
+	input := "MSG:3307,0,2,\"File 00001.mpls was added as title #5\",\"File %1 was added as title #%2\",\"00001.mpls\",\"5\"\n" +
+		"Fatal error occurred, program will now exit.\n"
+
+	var texts []string
+	onEvent := func(ev Event) {
+		if ev.Message != nil {
+			texts = append(texts, ev.Message.Text)
+		}
+	}
+
+	streamRip(strings.NewReader(input), 5, "00001.mpls", nil, func() {}, onEvent, "disc:1")
+
+	found := false
+	for _, tx := range texts {
+		if strings.Contains(tx, "Fatal error occurred") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the fatal reason was dropped; onEvent saw %v", texts)
+	}
+}
+
+// makemkvcon announces where it wrote its debug log, and in -r mode that
+// announcement arrives as a parsed MSG:1004 line, not as plaintext. streamRip
+// has to take the log path from the parsed message's text; if it only watches
+// for a plaintext line (which -r never emits) debugLogPath stays empty and a
+// fatal exit is left with "no reason" — the exact hole that hid why Monty Python
+// exited 12.
+func TestStreamRipTakesDebugLogPathFromParsedAnnounce(t *testing.T) {
+	const announce = `MSG:1004,0,1,"Debug logging enabled, log will be saved as file:///tmp/bf-home/MakeMKV_log.txt","%1"`
+
+	_, _, debugLogPath := streamRip(strings.NewReader(announce), 0, "00001.mpls", nil, func() {}, nil, "disc:1")
+
+	if debugLogPath != "/tmp/bf-home/MakeMKV_log.txt" {
+		t.Errorf("debugLogPath = %q, want the path parsed from the MSG:1004 announce", debugLogPath)
+	}
+}
+
+// The obfuscated "DEBUG: Code N at <hash>" markers and the announce line arrive
+// as parsed MSG lines in -r mode (code 1003 and 1004). They mean nothing to a
+// person, so they must not reach onEvent — which feeds the failure capture shown
+// on the activity page — any more than their plaintext forms do.
+func TestStreamRipDropsParsedDebugNoise(t *testing.T) {
+	input := `MSG:1003,0,1,"DEBUG: Code 0 at abc123","%1"` + "\n" +
+		`MSG:1004,0,1,"Debug logging enabled, log will be saved as file:///tmp/bf/MakeMKV_log.txt","%1"` + "\n" +
+		`MSG:5011,0,1,"Operation successfully completed","%1"` + "\n"
+
+	var texts []string
+	onEvent := func(ev Event) {
+		if ev.Message != nil {
+			texts = append(texts, ev.Message.Text)
+		}
+	}
+
+	streamRip(strings.NewReader(input), 0, "00001.mpls", nil, func() {}, onEvent, "disc:1")
+
+	for _, tx := range texts {
+		if strings.HasPrefix(tx, "DEBUG:") || strings.HasPrefix(tx, debugAnnouncePrefix) {
+			t.Errorf("debug noise reached the failure capture: %q", tx)
+		}
+	}
+	// A real message alongside the noise still has to get through.
+	found := false
+	for _, tx := range texts {
+		if tx == "Operation successfully completed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a real message was dropped along with the noise; onEvent saw %v", texts)
+	}
+}
+
 // A correct rip must be left completely alone.
 func TestStreamRipLeavesACorrectRipAlone(t *testing.T) {
 	killed := false
-	guardErr, copyFailed := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls",
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls", nil,
 		func() { killed = true }, nil, "disc:0")
 
 	if guardErr != nil {
@@ -86,7 +165,7 @@ func TestStreamRipNoticesACopyThatSavedNothing(t *testing.T) {
 MSG:5004,0,2,"0 titles saved, 1 failed","%1","0"
 MSG:5037,0,2,"Copy complete. 0 titles saved, 1 failed.","%1","0"`
 
-	guardErr, copyFailed := streamRip(strings.NewReader(out), 0, "00005.mpls", func() {}, nil, "disc:0")
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(out), 0, "00005.mpls", nil, func() {}, nil, "disc:0")
 
 	if guardErr != nil {
 		t.Errorf("unexpected guard objection: %v", guardErr)
@@ -186,6 +265,16 @@ func TestRipOutcomeExplainsANonzeroExit(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(msg), "exited") {
 		t.Errorf("the error does not say makemkvcon exited: %q", msg)
+	}
+	// makemkvcon exits nonzero only on a fatal error, and it prints the reason.
+	// The message must say "fatal" and point at the captured output — not claim
+	// there was no reason, which was false and sent us looking in the wrong
+	// place.
+	if !strings.Contains(strings.ToLower(msg), "fatal") {
+		t.Errorf("a nonzero exit is a fatal error and should say so: %q", msg)
+	}
+	if strings.Contains(strings.ToLower(msg), "no reason") {
+		t.Errorf("the message still claims makemkvcon gave no reason: %q", msg)
 	}
 }
 
