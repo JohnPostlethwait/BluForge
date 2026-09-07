@@ -32,6 +32,27 @@ func ripJobIDFromContext(ctx context.Context) (int64, bool) {
 	return id, ok && id > 0
 }
 
+// expectedDuplicatesKey carries the playlists a scan declared equal to the
+// title being ripped.
+type expectedDuplicatesKey struct{}
+
+// WithExpectedDuplicates threads the playlists a scan found equal to the title
+// being ripped, so StartRip's guard accepts one of them at the requested index
+// instead of killing a correct rip on a seamless-branching disc.
+//
+// By context for the same reason as the job ID: to avoid widening StartRip
+// across its many implementers with a value only the guard uses. Unset, the
+// guard keeps its filename-only behaviour — which can only cause the old
+// needless kill, never a wrong-title rip, so a missed set is safe.
+func WithExpectedDuplicates(ctx context.Context, playlists []string) context.Context {
+	return context.WithValue(ctx, expectedDuplicatesKey{}, playlists)
+}
+
+func expectedDuplicatesFromContext(ctx context.Context) []string {
+	p, _ := ctx.Value(expectedDuplicatesKey{}).([]string)
+	return p
+}
+
 // failureLogName is the filename a failed rip's makemkvcon debug log is saved
 // under. The job ID when the context carries it; otherwise the disc and title,
 // which still tell one failure from another.

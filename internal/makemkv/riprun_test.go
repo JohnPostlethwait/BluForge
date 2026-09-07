@@ -26,7 +26,7 @@ func TestStreamRipStopsAMovedTitleBeforeCopying(t *testing.T) {
 	killed := false
 	kill := func() { killed = true }
 
-	guardErr, _, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, nil, "disc:0")
+	guardErr, _, _ := streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", nil, kill, nil, "disc:0")
 
 	if guardErr == nil {
 		t.Fatal("the rip was allowed to proceed at an index holding another title")
@@ -55,7 +55,7 @@ func TestStreamRipKillsBeforeTheCopyEvents(t *testing.T) {
 		}
 	}
 
-	streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", kill, onEvent, "disc:0")
+	streamRip(strings.NewReader(driftedEnumeration), 4, "00000.mpls", nil, kill, onEvent, "disc:0")
 
 	if len(seen) < 2 || seen[0] != "KILL" {
 		t.Errorf("event order was %v; the kill must precede the save", seen)
@@ -77,7 +77,7 @@ func TestStreamRipKeepsAnUnparseableFatalLine(t *testing.T) {
 		}
 	}
 
-	streamRip(strings.NewReader(input), 5, "00001.mpls", func() {}, onEvent, "disc:1")
+	streamRip(strings.NewReader(input), 5, "00001.mpls", nil, func() {}, onEvent, "disc:1")
 
 	found := false
 	for _, tx := range texts {
@@ -99,7 +99,7 @@ func TestStreamRipKeepsAnUnparseableFatalLine(t *testing.T) {
 func TestStreamRipTakesDebugLogPathFromParsedAnnounce(t *testing.T) {
 	const announce = `MSG:1004,0,1,"Debug logging enabled, log will be saved as file:///tmp/bf-home/MakeMKV_log.txt","%1"`
 
-	_, _, debugLogPath := streamRip(strings.NewReader(announce), 0, "00001.mpls", func() {}, nil, "disc:1")
+	_, _, debugLogPath := streamRip(strings.NewReader(announce), 0, "00001.mpls", nil, func() {}, nil, "disc:1")
 
 	if debugLogPath != "/tmp/bf-home/MakeMKV_log.txt" {
 		t.Errorf("debugLogPath = %q, want the path parsed from the MSG:1004 announce", debugLogPath)
@@ -122,7 +122,7 @@ func TestStreamRipDropsParsedDebugNoise(t *testing.T) {
 		}
 	}
 
-	streamRip(strings.NewReader(input), 0, "00001.mpls", func() {}, onEvent, "disc:1")
+	streamRip(strings.NewReader(input), 0, "00001.mpls", nil, func() {}, onEvent, "disc:1")
 
 	for _, tx := range texts {
 		if strings.HasPrefix(tx, "DEBUG:") || strings.HasPrefix(tx, debugAnnouncePrefix) {
@@ -144,7 +144,7 @@ func TestStreamRipDropsParsedDebugNoise(t *testing.T) {
 // A correct rip must be left completely alone.
 func TestStreamRipLeavesACorrectRipAlone(t *testing.T) {
 	killed := false
-	guardErr, copyFailed, _ := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls",
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(driftedEnumeration), 3, "00000.mpls", nil,
 		func() { killed = true }, nil, "disc:0")
 
 	if guardErr != nil {
@@ -165,7 +165,7 @@ func TestStreamRipNoticesACopyThatSavedNothing(t *testing.T) {
 MSG:5004,0,2,"0 titles saved, 1 failed","%1","0"
 MSG:5037,0,2,"Copy complete. 0 titles saved, 1 failed.","%1","0"`
 
-	guardErr, copyFailed, _ := streamRip(strings.NewReader(out), 0, "00005.mpls", func() {}, nil, "disc:0")
+	guardErr, copyFailed, _ := streamRip(strings.NewReader(out), 0, "00005.mpls", nil, func() {}, nil, "disc:0")
 
 	if guardErr != nil {
 		t.Errorf("unexpected guard objection: %v", guardErr)

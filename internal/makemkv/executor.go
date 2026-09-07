@@ -989,7 +989,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// re-enumerates the disc every run and leaves out titles it cannot read, so
 	// an index captured at scan time can address a different title now.
 	kill := func() { stopRip() }
-	guardErr, copyFailed, debugLogPath := streamRip(stdout, titleID, expectSource, kill, onEvent, target)
+	guardErr, copyFailed, debugLogPath := streamRip(stdout, titleID, expectSource, expectedDuplicatesFromContext(ctx), kill, onEvent, target)
 
 	waitErr := cmd.Wait()
 	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
@@ -1050,8 +1050,9 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 //
 // Returns the guard's objection, if any, and whether makemkvcon reported that
 // it saved nothing.
-func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onEvent func(Event), target string) (guardErr error, copyFailed bool, debugLogPath string) {
+func streamRip(out io.Reader, titleID int, expectSource string, duplicates []string, kill func(), onEvent func(Event), target string) (guardErr error, copyFailed bool, debugLogPath string) {
 	guard := newTitleGuard(titleID, expectSource)
+	guard.allowDuplicates(duplicates)
 
 	progress := newProgressTracker()
 	scanner := bufio.NewScanner(out)

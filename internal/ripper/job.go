@@ -99,6 +99,11 @@ type Job struct {
 	// SelectionOpts holds optional track selection criteria for this job.
 	// Not serialized — used only during rip execution.
 	SelectionOpts *makemkv.SelectionOpts `json:"-"`
+	// DuplicatePlaylists are the playlists a scan declared equal to SourceFile on
+	// a seamless-branching disc. The rip's guard accepts one of them at the
+	// requested index instead of killing a correct rip. Not serialized — needed
+	// only while the rip runs, and recomputed from the scan when a job is made.
+	DuplicatePlaylists []string `json:"-"`
 	// TrackMetadata holds scan-time metadata for this title.
 	// Included in JSON serialization so SSE broadcasts carry it.
 	TrackMetadata TrackMetadata `json:"TrackMetadata,omitempty"`
