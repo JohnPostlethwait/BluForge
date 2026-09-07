@@ -128,6 +128,14 @@ func WithRunner(r CmdRunner) Option {
 	}
 }
 
+// WithFailureLogDir sets the directory where a failed rip's makemkvcon debug
+// log is saved. Empty (the default) keeps the whole file off disk, as before.
+func WithFailureLogDir(dir string) Option {
+	return func(e *Executor) {
+		e.failureLogDir = dir
+	}
+}
+
 // Executor wraps makemkvcon and exposes high-level operations.
 // All commands are serialized via mu because makemkvcon does not support
 // concurrent execution — running multiple instances simultaneously produces
@@ -135,6 +143,9 @@ func WithRunner(r CmdRunner) Option {
 type Executor struct {
 	runner CmdRunner
 	mu     sync.Mutex
+	// failureLogDir is where a failed rip's makemkvcon debug log is copied so it
+	// survives the temp HOME cleanup. Empty disables saving. See WithFailureLogDir.
+	failureLogDir string
 }
 
 // NewExecutor creates an Executor. By default it uses the real makemkvcon
@@ -982,20 +993,43 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 
 	waitErr := cmd.Wait()
 	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
-		// A fatal exit (nonzero code, not a guard kill) has its reason in the
-		// debug log makemkvcon just wrote. Surface its tail through the same
-		// event stream the failure capture reads, so the activity page shows why
-		// — not just the code. Read before the deferred HOME cleanup removes it.
+		// A makemkv-level failure — a nonzero exit, or a copy that saved nothing —
+		// has its reason in the debug log makemkvcon just wrote. (A guard kill is
+		// not one of these: its reason is the title-moved error itself, and the
+		// process was stopped mid-log, so its debug log explains nothing.) Get that
+		// reason onto all three surfaces before the deferred HOME cleanup deletes
+		// the log: the whole file to a persistent path for reading later, and its
+		// tail to both stdout (docker logs) and the failure capture (activity page)
+		// so the reason is visible at a glance without opening the file.
 		//
 		// Prefer the path makemkvcon announced; fall back to the default location
 		// under the HOME we set, so a missing announce still finds the log.
-		if debugLogPath == "" {
-			debugLogPath = homeDebugLog
-		}
-		var exitErr *exec.ExitError
-		if guardErr == nil && errors.As(waitErr, &exitErr) && onEvent != nil {
-			for _, line := range tailLines(debugLogPath, debugTailLines) {
-				onEvent(Event{Type: "MSG", Message: &Message{Text: "makemkvcon debug: " + line}})
+		if guardErr == nil {
+			if debugLogPath == "" {
+				debugLogPath = homeDebugLog
+			}
+
+			if e.failureLogDir != "" {
+				dst := filepath.Join(e.failureLogDir, failureLogName(ctx, target, titleID))
+				if saveErr := saveDebugLog(debugLogPath, dst); saveErr != nil {
+					slog.Error("makemkvcon: could not save the failed rip's debug log",
+						"source", target, "title", titleID, "from", debugLogPath, "error", saveErr)
+				} else {
+					slog.Error("makemkvcon: saved the failed rip's makemkv debug log",
+						"source", target, "title", titleID, "path", dst)
+				}
+			}
+
+			tail := tailLines(debugLogPath, debugTailLines)
+			if len(tail) > 0 {
+				slog.Error("makemkvcon: rip failure reason (makemkv debug log tail)",
+					"source", target, "title", titleID, "lines", len(tail),
+					"detail", "\n"+strings.Join(tail, "\n"))
+			}
+			if onEvent != nil {
+				for _, line := range tail {
+					onEvent(Event{Type: "MSG", Message: &Message{Text: "makemkvcon debug: " + line}})
+				}
 			}
 		}
 		return err

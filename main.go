@@ -67,7 +67,11 @@ func main() {
 	slog.Info("database opened", "path", "/config/bluforge.db")
 
 	// 4. Create MakeMKV executor and verify it works.
-	executor := makemkv.NewExecutor()
+	//
+	// A failed rip's makemkvcon debug log is saved under /config/logs (the
+	// persistent volume) so its reason can be read after the fact — the temp HOME
+	// it is written to is deleted as soon as the rip returns.
+	executor := makemkv.NewExecutor(makemkv.WithFailureLogDir("/config/logs"))
 	if path, err := exec.LookPath("makemkvcon"); err != nil {
 		slog.Error("makemkvcon not found in PATH", "error", err)
 	} else {

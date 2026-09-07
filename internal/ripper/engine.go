@@ -259,6 +259,8 @@ func (e *Engine) CancelActiveForDrive(driveIndex int) bool {
 // run executes the rip job, updating status and progress along the way.
 func (e *Engine) run(job *Job) {
 	ctx, cancel := context.WithCancel(context.Background())
+	// Carry the job ID so a failed rip's saved makemkv log is named after it.
+	ctx = makemkv.WithRipJobID(ctx, job.ID)
 	job.mu.Lock()
 	job.cancel = cancel
 	job.mu.Unlock()
