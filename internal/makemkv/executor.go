@@ -946,6 +946,12 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	configureTeardown(cmd)
 
 	// Apply track selection via a temporary HOME directory when requested.
+	//
+	// homeDebugLog is where makemkvcon's --debug log lands by default:
+	// $HOME/MakeMKV_log.txt. Because we set HOME here, we know that path without
+	// having to be told — a fallback for the fatal-reason capture below in case
+	// the announce line is ever absent from the stream.
+	var homeDebugLog string
 	if selection != nil && !selection.IsEmpty() {
 		selStr := BuildSelectionString(*selection)
 		homeDir, cleanup, err := WriteTempHome(selStr)
@@ -954,6 +960,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		}
 		defer cleanup()
 		cmd.Env = append(os.Environ(), "HOME="+homeDir)
+		homeDebugLog = filepath.Join(homeDir, "MakeMKV_log.txt")
 		slog.Info("makemkvcon: using track selection", "selection_string", selStr, "temp_home", homeDir)
 	}
 
@@ -979,6 +986,12 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		// debug log makemkvcon just wrote. Surface its tail through the same
 		// event stream the failure capture reads, so the activity page shows why
 		// — not just the code. Read before the deferred HOME cleanup removes it.
+		//
+		// Prefer the path makemkvcon announced; fall back to the default location
+		// under the HOME we set, so a missing announce still finds the log.
+		if debugLogPath == "" {
+			debugLogPath = homeDebugLog
+		}
 		var exitErr *exec.ExitError
 		if guardErr == nil && errors.As(waitErr, &exitErr) && onEvent != nil {
 			for _, line := range tailLines(debugLogPath, debugTailLines) {
@@ -1035,6 +1048,22 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 				onEvent(raw)
 			}
 			continue
+		}
+		// In -r mode makemkvcon states where it wrote its debug log, and prints
+		// its obfuscated "DEBUG: Code N at <hash>" markers, as parsed MSG lines
+		// (codes 1004 and 1003) — not the plain text the branch above handles.
+		// Take the log path from makemkvcon's own announcement (its word for
+		// where the log is beats any assumption of ours) and drop both the
+		// announce and the markers as noise, so they reach neither the log nor
+		// the failure capture. Without reading the parsed form, debugLogPath
+		// stayed empty and a fatal exit was left with no reason.
+		if ev.Type == "MSG" && ev.Message != nil {
+			if p, ok := parseDebugLogPath(ev.Message.Text); ok {
+				debugLogPath = p
+			}
+			if isDebugNoise(ev.Message.Text) {
+				continue
+			}
 		}
 		// Ripping from a stripped backup folder is the least-exercised path in
 		// the whole pipeline; if MakeMKV objects to the folder source, its
