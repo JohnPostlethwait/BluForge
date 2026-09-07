@@ -47,6 +47,34 @@ func waitFor(t *testing.T, done <-chan struct{}) {
 	}
 }
 
+// waitForSettled blocks until the recorder's most recent announcement is a
+// terminal status, then returns everything seen.
+//
+// The engine settles a job and announces the terminal status *after* OnComplete
+// returns (job.Fail/Complete + notify run once the callback is done). Closing a
+// channel inside OnComplete and reading the recorder the moment it fires
+// therefore races that final announcement — the flake behind a CI failure where
+// the last status read back "ripping" instead of "failed". Waiting on the
+// announcement itself, not on OnComplete, removes the race.
+func waitForSettled(t *testing.T, rec *notifyRecorder) ([]JobStatus, []string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		statuses, errs := rec.seen()
+		if n := len(statuses); n > 0 {
+			switch statuses[n-1] {
+			case StatusCompleted, StatusFailed:
+				return statuses, errs
+			}
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("job never reached a terminal status; saw %v", statuses)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
 // The rip is only half the job: the file still has to be moved to its
 // destination, and that is what OnComplete does. The engine used to call
 // Complete() and announce it *before* running OnComplete, so a move that failed
@@ -57,19 +85,16 @@ func TestEngine_JobFailsWhenPostProcessingFails(t *testing.T) {
 	engine := NewEngine(&instantRipExecutor{})
 	engine.OnUpdate(rec.record)
 
-	done := make(chan struct{})
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	job.OnComplete = func(_ *Job, _ error) error {
-		defer close(done)
 		return errors.New("organize: no space left on device")
 	}
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	waitFor(t, done)
+	statuses, errs := waitForSettled(t, rec)
 
-	statuses, errs := rec.seen()
 	if len(statuses) == 0 {
 		t.Fatal("engine announced nothing")
 	}
@@ -94,19 +119,16 @@ func TestEngine_JobCompletesWhenPostProcessingSucceeds(t *testing.T) {
 	engine := NewEngine(&instantRipExecutor{})
 	engine.OnUpdate(rec.record)
 
-	done := make(chan struct{})
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	job.OnComplete = func(_ *Job, _ error) error {
-		defer close(done)
 		return nil
 	}
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	waitFor(t, done)
+	statuses, _ := waitForSettled(t, rec)
 
-	statuses, _ := rec.seen()
 	if final := statuses[len(statuses)-1]; final != StatusCompleted {
 		t.Errorf("final status = %q, want %q", final, StatusCompleted)
 	}
@@ -172,19 +194,16 @@ func TestEngine_RipFailureSurvivesASilentOnComplete(t *testing.T) {
 	engine := NewEngine(&instantRipExecutor{err: errors.New("disc read failed")})
 	engine.OnUpdate(rec.record)
 
-	done := make(chan struct{})
 	job := NewJob(0, 1, "DISC", t.TempDir())
 	job.OnComplete = func(_ *Job, _ error) error {
-		defer close(done)
 		return nil
 	}
 
 	if err := engine.Submit(job); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	waitFor(t, done)
+	statuses, errs := waitForSettled(t, rec)
 
-	statuses, errs := rec.seen()
 	if final := statuses[len(statuses)-1]; final != StatusFailed {
 		t.Errorf("final status = %q, want %q", final, StatusFailed)
 	}
