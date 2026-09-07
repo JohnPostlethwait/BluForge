@@ -356,6 +356,13 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 	ripJob.ContentType = sel.ContentType
 	ripJob.TrackMetadata = sel.TrackMetadata
 	ripJob.SelectionOpts = params.SelectionOpts
+	// On a seamless-branching disc the scan collapses duplicate playlists into one
+	// title. Carry the playlists it found equal to this one, so the rip's guard
+	// accepts a duplicate at the requested index rather than killing a correct rip
+	// and retrying at a post-collapse index that no longer exists.
+	if scan := o.GetCachedScanByDrive(params.DriveIndex); scan != nil {
+		ripJob.DuplicatePlaylists = makemkv.DuplicatePlaylistsOf(scan.Messages, sel.SourceFile)
+	}
 
 	// A disc recovered from a spurious AACS directory is ripped from its
 	// stripped backup: MakeMKV cannot open the drive for these discs at all.

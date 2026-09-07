@@ -259,6 +259,12 @@ func (e *Engine) CancelActiveForDrive(driveIndex int) bool {
 // run executes the rip job, updating status and progress along the way.
 func (e *Engine) run(job *Job) {
 	ctx, cancel := context.WithCancel(context.Background())
+	// Carry the job ID so a failed rip's saved makemkv log is named after it.
+	ctx = makemkv.WithRipJobID(ctx, job.ID)
+	// Carry the playlists the scan found equal to this title, so the rip's guard
+	// accepts a duplicate at the requested index rather than killing a correct
+	// rip on a seamless-branching disc.
+	ctx = makemkv.WithExpectedDuplicates(ctx, job.DuplicatePlaylists)
 	job.mu.Lock()
 	job.cancel = cancel
 	job.mu.Unlock()
