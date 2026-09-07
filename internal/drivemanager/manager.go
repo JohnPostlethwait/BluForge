@@ -106,11 +106,27 @@ type Manager struct {
 	now     func() time.Time
 	onEvent func(DriveEvent)
 	ready   bool // true after the first poll completes
+	// probe reads physical drive status directly from the device node, and
+	// watcher turns those readings into confirmed media-gone transitions. This
+	// path runs independently of exec's mutex, so it sees an eject or unplug
+	// that happens while makemkvcon holds the drive for a scan or rip.
+	probe   opticalProbe
+	watcher *opticalWatcher
 }
+
+// physicalConfirmDuration is how long a physical status change must persist
+// before the watcher acts on it. Short, because CDROM_DRIVE_STATUS is a
+// trustworthy signal — unlike makemkvcon's blank-field ambiguity that forced
+// the 30s poll debounces — but non-zero so a single stray reading while a drive
+// settles does not fire.
+const physicalConfirmDuration = 2 * time.Second
+
+// watchInterval is the rest between physical-status probes.
+const watchInterval = 1 * time.Second
 
 // NewManager creates a new Manager with the given executor and event callback.
 func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
-	return &Manager{
+	m := &Manager{
 		exec:        executor,
 		drives:      make(map[int]*DriveStateMachine),
 		known:       make(map[int]string),
@@ -118,7 +134,12 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 		goneSince:   make(map[int]time.Time),
 		now:         time.Now,
 		onEvent:     onEvent,
+		probe:       newSysProbe(),
 	}
+	// The watcher reads the clock through m.now so tests can drive it, and so it
+	// stays in step if the clock is ever replaced.
+	m.watcher = newOpticalWatcher(func() time.Time { return m.now() }, physicalConfirmDuration)
+	return m
 }
 
 // listDrives asks the executor for the drive list, declining to wait when the
@@ -331,12 +352,56 @@ func (m *Manager) PollOnce(ctx context.Context) {
 	}
 }
 
+// watchOnce probes every known drive once and acts on any confirmed physical
+// change. It runs independently of the executor mutex — it never lists drives
+// through makemkvcon — so it observes an eject or unplug that happens while a
+// scan or rip holds that mutex, which is exactly when the poller is blind.
+func (m *Manager) watchOnce() {
+	m.mu.RLock()
+	paths := make([]string, 0, len(m.drives))
+	for _, d := range m.drives {
+		if p := d.DevicePath(); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, path := range paths {
+		reading := m.probe.Probe(path)
+		if m.watcher.observe(path, reading) == MediaGone {
+			// A vanished device node is a disconnect; a disc leaving a drive
+			// that is still there is an eject.
+			m.notePhysicalGone(path, reading == StatusGone)
+		}
+	}
+}
+
+// watch runs watchOnce on a fixed cadence until ctx is cancelled.
+func (m *Manager) watch(ctx context.Context) {
+	timer := time.NewTimer(watchInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			m.watchOnce()
+			timer.Reset(watchInterval)
+		}
+	}
+}
+
 // Run performs an initial poll, then starts a ticker-based polling loop that
 // calls PollOnce at the given interval. It blocks until ctx is cancelled.
 func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 	// Poll immediately on startup so drives appear without waiting for the
 	// first tick interval.
 	m.PollOnce(ctx)
+
+	// The physical-status watcher runs alongside the poller, on its own
+	// goroutine and its own clock, so a disc pulled mid-scan is seen and the
+	// running work cancelled without waiting for makemkvcon to free its mutex.
+	go m.watch(ctx)
 
 	// Log initial drive inventory.
 	m.mu.RLock()
@@ -401,6 +466,53 @@ func (m *Manager) SetDriveState(index int, state DriveState) {
 			DiscName:   dsm.DiscName(),
 			State:      state,
 			DevicePath: dsm.DevicePath(),
+		})
+	}
+}
+
+// notePhysicalGone records an authoritative physical removal detected by the
+// optical watcher, independently of the makemkvcon poll and its mutex. It
+// resets the drive to empty and forgets the disc so the poller stops believing
+// it is there, then emits the event that releases the mount and cancels any
+// running scan or rip for that drive.
+//
+// disconnected distinguishes a vanished device node (drive_disconnect) from a
+// disc leaving a drive that is still present (disc_ejected). An unrecognised
+// device path is ignored.
+func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
+	m.mu.Lock()
+	var (
+		idx   int
+		dsm   *DriveStateMachine
+		found bool
+		prev  string
+	)
+	for i, d := range m.drives {
+		if d.DevicePath() == devicePath {
+			idx, dsm, found, prev = i, d, true, m.known[i]
+			break
+		}
+	}
+	if !found {
+		m.mu.Unlock()
+		return
+	}
+	dsm.ForceReset()
+	delete(m.known, idx)
+	delete(m.absentSince, idx)
+	m.mu.Unlock()
+
+	evType := EventDiscEjected
+	if disconnected {
+		evType = EventDriveDisconnect
+	}
+	if m.onEvent != nil {
+		m.onEvent(DriveEvent{
+			Type:       evType,
+			DriveIndex: idx,
+			DiscName:   prev,
+			State:      dsm.State(),
+			DevicePath: devicePath,
 		})
 	}
 }

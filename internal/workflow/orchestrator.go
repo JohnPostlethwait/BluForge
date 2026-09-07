@@ -84,6 +84,12 @@ type Orchestrator struct {
 	// scanning tracks in-flight scans so the page can be told what a scan that
 	// takes half an hour is actually doing. Guarded by scanMu.
 	scanning map[int]*scanState
+	// scanCancel holds the cancel for each running scan, keyed by drive index,
+	// so a physical drive change can stop makemkvcon reading a disc that is no
+	// longer there. The scan is detached from the caller's context on purpose
+	// (a browser disconnect must not kill it), so this is the only handle that
+	// can. Guarded by scanMu.
+	scanCancel map[int]context.CancelFunc
 
 	// recovered tracks discs currently being ripped from a stripped backup, so
 	// the scratch copy can be deleted once the last job for the disc finishes.
@@ -660,7 +666,15 @@ func (o *Orchestrator) scanDisc(ctx context.Context, driveIndex int, force bool)
 	// sector and can run for minutes; on an HTTP request's context the browser
 	// giving up killed makemkvcon mid-read, surfacing as "signal: killed". The
 	// executor applies its own timeout.
-	scan, err := o.scanOnce(context.WithoutCancel(ctx), driveIndex)
+	//
+	// Detached from the request, but not uncancellable: a cancel owned by the
+	// orchestrator is registered so a physical drive change can stop the read of
+	// a disc that is gone. WithoutCancel severs the request; WithCancel adds back
+	// a handle only CancelScan holds.
+	scanCtx, cancelScan := context.WithCancel(context.WithoutCancel(ctx))
+	o.registerScanCancel(driveIndex, cancelScan)
+	defer o.clearScanCancel(driveIndex)
+	scan, err := o.scanOnce(scanCtx, driveIndex)
 	if err != nil {
 		recovered, recErr := o.maybeRecover(ctx, driveIndex, err)
 		if recErr != nil {

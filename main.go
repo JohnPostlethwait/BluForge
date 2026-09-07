@@ -206,6 +206,20 @@ func main() {
 			orch.DropEphemeralForDrive(ev.DriveIndex)
 		}
 
+		// Stop any work still reading a disc that is gone. The physical-drive
+		// watcher confirms an eject or unplug at the device node, independently
+		// of makemkvcon's mutex, so this fires even mid-scan — makemkvcon then
+		// releases the drive rather than hammering media that is no longer there
+		// until the bridge wedges. Insert is excluded: a new disc is not a reason
+		// to cancel, and the swap that produced it already ejected first.
+		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDriveDisconnect {
+			orch.CancelScan(ev.DriveIndex)
+			if ripEngine.CancelActiveForDrive(ev.DriveIndex) {
+				slog.Info("cancelled the rip on a drive whose disc is gone",
+					"drive_index", ev.DriveIndex, "event", ev.Type)
+			}
+		}
+
 		// Invalidate cached scan when disc changes.
 		if ev.Type == drivemanager.EventDiscEjected || ev.Type == drivemanager.EventDiscInserted {
 			orch.InvalidateScan(ev.DriveIndex)

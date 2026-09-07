@@ -236,6 +236,26 @@ func (e *Engine) CancelActive(jobID int64) bool {
 	return true
 }
 
+// CancelActiveForDrive cancels the rip currently active on a drive, if any.
+// Returns true when a rip was found and cancelled.
+//
+// This is what a physical drive change calls: the eject event knows the drive
+// that lost its disc, not the job id. Unlike an eject inferred from a debounced
+// makemkvcon poll — where the running job is deliberately left to fail on its
+// own — a change confirmed at the device node is authoritative, and a rip
+// reading a disc that is gone must stop so makemkvcon releases the drive.
+func (e *Engine) CancelActiveForDrive(driveIndex int) bool {
+	e.mu.Lock()
+	target := e.active[driveIndex]
+	e.mu.Unlock()
+
+	if target == nil {
+		return false
+	}
+	target.Cancel()
+	return true
+}
+
 // run executes the rip job, updating status and progress along the way.
 func (e *Engine) run(job *Job) {
 	ctx, cancel := context.WithCancel(context.Background())

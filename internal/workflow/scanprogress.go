@@ -194,6 +194,36 @@ func (o *Orchestrator) endScan(driveIndex int) {
 	o.scanMu.Unlock()
 }
 
+// registerScanCancel records the cancel for a drive's running scan. Scans
+// serialise per drive, so there is at most one at a time.
+func (o *Orchestrator) registerScanCancel(driveIndex int, cancel context.CancelFunc) {
+	o.scanMu.Lock()
+	if o.scanCancel == nil {
+		o.scanCancel = make(map[int]context.CancelFunc)
+	}
+	o.scanCancel[driveIndex] = cancel
+	o.scanMu.Unlock()
+}
+
+// clearScanCancel forgets a drive's scan cancel once the scan returns.
+func (o *Orchestrator) clearScanCancel(driveIndex int) {
+	o.scanMu.Lock()
+	delete(o.scanCancel, driveIndex)
+	o.scanMu.Unlock()
+}
+
+// CancelScan stops an in-flight scan for a drive, if one is running. It is what
+// a physical drive change calls so makemkvcon stops reading a disc that is no
+// longer there. Safe to call when nothing is scanning.
+func (o *Orchestrator) CancelScan(driveIndex int) {
+	o.scanMu.Lock()
+	cancel := o.scanCancel[driveIndex]
+	o.scanMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // ScanStatus reports the in-flight scan for a drive.
 //
 // Exposed because a client that lost its event stream cannot tell: events are
