@@ -2,6 +2,7 @@ package makemkv
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -77,11 +78,30 @@ type titleGuard struct {
 	requested int
 	expect    string
 	seen      map[int]string
-	copying   bool
+	// profiles holds each title's duration and size as the rip pass reports them
+	// (TINFO attributes 9 and 11). Recorded now for diagnostics; the intent is to
+	// let the guard match on a title's profile rather than its filename, so a
+	// duplicate playlist at the requested index is not mistaken for the wrong
+	// title. Whether the rip pass emits these at all — and before the "added"
+	// lines the verdict fires on — is what the snapshot logging is here to show.
+	profiles map[int]titleProfile
+	copying  bool
+}
+
+// titleProfile is what the enumeration says a title looks like: how long it runs
+// and how big it is. Kept as the raw strings makemkvcon emits.
+type titleProfile struct {
+	duration string // TINFO attribute 9, e.g. "1:31:07"
+	size     string // TINFO attribute 11, size in bytes as a string
 }
 
 func newTitleGuard(requested int, expect string) *titleGuard {
-	return &titleGuard{requested: requested, expect: expect, seen: make(map[int]string)}
+	return &titleGuard{
+		requested: requested,
+		expect:    expect,
+		seen:      make(map[int]string),
+		profiles:  make(map[int]titleProfile),
+	}
 }
 
 // observe records one event from the rip's output stream.
@@ -92,6 +112,19 @@ func newTitleGuard(requested int, expect string) *titleGuard {
 // the guard rule on an empty map within seconds of starting, failing a rip of a
 // title that was about to be announced.
 func (g *titleGuard) observe(ev Event) {
+	// TINFO carries a title's attributes one per line, so duration and size
+	// arrive separately and are merged into the profile for that index.
+	if ev.Type == "TINFO" && ev.Title != nil {
+		p := g.profiles[ev.Title.Index]
+		if d, ok := ev.Title.Attributes[9]; ok && d != "" {
+			p.duration = d
+		}
+		if s, ok := ev.Title.Attributes[11]; ok && s != "" {
+			p.size = s
+		}
+		g.profiles[ev.Title.Index] = p
+		return
+	}
 	if ev.Type != "MSG" || ev.Message == nil {
 		return
 	}
@@ -103,6 +136,34 @@ func (g *titleGuard) observe(ev Event) {
 			g.seen[index] = source
 		}
 	}
+}
+
+// titleView is one title as the guard saw it, for logging its decision inputs.
+type titleView struct {
+	Index    int
+	Source   string
+	Duration string
+	Size     string
+}
+
+// snapshot returns every title the guard has recorded so far, sorted by index,
+// so the log can show exactly what the guard is deciding on — and whether the
+// rip pass gave it any duration/size to decide with.
+func (g *titleGuard) snapshot() []titleView {
+	indexes := make(map[int]struct{}, len(g.seen))
+	for i := range g.seen {
+		indexes[i] = struct{}{}
+	}
+	for i := range g.profiles {
+		indexes[i] = struct{}{}
+	}
+	views := make([]titleView, 0, len(indexes))
+	for i := range indexes {
+		p := g.profiles[i]
+		views = append(views, titleView{Index: i, Source: g.seen[i], Duration: p.duration, Size: p.size})
+	}
+	sort.Slice(views, func(a, b int) bool { return views[a].Index < views[b].Index })
+	return views
 }
 
 // verdict returns non-nil only when drift is proven and there is nothing more

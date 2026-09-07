@@ -34,6 +34,55 @@ func saving() Event {
 	}}
 }
 
+// tinfo builds one TINFO attribute line for a title, the way makemkvcon reports
+// a title's duration (attribute 9) and size in bytes (attribute 11).
+func tinfo(index, attr int, value string) Event {
+	return Event{Type: "TINFO", Title: &TitleInfo{Index: index, Attributes: map[int]string{attr: value}}}
+}
+
+// The guard records each title's duration and size from the rip pass's TINFO
+// lines, merging the separate attribute lines into one profile per index. This
+// is the raw material for matching a title by what it looks like rather than by
+// its filename; the snapshot is what surfaces it in the logs.
+func TestGuardRecordsTitleProfilesFromTINFO(t *testing.T) {
+	g := newTitleGuard(5, "00001.mpls")
+	// Monty Python's shape: a duplicate playlist at the requested index, the
+	// feature itself two indexes on, both the same length and size.
+	g.observe(added("00869.mpls", 3))
+	g.observe(added("00001.mpls", 5))
+	g.observe(tinfo(3, 9, "1:31:07"))
+	g.observe(tinfo(3, 11, "67140237312"))
+	g.observe(tinfo(5, 9, "1:31:07"))
+	g.observe(tinfo(5, 11, "67140237312"))
+
+	by := make(map[int]titleView)
+	for _, v := range g.snapshot() {
+		by[v.Index] = v
+	}
+	if by[3].Source != "00869.mpls" || by[3].Duration != "1:31:07" || by[3].Size != "67140237312" {
+		t.Errorf("index 3 = %+v, want source 00869.mpls, duration 1:31:07, size 67140237312", by[3])
+	}
+	if by[5].Duration != "1:31:07" || by[5].Size != "67140237312" {
+		t.Errorf("index 5 = %+v, want duration 1:31:07, size 67140237312", by[5])
+	}
+}
+
+// A title seen only in the enumeration, with no TINFO, still appears in the
+// snapshot with blank duration/size — which is exactly the signal that this rip
+// pass carries no profile to match on.
+func TestGuardSnapshotShowsTitlesWithNoProfile(t *testing.T) {
+	g := newTitleGuard(0, "00003.mpls")
+	g.observe(added("00003.mpls", 0))
+
+	snap := g.snapshot()
+	if len(snap) != 1 || snap[0].Source != "00003.mpls" {
+		t.Fatalf("snapshot = %+v, want the one title seen", snap)
+	}
+	if snap[0].Duration != "" || snap[0].Size != "" {
+		t.Errorf("expected blank profile with no TINFO, got %+v", snap[0])
+	}
+}
+
 // Police Story 2, 2026-08-12. The first rip failed on 00005.mpls; every rip
 // after it skipped that title during enumeration, shifting all the numbers down
 // by one. BluForge asked for index 4 believing it was the 67GB feature and got

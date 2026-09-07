@@ -1108,15 +1108,29 @@ func streamRip(out io.Reader, titleID int, expectSource string, kill func(), onE
 			copyFailed = true
 		}
 
+		// The copy is starting: log what the guard is about to let proceed —
+		// every title it saw, with the duration and size the rip pass reported
+		// (blank when the pass carries neither). This shows the guard's decision
+		// inputs, and whether a profile match is even possible here.
+		if ev.Type == "MSG" && ev.Message != nil && ev.Message.Code == MsgSavingTitles {
+			slog.Info("makemkvcon: rip enumeration at copy start",
+				"source", target, "requested_index", titleID, "expected", expectSource,
+				"titles", guard.snapshot())
+		}
+
 		// Stop before the copy rather than after: once makemkvcon has written
 		// the file, the wrong title is already on disk under the right name.
 		if guardErr == nil {
 			guard.observe(ev)
 			if verr := guard.verdict(); verr != nil {
 				guardErr = verr
+				// Log the full enumeration the guard is killing on, so a kill can
+				// be judged against what makemkvcon actually reported — including
+				// whether the title at the requested index looks like the one asked
+				// for (same duration/size) or is genuinely different.
 				slog.Error("makemkvcon: aborting rip, the title moved",
 					"source", target, "requested_index", titleID,
-					"expected", expectSource, "error", verr)
+					"expected", expectSource, "error", verr, "titles", guard.snapshot())
 				kill()
 			}
 		}
