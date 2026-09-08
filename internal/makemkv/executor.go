@@ -118,6 +118,14 @@ var ErrNoOpticalDrives = errors.New(
 	"makemkvcon reports no usable optical drives: the process must belong to the group owning /dev/sg* " +
 		"(commonly 'disk', GID 6) — add `group_add: [6]` to the container, or check the entrypoint's group detection")
 
+// ErrDriveListTimeout reports that a drive listing did not complete within
+// driveListTimeout and was interrupted. It is a distinct signal from a
+// makemkvcon command failure: the listing did not fail, it never finished,
+// which is what a drive that has stopped responding looks like. Callers match
+// it with errors.Is to say what happened rather than surface the raw
+// "signal: interrupt" the interrupt leaves behind.
+var ErrDriveListTimeout = errors.New("makemkv: drive listing did not complete in time")
+
 // Option is a functional option for configuring an Executor.
 type Option func(*Executor)
 
@@ -137,6 +145,15 @@ func WithFailureLogDir(dir string) Option {
 	}
 }
 
+// WithUnmountBefore overrides the function that releases any BluForge mount on a
+// device before makemkvcon is driven against it. Intended for testing; the
+// default clears the mount through the shared mpls registry.
+func WithUnmountBefore(fn func(devicePath string) error) Option {
+	return func(e *Executor) {
+		e.unmountBefore = fn
+	}
+}
+
 // Executor wraps makemkvcon and exposes high-level operations.
 // All commands are serialized via mu because makemkvcon does not support
 // concurrent execution — running multiple instances simultaneously produces
@@ -147,12 +164,20 @@ type Executor struct {
 	// failureLogDir is where a failed rip's makemkvcon debug log is copied so it
 	// survives the temp HOME cleanup. Empty disables saving. See WithFailureLogDir.
 	failureLogDir string
+	// unmountBefore releases any BluForge mount on a device before makemkvcon is
+	// driven against it. A live kernel mount on a disc that then faults or changes
+	// is what wedges the drive, so the disc must not be driven while one is held.
+	// It returns an error when the device cannot be confirmed unmounted.
+	unmountBefore func(devicePath string) error
 }
 
 // NewExecutor creates an Executor. By default it uses the real makemkvcon
 // binary; pass WithRunner to inject a mock for testing.
 func NewExecutor(opts ...Option) *Executor {
-	e := &Executor{runner: &realRunner{}}
+	e := &Executor{
+		runner:        &realRunner{},
+		unmountBefore: func(devicePath string) error { return mpls.ForceUnmount(devicePath) },
+	}
 	for _, o := range opts {
 		o(e)
 	}
@@ -239,6 +264,10 @@ func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
 		// Only makemkvcon's own non-zero exits are salvageable, and those are
 		// ordinary: an empty drive is one, and it still names every drive.
 		if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%w after %s (the drive is not responding)",
+					ErrDriveListTimeout, driveListTimeout)
+			}
 			return nil, fmt.Errorf("makemkv: list drives: %w", err)
 		}
 
@@ -412,6 +441,22 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
+
+	// Release any mount BluForge holds on this device before driving makemkvcon
+	// against it. A live kernel mount on a disc that then faults or changes is
+	// what wedges the drive, so a mount that cannot be confirmed gone means the
+	// disc must not be driven at all.
+	if src.IsDisc() && devicePath != "" {
+		if err := e.unmountBefore(devicePath); err != nil {
+			slog.Error("executor: refusing to scan a disc that is still mounted",
+				"source", src.Arg(), "device", devicePath, "error", err)
+			return nil, &ScanError{
+				Source: src,
+				Reason: "the disc is still mounted; refusing to scan to avoid wedging the drive",
+				Err:    err,
+			}
+		}
+	}
 
 	target := src.Arg()
 	rawOutput, events, cmdErr := e.runScan(ctx, target, onEvent)
@@ -924,8 +969,27 @@ func (e *Executor) runEvents(ctx context.Context, onEvent func(Event), args ...s
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
 func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expectSource string, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
+	// The device-path lookup runs a ListDrives, which takes e.mu itself, so it
+	// must happen before the lock below — as it does for a scan.
+	var devicePath string
+	if src.IsDisc() {
+		devicePath = e.DevicePathForDrive(ctx, src.DriveIndex)
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// Release any mount BluForge holds on this device before driving makemkvcon
+	// against it — the same invariant a scan enforces. A recovery rip is a folder
+	// source (IsDisc is false), so this never disturbs the mount a symlink tree
+	// reads through.
+	if src.IsDisc() && devicePath != "" {
+		if err := e.unmountBefore(devicePath); err != nil {
+			slog.Error("executor: refusing to rip a disc that is still mounted",
+				"source", src.Arg(), "device", devicePath, "error", err)
+			return fmt.Errorf("the disc is still mounted; refusing to rip to avoid wedging the drive: %w", err)
+		}
+	}
 
 	target := src.Arg()
 	titleStr := fmt.Sprintf("%d", titleID)

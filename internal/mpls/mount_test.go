@@ -1,11 +1,16 @@
 package mpls
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+// errBusy stands in for the "target is busy" a umount returns when something
+// still holds the mount — the case that must escalate rather than be forgotten.
+var errBusy = errors.New("umount: target is busy")
 
 // fakeMounts stands in for the filesystem: it records what was mounted and
 // unmounted, and answers "is this device mounted" from its own bookkeeping.
@@ -13,9 +18,15 @@ type fakeMounts struct {
 	mounted   map[string]string // device -> mount point
 	preexist  map[string]string // device -> mount point, present before we look
 	mountLog  []string
-	umountLog []string
+	umountLog []string // points passed to a plain umount
+	lazyLog   []string // points passed to a lazy (umount -l)
 	mountErr  error
-	root      string // temp dir standing in for the mount point's contents
+	// umountErrs is a queue of results for successive umount calls (plain or
+	// lazy). A nil entry succeeds and removes the mount; a non-nil entry fails
+	// and leaves the mount in place — the kernel still holds it. Once the queue
+	// is exhausted, umount succeeds.
+	umountErrs []error
+	root       string // temp dir standing in for the mount point's contents
 }
 
 func newFakeMounts(t *testing.T) *fakeMounts {
@@ -57,8 +68,20 @@ func (f *fakeMounts) Mount(device, point string) error {
 	return nil
 }
 
-func (f *fakeMounts) Umount(point string) error {
-	f.umountLog = append(f.umountLog, point)
+func (f *fakeMounts) Umount(point string, lazy bool) error {
+	if lazy {
+		f.lazyLog = append(f.lazyLog, point)
+	} else {
+		f.umountLog = append(f.umountLog, point)
+	}
+	if len(f.umountErrs) > 0 {
+		err := f.umountErrs[0]
+		f.umountErrs = f.umountErrs[1:]
+		if err != nil {
+			// The kernel mount stays: a failed umount does not remove it.
+			return err
+		}
+	}
 	for dev, mp := range f.mounted {
 		if mp == point {
 			delete(f.mounted, dev)
@@ -210,6 +233,92 @@ func TestADeviceCanBeMountedAgainAfterAForcedUnmount(t *testing.T) {
 	}
 	if len(f.mountLog) != 2 {
 		t.Errorf("mounted %d times across a remove and reinsert, want 2", len(f.mountLog))
+	}
+}
+
+// A umount that fails must not make the registry forget the mount. Forgetting a
+// kernel mount that is still live is the leak that wedges the drive: the pin
+// stays on the block device, the media changes under it, and the USB bridge
+// resets until it dies. The registry may only drop a mount once the kernel
+// confirms it is gone.
+func TestAFailedUnmountKeepsTheMountTracked(t *testing.T) {
+	f := newFakeMounts(t)
+	r := newTestRegistry(t, f)
+	// Both the plain umount and the lazy escalation fail; the mount survives.
+	f.umountErrs = []error{errBusy, errBusy}
+
+	_, release, err := r.Open("/dev/sr1")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	release() // teardown attempts a umount, which fails
+
+	if r.HeldFor("/dev/sr1") == 0 {
+		t.Fatalf("a mount the umount could not remove was forgotten — the leak that wedges the drive")
+	}
+	if _, ok := f.mounted["/dev/sr1"]; !ok {
+		t.Fatalf("test setup wrong: a failed umount should leave the kernel mount in place")
+	}
+}
+
+// A busy umount is the common case exactly when the disc is flaky. The registry
+// escalates to a lazy detach and, once the kernel confirms the mount is gone,
+// forgets it.
+func TestABusyUnmountEscalatesToLazyAndSucceeds(t *testing.T) {
+	f := newFakeMounts(t)
+	r := newTestRegistry(t, f)
+	// Plain umount fails busy; the lazy escalation succeeds.
+	f.umountErrs = []error{errBusy}
+
+	_, release, err := r.Open("/dev/sr1")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	release()
+
+	if len(f.lazyLog) != 1 {
+		t.Fatalf("a busy umount did not escalate to a lazy detach (lazy umounts: %d)", len(f.lazyLog))
+	}
+	if r.HeldFor("/dev/sr1") != 0 {
+		t.Errorf("a mount confirmed gone by the lazy detach is still tracked")
+	}
+	if _, ok := f.mounted["/dev/sr1"]; ok {
+		t.Errorf("the lazy detach did not remove the kernel mount")
+	}
+}
+
+// The unmount-before-makemkvcon invariant needs a clear signal. ForceUnmount
+// reports an error when the device is still mounted after it has tried, so a
+// scan or rip can refuse to drive a disc that is still pinned rather than
+// wedge it.
+func TestForceUnmountErrsWhenTheMountSurvives(t *testing.T) {
+	f := newFakeMounts(t)
+	r := newTestRegistry(t, f)
+	f.umountErrs = []error{errBusy, errBusy} // plain and lazy both fail
+
+	if _, _, err := r.Open("/dev/sr1"); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	if err := r.ForceUnmount("/dev/sr1"); err == nil {
+		t.Fatal("ForceUnmount reported success while the device is still mounted")
+	}
+}
+
+// The ordinary case: a mount BluForge holds is torn down and ForceUnmount
+// reports success, so the invariant lets the scan proceed.
+func TestForceUnmountReportsSuccessWhenTheMountIsGone(t *testing.T) {
+	f := newFakeMounts(t)
+	r := newTestRegistry(t, f)
+
+	if _, _, err := r.Open("/dev/sr1"); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	if err := r.ForceUnmount("/dev/sr1"); err != nil {
+		t.Fatalf("ForceUnmount reported an error after a clean teardown: %v", err)
 	}
 }
 

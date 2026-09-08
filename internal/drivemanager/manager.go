@@ -2,6 +2,7 @@ package drivemanager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -178,6 +179,13 @@ func (m *Manager) PollOnce(ctx context.Context) {
 
 	infos, listed, err := m.listDrives(ctx)
 	if err != nil {
+		// A listing that timed out did not fail — it never finished, because the
+		// drive stopped answering. Say that, rather than surface the interrupt's
+		// opaque "signal: interrupt" as an error every poll.
+		if errors.Is(err, makemkv.ErrDriveListTimeout) {
+			slog.Warn("drive poll timed out", "error", err)
+			return
+		}
 		slog.Error("drive poll failed", "error", err)
 		return
 	}

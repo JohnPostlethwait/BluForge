@@ -1,6 +1,7 @@
 package mpls
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,13 +13,21 @@ import (
 	"time"
 )
 
+// umountTimeout bounds a single umount call. A umount against a dead USB bridge
+// can block in uninterruptible sleep; past this it is abandoned so a teardown
+// that cannot complete does not hang the registry.
+const umountTimeout = 30 * time.Second
+
 // mountRunner is the filesystem side of mounting a disc, kept behind an
 // interface so the registry's bookkeeping can be tested without root.
 type mountRunner interface {
 	// MountPointOf reports where device is currently mounted, if anywhere.
 	MountPointOf(device string) (string, bool)
 	Mount(device, point string) error
-	Umount(point string) error
+	// Umount takes the mount at point down. lazy asks for a detach-now
+	// (umount -l) that releases the tree even while a reference is held, the
+	// escalation used when an ordinary umount reports the mount busy.
+	Umount(point string, lazy bool) error
 }
 
 // MountRegistry owns every disc mount BluForge makes, so that a mount cannot
@@ -128,7 +137,7 @@ func (r *MountRegistry) mountLocked(device string) (*heldMount, error) {
 		if err := hasContent(point); err != nil {
 			slog.Warn("mpls: mount point holds no disc, remounting",
 				"device", device, "mount_point", point, "error", err)
-			if umountErr := r.runner.Umount(point); umountErr != nil {
+			if umountErr := r.runner.Umount(point, false); umountErr != nil {
 				slog.Warn("mpls: could not clear the stale mount",
 					"device", device, "mount_point", point, "error", umountErr)
 			}
@@ -145,7 +154,7 @@ func (r *MountRegistry) mountLocked(device string) (*heldMount, error) {
 			return nil, fmt.Errorf("mpls: mount %s: %w", device, err)
 		}
 		if err := hasContent(point); err != nil {
-			_ = r.runner.Umount(point)
+			_ = r.runner.Umount(point, false)
 			return nil, fmt.Errorf("mpls: mounted %s at %s but %w", device, point, err)
 		}
 	}
@@ -195,6 +204,11 @@ func (r *MountRegistry) ForceUnmount(device string) error {
 	if h, ok := r.active[device]; ok && !h.dead {
 		refs := h.refs
 		r.unmountLocked(h, "the disc left the drive")
+		if _, stillTracked := r.active[device]; stillTracked {
+			// unmountLocked keeps a mount it could not confirm gone. Report it
+			// so the caller can refuse to drive a disc that is still pinned.
+			return fmt.Errorf("mpls: %s is still mounted at %s after unmount", device, h.point)
+		}
 		if refs > 0 {
 			slog.Warn("mpls: unmounted a disc that was still claimed",
 				"device", device, "claims", refs)
@@ -214,27 +228,59 @@ func (r *MountRegistry) ForceUnmount(device string) error {
 	}
 	slog.Warn("mpls: clearing a disc mount this process did not make",
 		"device", device, "mount_point", point)
-	if err := r.runner.Umount(point); err != nil {
+	if err := r.runner.Umount(point, false); err != nil {
 		return fmt.Errorf("mpls: umount %s: %w", point, err)
 	}
 	return nil
 }
 
-// unmountLocked takes the mount down and forgets it. Callers hold r.mu.
+// unmountLocked takes the mount down and, only once the kernel confirms it is
+// gone, forgets it. Callers hold r.mu.
+//
+// A umount can fail — most often "busy", and most often exactly when the disc
+// is flaky — so the result is checked against the kernel rather than trusted,
+// and a busy mount is escalated to a lazy detach. Forgetting a mount the kernel
+// still holds is the leak that wedges the drive: the pin stays on the block
+// device, the media changes under it, and the bridge resets until it dies. So a
+// mount that cannot be confirmed gone stays tracked, to be retried on a later
+// event, and is surfaced rather than silently dropped.
 func (r *MountRegistry) unmountLocked(h *heldMount, reason string) {
-	h.dead = true
-	delete(r.active, h.device)
-
 	held := r.now().Sub(h.since)
-	if err := r.runner.Umount(h.point); err != nil {
-		slog.Warn("mpls: umount failed",
+
+	if r.confirmUnmount(h) {
+		h.dead = true
+		delete(r.active, h.device)
+		slog.Info("mpls: disc unmounted",
 			"device", h.device, "mount_point", h.point, "reason", reason,
-			"held", held.String(), "error", err)
+			"held", held.String())
 		return
 	}
-	slog.Info("mpls: disc unmounted",
+
+	slog.Error("mpls: could not confirm the mount was removed; still tracked",
 		"device", h.device, "mount_point", h.point, "reason", reason,
 		"held", held.String())
+}
+
+// confirmUnmount tries a plain umount, escalates to a lazy detach if the mount
+// is still present, and reports whether the kernel shows it gone afterwards.
+// The kernel — not umount's exit status — is the signal that decides: a umount
+// that reports success while /proc/mounts still shows the device is not a
+// removal. Callers hold r.mu.
+func (r *MountRegistry) confirmUnmount(h *heldMount) bool {
+	if err := r.runner.Umount(h.point, false); err != nil {
+		slog.Warn("mpls: umount failed, escalating to a lazy detach",
+			"device", h.device, "mount_point", h.point, "error", err)
+	}
+	if _, stillMounted := r.runner.MountPointOf(h.device); !stillMounted {
+		return true
+	}
+
+	if err := r.runner.Umount(h.point, true); err != nil {
+		slog.Warn("mpls: lazy detach failed",
+			"device", h.device, "mount_point", h.point, "error", err)
+	}
+	_, stillMounted := r.runner.MountPointOf(h.device)
+	return !stillMounted
 }
 
 // HeldFor reports how long a device's mount has been held, or zero when it is
@@ -289,8 +335,19 @@ func (systemMounts) Mount(device, point string) error {
 	return fmt.Errorf("%w (%s)", lastErr, lastOut)
 }
 
-func (systemMounts) Umount(point string) error {
-	out, err := exec.Command("umount", point).CombinedOutput()
+func (systemMounts) Umount(point string, lazy bool) error {
+	args := []string{point}
+	if lazy {
+		// -l detaches the filesystem from the tree immediately and cleans up
+		// when the last reference drops, rather than refusing on a busy mount.
+		args = []string{"-l", point}
+	}
+	// A umount against a dead USB bridge can block in uninterruptible sleep, so
+	// it is bounded: a teardown that cannot complete must return rather than
+	// hang the caller (and, above, the registry) indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), umountTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "umount", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w (%s)", err, strings.TrimSpace(string(out)))
 	}
