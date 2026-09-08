@@ -2,10 +2,11 @@ package organizer
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 )
 
 // Organizer builds destination paths and moves files atomically.
@@ -46,7 +47,7 @@ func AtomicMove(src, dst string) error {
 	}
 
 	// Cross-device fallback: copy then delete.
-	if err := copyFile(src, dst); err != nil {
+	if err := fsutil.CopyFile(src, dst); err != nil {
 		return err
 	}
 	return os.Remove(src)
@@ -77,33 +78,4 @@ func NonCollidingPath(path string) string {
 			return candidate
 		}
 	}
-}
-
-// copyFile copies the content of src to dst, preserving permissions.
-// It refuses to follow symlinks to prevent symlink-based attacks.
-func copyFile(src, dst string) error {
-	info, err := os.Lstat(src)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return os.ErrPermission
-	}
-
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err = io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }

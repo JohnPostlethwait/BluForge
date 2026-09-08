@@ -2,11 +2,7 @@ package makemkv
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -82,35 +78,4 @@ func sanitizeForFilename(s string) string {
 		}
 	}
 	return b.String()
-}
-
-// saveDebugLog copies makemkvcon's debug log from src to dst, creating dst's
-// parent directory.
-//
-// The temp HOME that holds src is removed the moment StartRip returns (see the
-// deferred cleanup there), so a failed rip's log has to be copied out before
-// then or it is gone. Unlike tailLines, this keeps the whole file — the tail is
-// for showing the reason at a glance, the file is for reading the rest.
-func saveDebugLog(src, dst string) error {
-	if src == "" {
-		return errors.New("makemkv: no debug log path to save")
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
 )
 
@@ -1009,9 +1010,9 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 				debugLogPath = homeDebugLog
 			}
 
-			if e.failureLogDir != "" {
+			if e.failureLogDir != "" && debugLogPath != "" {
 				dst := filepath.Join(e.failureLogDir, failureLogName(ctx, target, titleID))
-				if saveErr := saveDebugLog(debugLogPath, dst); saveErr != nil {
+				if saveErr := fsutil.CopyFile(debugLogPath, dst); saveErr != nil {
 					slog.Error("makemkvcon: could not save the failed rip's debug log",
 						"source", target, "title", titleID, "from", debugLogPath, "error", saveErr)
 				} else {
