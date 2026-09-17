@@ -53,6 +53,8 @@ type Server struct {
 	driveSessions      *DriveSessionStore
 	onMakeMKVKeyChange func(string)
 	tmdbBaseURL        string // empty = use TMDB default; overridden in tests
+	keydbURL           string // empty = use FindVUK default; overridden in tests
+	keydbDataDir       string // empty = default MakeMKV data dir; overridden in tests
 
 	// submitting tracks contributions with a submission in flight, so two tabs
 	// cannot open two pull requests for the same disc. Guarded by submitMu.
@@ -173,6 +175,7 @@ func NewServer(deps ServerDeps) *Server {
 	e.POST("/activity/clear-filtered", s.handleActivityClearFiltered)
 	e.GET("/settings", s.handleSettings)
 	e.POST("/settings", s.handleSettingsSave)
+	e.POST("/settings/refresh-keydb", s.handleRefreshKeyDB)
 	e.GET("/contributions", s.handleContributions)
 	e.GET("/contributions/:id", s.handleContributionDetail)
 	e.POST("/contributions/:id", s.handleContributionSave)

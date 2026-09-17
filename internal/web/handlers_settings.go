@@ -27,6 +27,8 @@ func (s *Server) handleSettings(c echo.Context) error {
 		KeepForcedSubtitles:    cfg.KeepForcedSubtitles,
 		KeepLosslessAudio:      cfg.KeepLosslessAudio,
 		CSRFToken:              csrfToken(c),
+		KeyDBStatus:            c.QueryParam("keydb"),
+		KeyDBKeys:              c.QueryParam("keys"),
 	}
 	return templates.Settings(data).Render(c.Request().Context(), c.Response().Writer)
 }

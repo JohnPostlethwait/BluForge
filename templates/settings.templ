@@ -15,6 +15,11 @@ type SettingsData struct {
 	KeepForcedSubtitles   bool
 	KeepLosslessAudio     bool
 	CSRFToken             string
+	// KeyDBStatus is "ok", "error", or "" — the outcome of the last disc-key
+	// refresh, surfaced after the redirect back to this page.
+	KeyDBStatus string
+	// KeyDBKeys is the number of keys installed, shown on a successful refresh.
+	KeyDBKeys string
 }
 
 templ Settings(data SettingsData) {
@@ -114,6 +119,21 @@ templ Settings(data SettingsData) {
 			</div>
 			<div>
 				<button type="submit" class="btn btn-primary">Save Settings</button>
+			</div>
+		</form>
+		<form method="POST" action="/settings/refresh-keydb">
+			<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+			<div class="card mb-4">
+				<h2 class="section-title">Disc Keys (FindVUK)</h2>
+				<p class="text-muted mb-4">
+					Download the community <a href="https://fvonline-db.bplaced.net/" target="_blank" rel="noopener">FindVUK</a> key database and install it as the KEYDB.cfg file MakeMKV reads. This can decrypt newer UHD discs that MakeMKV does not yet have keys for. Takes effect on the next scan; no restart required.
+				</p>
+				if data.KeyDBStatus == "ok" {
+					<p class="field-hint">Disc keys updated — { data.KeyDBKeys } keys installed.</p>
+				} else if data.KeyDBStatus == "error" {
+					<p class="field-hint">Refresh failed. Check the logs for details.</p>
+				}
+				<button type="submit" class="btn btn-primary">Refresh disc keys</button>
 			</div>
 		</form>
 	}
