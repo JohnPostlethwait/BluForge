@@ -16,15 +16,12 @@ Huge callout to [Luke Foust](https://github.com/lfoust) for his work creating an
 
 <img width="1223" height="869" alt="Screenshot 2026-04-04 at 4 29 52 PM" src="https://github.com/user-attachments/assets/39f3269a-b668-4700-ab74-f1c5eca29891" />
 
-<img width="1235" height="658" alt="Screenshot 2026-04-06 at 4 00 39 PM" src="https://github.com/user-attachments/assets/6e1c197e-1fa4-42b0-adbf-cb2c5e3e63c9" />
-
 
 ## Features
 
 - **Automatic disc detection** -- polls optical drives and fires events on disc insert/eject
 - **Auto-rip mode** -- optionally rip all titles as soon as a disc is inserted
-- **TheDiscDB integration** -- search by title, UPC, or ASIN to match discs against known metadata
-- **Intelligent file organization** -- configurable Go templates for movie and TV series naming
+- **Intelligent file organization** -- configurable templates for movie and TV series naming
 - **Live progress** -- real-time rip progress and drive status via Server-Sent Events
 - **Job queue and history** -- persistent job tracking in SQLite with queue and history views
 - **Disc mapping cache** -- remembers matched discs for instant re-identification
