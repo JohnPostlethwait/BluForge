@@ -265,6 +265,9 @@ func (e *Engine) run(job *Job) {
 	// accepts a duplicate at the requested index rather than killing a correct
 	// rip on a seamless-branching disc.
 	ctx = makemkv.WithExpectedDuplicates(ctx, job.DuplicatePlaylists)
+	// Carry the playlists the scan dropped, so the guard numbers the rip pass
+	// the way the scan numbered this title.
+	ctx = makemkv.WithSkippedPlaylists(ctx, job.SkippedPlaylists)
 	job.mu.Lock()
 	job.cancel = cancel
 	job.mu.Unlock()

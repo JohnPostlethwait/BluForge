@@ -73,6 +73,39 @@ func DuplicatePlaylistsOf(messages []Message, playlist string) []string {
 	return dups
 }
 
+// SkippedPlaylists returns the playlists a scan's equal-title messages name that
+// have no title of their own in the scan — the ones makemkvcon dropped.
+//
+// A rip pass announces titles before it drops these, so each one numbered ahead
+// of the feature pushes it up by one. The guard needs the set to number the pass
+// the way makemkvcon will once it has dropped them. See titleGuard.allowSkipped.
+//
+// Which of the two names is the skipped one is read from the scan's own titles
+// rather than from a parameter slot, for the reason DuplicatePlaylistsOf gives.
+func SkippedPlaylists(scan *DiscScan) []string {
+	if scan == nil {
+		return nil
+	}
+	kept := make(map[string]bool, len(scan.Titles))
+	for i := range scan.Titles {
+		kept[scan.Titles[i].SourceFile()] = true
+	}
+	var skipped []string
+	seen := make(map[string]bool)
+	for _, m := range scan.Messages {
+		if m.Code != msgTitleEqual {
+			continue
+		}
+		for _, n := range playlistFileRE.FindAllString(m.Text, -1) {
+			if !kept[n] && !seen[n] {
+				seen[n] = true
+				skipped = append(skipped, n)
+			}
+		}
+	}
+	return skipped
+}
+
 // TitleMovedError reports that the title number BluForge asked for no longer
 // names the title it was chosen for.
 //
@@ -134,7 +167,11 @@ type titleGuard struct {
 	// this set at the requested index is the feature by another name, so the
 	// guard must not treat it as drift. See DuplicatePlaylistsOf.
 	duplicates map[string]bool
-	copying    bool
+	// skipped are the playlists the scan dropped as equal to another title. The
+	// requested index counts without them, so the guard does too. See
+	// SkippedPlaylists.
+	skipped map[string]bool
+	copying bool
 }
 
 func newTitleGuard(requested int, expect string) *titleGuard {
@@ -143,7 +180,46 @@ func newTitleGuard(requested int, expect string) *titleGuard {
 		expect:     expect,
 		seen:       make(map[int]string),
 		duplicates: make(map[string]bool),
+		skipped:    make(map[string]bool),
 	}
+}
+
+// allowSkipped tells the guard which playlists the scan dropped, so it numbers
+// the pass's announcements the way the scan numbered the requested index.
+func (g *titleGuard) allowSkipped(playlists []string) {
+	for _, p := range playlists {
+		g.skipped[p] = true
+	}
+}
+
+// collapsed returns the pass's announcements numbered as makemkvcon numbers
+// them after dropping the scan's skipped playlists: each skipped playlist is
+// removed and every title after it moves down one.
+//
+// Ratatouille fails without this. The scan dropped 00004.mpls and numbered the
+// feature 2; the rip pass announced 00004 at #0 and the feature at #3. The
+// guard took #3 at face value, killed a correct rip, and retried at an index
+// that no longer existed once 00004 was dropped.
+func (g *titleGuard) collapsed() map[int]string {
+	if len(g.skipped) == 0 {
+		return g.seen
+	}
+	pre := make([]int, 0, len(g.seen))
+	for i := range g.seen {
+		pre = append(pre, i)
+	}
+	sort.Ints(pre)
+	out := make(map[int]string, len(pre))
+	dropped := 0
+	for _, i := range pre {
+		s := g.seen[i]
+		if g.skipped[s] {
+			dropped++
+			continue
+		}
+		out[i-dropped] = s
+	}
+	return out
 }
 
 // allowDuplicates tells the guard which playlists a scan declared equal to the
@@ -158,7 +234,7 @@ func (g *titleGuard) allowDuplicates(playlists []string) {
 // acceptableAtRequest reports whether the title now at the requested index is the
 // feature, or a declared duplicate of it — either way the copy is correct.
 func (g *titleGuard) acceptableAtRequest() bool {
-	s, ok := g.seen[g.requested]
+	s, ok := g.collapsed()[g.requested]
 	if !ok {
 		return false
 	}
@@ -238,13 +314,13 @@ func (g *titleGuard) verdict() error {
 	// Everything needed is known: the title is somewhere else in this pass, so
 	// there is nothing to gain by reading the rest of the enumeration.
 	if moved >= 0 && moved != g.requested {
-		return g.moved(g.seen[g.requested])
+		return g.moved(g.collapsed()[g.requested])
 	}
 
 	// Copying is about to start, so the enumeration is complete and this is the
 	// last moment to intervene. Whatever is known now is all there will be.
 	if g.copying && moved != g.requested {
-		return g.moved(g.seen[g.requested])
+		return g.moved(g.collapsed()[g.requested])
 	}
 
 	// Otherwise the enumeration is still arriving. A requested index that names
@@ -281,12 +357,15 @@ func checkableSource(s string) bool {
 // Which angle a moved multi-angle title should retry at is genuinely ambiguous —
 // the file name cannot tell them apart. The lowest is a guess; it is a
 // deterministic one, and the alternative was a coin flip.
+//
+// The index is in the collapsed numbering: it is what a retry asks for.
 func (g *titleGuard) indexOf(source string) int {
-	if s, ok := g.seen[g.requested]; ok && s == source {
+	titles := g.collapsed()
+	if s, ok := titles[g.requested]; ok && s == source {
 		return g.requested
 	}
 	best := -1
-	for i, s := range g.seen {
+	for i, s := range titles {
 		if s == source && (best < 0 || i < best) {
 			best = i
 		}

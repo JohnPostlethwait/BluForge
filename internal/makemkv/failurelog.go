@@ -49,6 +49,24 @@ func expectedDuplicatesFromContext(ctx context.Context) []string {
 	return p
 }
 
+// skippedPlaylistsKey carries the playlists the scan dropped as equal to
+// another title.
+type skippedPlaylistsKey struct{}
+
+// WithSkippedPlaylists threads the playlists the scan dropped, so StartRip's
+// guard numbers the rip pass the way the scan numbered the requested title. By
+// context for the same reason as WithExpectedDuplicates. Unset, the guard takes
+// the pass's numbers at face value — which can cause a needless kill on a disc
+// with a skipped playlist ahead of the title, never a wrong-title rip.
+func WithSkippedPlaylists(ctx context.Context, playlists []string) context.Context {
+	return context.WithValue(ctx, skippedPlaylistsKey{}, playlists)
+}
+
+func skippedPlaylistsFromContext(ctx context.Context) []string {
+	p, _ := ctx.Value(skippedPlaylistsKey{}).([]string)
+	return p
+}
+
 // failureLogName is the filename a failed rip's makemkvcon debug log is saved
 // under. The job ID when the context carries it; otherwise the disc and title,
 // which still tell one failure from another.

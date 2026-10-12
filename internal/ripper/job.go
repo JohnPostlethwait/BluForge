@@ -104,6 +104,11 @@ type Job struct {
 	// requested index instead of killing a correct rip. Not serialized — needed
 	// only while the rip runs, and recomputed from the scan when a job is made.
 	DuplicatePlaylists []string `json:"-"`
+	// SkippedPlaylists are the playlists the scan dropped as equal to another
+	// title. The rip pass announces them before dropping them, so the guard
+	// needs them to number the pass the way the scan numbered TitleIndex. Not
+	// serialized, for the same reason as DuplicatePlaylists.
+	SkippedPlaylists []string `json:"-"`
 	// TrackMetadata holds scan-time metadata for this title.
 	// Included in JSON serialization so SSE broadcasts carry it.
 	TrackMetadata TrackMetadata `json:"TrackMetadata,omitempty"`

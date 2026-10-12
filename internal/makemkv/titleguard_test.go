@@ -331,6 +331,87 @@ func TestDuplicatePlaylistsOf(t *testing.T) {
 	}
 }
 
+// Ratatouille, 2026-10-12. The scan collapsed 00004.mpls into the feature
+// 00800.mpls and numbered the feature 2. The rip pass announces titles before
+// the collapse, so the skipped 00004 sits at #0 and pushes the feature to #3.
+// The guard called the feature moved, killed a correct rip at 38%, and retried
+// at index 3 — which does not exist once 00004 is dropped, so makemkvcon exited
+// with status 12. Told which playlists the scan skipped, the guard numbers the
+// pass the way makemkvcon will after the collapse, and index 2 is the feature.
+func TestGuardNumbersThePassAfterTheScansSkippedPlaylists(t *testing.T) {
+	g := newTitleGuard(2, "00800.mpls")
+	g.allowDuplicates([]string{"00004.mpls"})
+	g.allowSkipped([]string{"00004.mpls"})
+
+	for _, ev := range []Event{
+		added("00004.mpls", 0), // skipped as equal to 00800 once enumeration ends
+		added("00802.mpls", 1),
+		added("00801.mpls", 2),
+		added("00800.mpls", 3),
+		saving(),
+	} {
+		g.observe(ev)
+		if err := g.verdict(); err != nil {
+			t.Fatalf("guard killed a rip whose post-collapse index holds the feature: %v", err)
+		}
+	}
+}
+
+// A skipped playlist ahead of the feature shifts every later title, whatever it
+// duplicates. When the feature really has moved, the retry index the guard
+// reports must be the post-collapse one, since that is the numbering the retry
+// runs under.
+func TestGuardReportsAPostCollapseIndexWhenTheTitleMoved(t *testing.T) {
+	g := newTitleGuard(1, "00800.mpls")
+	g.allowSkipped([]string{"00004.mpls"})
+
+	for _, ev := range []Event{
+		added("00004.mpls", 0), // skipped: a duplicate of some other title
+		added("00802.mpls", 1),
+		added("00801.mpls", 2),
+		added("00800.mpls", 3),
+	} {
+		g.observe(ev)
+	}
+
+	var moved *TitleMovedError
+	if err := g.verdict(); !errors.As(err, &moved) {
+		t.Fatalf("verdict = %v, want a TitleMovedError", err)
+	}
+	if moved.CorrectIndex != 2 {
+		t.Errorf("CorrectIndex = %d, want 2 (00800.mpls once 00004.mpls is dropped)", moved.CorrectIndex)
+	}
+	if moved.Found != "00801.mpls" {
+		t.Errorf("Found = %q, want 00801.mpls at post-collapse index 1", moved.Found)
+	}
+}
+
+// The skipped set is read from what the scan kept: of the playlists an
+// equal-title message names, the one with no title in the scan is the one
+// makemkvcon dropped. That needs no assumption about which parameter slot holds
+// the skipped name.
+func TestSkippedPlaylists(t *testing.T) {
+	scan := &DiscScan{
+		Titles: []TitleInfo{
+			{Index: 0, Attributes: map[int]string{16: "00802.mpls"}},
+			{Index: 1, Attributes: map[int]string{16: "00801.mpls"}},
+			{Index: 2, Attributes: map[int]string{16: "00800.mpls"}},
+		},
+		Messages: []Message{
+			{Code: 3307, Text: "File 00004.mpls was added as title #0"},
+			{Code: msgTitleEqual, Text: "Title 00004.mpls is equal to title 00800.mpls and was skipped"},
+		},
+	}
+
+	got := SkippedPlaylists(scan)
+	if len(got) != 1 || got[0] != "00004.mpls" {
+		t.Errorf("SkippedPlaylists = %v, want [00004.mpls]", got)
+	}
+	if SkippedPlaylists(nil) != nil {
+		t.Error("a nil scan produced a skipped set")
+	}
+}
+
 // A caller that does not know which title it expects gets the old behaviour
 // rather than a refusal.
 func TestGuardWithoutAnExpectationAllowsTheRip(t *testing.T) {
