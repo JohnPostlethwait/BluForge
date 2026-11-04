@@ -89,6 +89,7 @@ func TestAutoRip_NoMatch_UsesDiscName(t *testing.T) {
 }
 
 func TestAutoRip_NoMatch_CreatesContributionRecord(t *testing.T) {
+	t.Skip("Hidden: TheDiscDB contributions are off until upstream agrees a manifest format; auto-rip no longer creates contribution records.")
 	scanner := &mockDriveExecutor{}
 	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
 
@@ -127,6 +128,7 @@ func TestAutoRip_NoMatch_CreatesContributionRecord(t *testing.T) {
 }
 
 func TestAutoRip_NoMatch_DuplicateContributionSkipped(t *testing.T) {
+	t.Skip("Hidden: TheDiscDB contributions are off until upstream agrees a manifest format; auto-rip no longer creates contribution records.")
 	scanner := &mockDriveExecutor{}
 	orch, store, outputDir := setupOrchestratorWithScanner(t, scanner)
 
@@ -158,6 +160,7 @@ func TestAutoRip_NoMatch_DuplicateContributionSkipped(t *testing.T) {
 }
 
 func TestAutoRip_NoMatch_BroadcastsSSE(t *testing.T) {
+	t.Skip("Hidden: TheDiscDB contributions are off until upstream agrees a manifest format; auto-rip no longer creates contribution records.")
 	scanner := &mockDriveExecutor{}
 
 	var mu sync.Mutex
