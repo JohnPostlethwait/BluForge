@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -28,19 +29,25 @@ var baseDevices = []string{"null", "zero", "full", "random", "urandom", "tty"}
 //
 // It moves into a new mount namespace and replaces /dev there with a tmpfs
 // holding only the drive's block node, the drive's SCSI generic node, and
-// baseDevices, then execs the program. makemkvcon can open only what is in /dev,
+// baseDevices, then execs makemkvcon. makemkvcon can open only what is in /dev,
 // so the drive is the one drive it can reach.
 //
-// It returns only on failure; on success the process becomes the program.
+// The helper runs with CAP_SYS_ADMIN, so it does one fixed thing: the drive must
+// be a /dev/srN node and the program must be makemkvcon. It runs nothing else.
+//
+// It returns only on failure; on success the process becomes makemkvcon.
 func RunIsolateHelper(args []string) error {
 	if len(args) < 3 || args[1] != "--" {
-		return errors.New("usage: " + IsolateSubcommand + " /dev/srN -- program args...")
+		return errors.New("usage: " + IsolateSubcommand + " /dev/srN -- makemkvcon args...")
 	}
 	device, argv := args[0], args[2:]
-	name := filepath.Base(device)
-	if !strings.HasPrefix(name, "sr") {
+	if !opticalNodeRE.MatchString(device) {
 		return fmt.Errorf("isolate: %s is not an optical drive node", device)
 	}
+	if argv[0] != "makemkvcon" {
+		return fmt.Errorf("isolate: runs makemkvcon only, not %q", argv[0])
+	}
+	name := filepath.Base(device)
 
 	// Look the program up before /dev changes; nothing it needs lives there,
 	// but a failure here is clearer before the mounts than after.
@@ -61,9 +68,30 @@ func RunIsolateHelper(args []string) error {
 	if err := isolateDev(nodes); err != nil {
 		return fmt.Errorf("isolate %s: %w", device, err)
 	}
-	// makemkvcon carries no file capability, so it starts with none: this
-	// helper's CAP_SYS_ADMIN does not survive the exec.
+	if err := dropInheritable(); err != nil {
+		return fmt.Errorf("isolate: %w", err)
+	}
 	return syscall.Exec(prog, argv, os.Environ())
+}
+
+// opticalNodeRE is the only form of drive the helper will isolate.
+var opticalNodeRE = regexp.MustCompile(`^/dev/sr[0-9]+$`)
+
+// dropInheritable empties this thread's inheritable capability set before the
+// exec. makemkvcon has no file capability, so it would start with nothing in
+// effect anyway. With the inheritable set empty it also cannot run this helper
+// again to take CAP_SYS_ADMIN up.
+func dropInheritable() error {
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var data [2]unix.CapUserData
+	if err := unix.Capget(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("read capabilities: %w", err)
+	}
+	data[0].Inheritable, data[1].Inheritable = 0, 0
+	if err := unix.Capset(&hdr, &data[0]); err != nil {
+		return fmt.Errorf("drop inheritable capabilities: %w", err)
+	}
+	return nil
 }
 
 // isolateDev moves this thread into a new mount namespace and replaces /dev
@@ -140,6 +168,9 @@ func ProbeIsolation(ctx context.Context) error {
 // with only the base nodes and exec /bin/true.
 func RunIsolateProbe() error {
 	if err := isolateDev(baseDevices); err != nil {
+		return err
+	}
+	if err := dropInheritable(); err != nil {
 		return err
 	}
 	return syscall.Exec("/bin/true", []string{"true"}, os.Environ())

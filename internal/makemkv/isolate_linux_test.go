@@ -43,6 +43,9 @@ func listIsolatedDev() error {
 	if err := isolateDev(baseDevices); err != nil {
 		return err
 	}
+	if err := dropInheritable(); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir("/dev")
 	if err != nil {
 		return err
@@ -54,7 +57,7 @@ func listIsolatedDev() error {
 	fmt.Println(strings.Join(names, " "))
 	// Exec, as the helper does for makemkvcon, so what prints is the program's
 	// capability set after the exec rather than the helper's own.
-	return syscall.Exec("/bin/grep", []string{"grep", "^CapEff:", "/proc/self/status"}, os.Environ())
+	return syscall.Exec("/bin/grep", []string{"grep", "-E", "^Cap(Eff|Inh):", "/proc/self/status"}, os.Environ())
 }
 
 // requireIsolation skips unless the test is meant to set up mount namespaces
@@ -99,8 +102,13 @@ func TestIsolatedDevHoldsOnlyTheBaseNodes(t *testing.T) {
 	// A non-root program must come out of the helper holding no capability:
 	// CAP_SYS_ADMIN is the helper's, for the mounts, and nobody else's.
 	if os.Geteuid() != 0 {
-		if len(lines) < 2 || strings.Trim(strings.TrimSpace(strings.TrimPrefix(lines[1], "CapEff:")), "0") != "" {
-			t.Errorf("program capabilities after the helper = %v, want none", lines[1:])
+		if len(lines) < 3 {
+			t.Fatalf("helper output = %q, want /dev and two capability lines", out)
+		}
+		for _, l := range lines[1:] {
+			if _, v, _ := strings.Cut(l, ":"); strings.Trim(strings.TrimSpace(v), "0") != "" {
+				t.Errorf("program capabilities after the helper: %q, want none", l)
+			}
 		}
 	}
 
@@ -110,5 +118,21 @@ func TestIsolatedDevHoldsOnlyTheBaseNodes(t *testing.T) {
 	}
 	if len(after) != len(before) {
 		t.Errorf("the caller's /dev changed: %d entries before, %d after", len(before), len(after))
+	}
+}
+
+// The helper holds CAP_SYS_ADMIN, so it isolates one optical drive for
+// makemkvcon and refuses anything else, before it touches a mount.
+func TestHelperRefusesAnythingButMakemkvconOnAnOpticalDrive(t *testing.T) {
+	for _, args := range [][]string{
+		{"/dev/sr0", "--", "/bin/sh", "-c", "id"},
+		{"/dev/sda", "--", "makemkvcon", "info"},
+		{"/tmp/sr0", "--", "makemkvcon", "info"},
+		{"/dev/sr0x", "--", "makemkvcon", "info"},
+		{"/dev/sr0", "makemkvcon", "info"},
+	} {
+		if err := RunIsolateHelper(args); err == nil {
+			t.Errorf("RunIsolateHelper(%q) accepted it", args)
+		}
 	}
 }

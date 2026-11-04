@@ -48,6 +48,14 @@ var isolatedCommand = helperCommand
 // no capability in effect.
 const helperBinary = "bluforge-isolate"
 
+// IsHelperBinary reports whether this process is the capability-carrying
+// helper. main refuses to run the server as it: the helper holds
+// CAP_SYS_ADMIN and must do nothing but isolate one makemkvcon.
+func IsHelperBinary() bool {
+	self, err := os.Executable()
+	return err == nil && filepath.Base(self) == helperBinary
+}
+
 // helperPath returns the isolation helper to run: the capability-carrying copy
 // beside this binary when there is one, otherwise this binary, which can set up
 // the namespace itself only when it runs as root.

@@ -33,11 +33,17 @@ func main() {
 	// argument to run one makemkvcon confined to one drive; see
 	// makemkv.makemkvconCommand. It must run before anything else, since on
 	// success it becomes makemkvcon.
-	if len(os.Args) > 1 && os.Args[1] == makemkv.IsolateSubcommand {
+	//
+	// Run as /app/bluforge-isolate, the binary holds CAP_SYS_ADMIN, and it does
+	// this and nothing else: it never starts the server.
+	if (len(os.Args) > 1 && os.Args[1] == makemkv.IsolateSubcommand) || makemkv.IsHelperBinary() {
 		var err error
-		if len(os.Args) > 2 && os.Args[2] == "--probe" {
+		switch {
+		case len(os.Args) < 2 || os.Args[1] != makemkv.IsolateSubcommand:
+			err = fmt.Errorf("this binary only isolates makemkvcon; run it as %s", makemkv.IsolateSubcommand)
+		case len(os.Args) > 2 && os.Args[2] == "--probe":
 			err = makemkv.RunIsolateProbe()
-		} else {
+		default:
 			err = makemkv.RunIsolateHelper(os.Args[2:])
 		}
 		fmt.Fprintln(os.Stderr, "bluforge:", err)
