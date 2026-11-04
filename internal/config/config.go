@@ -25,6 +25,11 @@ type AppConfig struct {
 	KeepLosslessAudio     bool   `yaml:"keep_lossless_audio"`      // default: true
 	MakeMKVKey            string `yaml:"makemkv_key"`
 	TMDBApiKey            string `yaml:"tmdb_api_key"`
+	// IgnoredDrives lists drives BluForge acts as if were not attached, by the
+	// drive name makemkvcon reports (e.g. "BD-RE ASUS BW-16D1HT 3.10
+	// KLFO82D3028"). Matched by makemkv.DriveIdentity, which drops the firmware
+	// revision, so the stored name is for display and need not be current.
+	IgnoredDrives []string `yaml:"ignored_drives,omitempty"`
 }
 
 // defaults returns an AppConfig populated with all default values.

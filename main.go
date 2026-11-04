@@ -321,6 +321,10 @@ func main() {
 		}
 	})
 
+	// Drives the user has told BluForge to leave alone are left out from the
+	// first poll. Later changes arrive through the settings page.
+	driveMgr.SetIgnoredDrives(cfg.IgnoredDrives)
+
 	// A drive spending tens of minutes on a disc backup should not read as idle,
 	// so recovery drives the drive state directly. Wired here because it needs
 	// the manager created above.
