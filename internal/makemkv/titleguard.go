@@ -29,12 +29,18 @@ const msgAngleTitleAdded = 3308
 // how makemkvcon says so during a scan.
 const msgTitleEqual = 3309
 
-// playlistFileRE matches the playlist/stream file names makemkvcon uses in its
-// enumeration messages, e.g. "00869.mpls" or "00001.m2ts". These are literals,
-// not translated, so they can be read out of a message whose surrounding words
-// are localized — which is why the equal-title set is read from the text rather
-// than from a parameter position we have never confirmed.
-var playlistFileRE = regexp.MustCompile(`\d+\.(?:mpls|m2ts)`)
+// playlistFileRE matches the title names makemkvcon uses in its enumeration
+// messages, e.g. "00869.mpls", "00001.m2ts" or "00015.mpls(2)". These are
+// literals, not translated, so they can be read out of a message whose
+// surrounding words are localized — which is why the equal-title set is read
+// from the text rather than from a parameter position we have never confirmed.
+//
+// The "(N)" suffix is part of the name. makemkvcon makes more than one title
+// from one playlist and tells them apart by it: 30 Rock S6D3 has 00015.mpls
+// (1:26:14), 00015.mpls(1) (0:23:37) and 00015.mpls(2) (1:04:37) as titles 4, 5
+// and 6. The equal-title message carries it too ("Title 00508.mpls(4) is equal
+// to title 00001.mpls and was skipped"), so names are compared whole.
+var playlistFileRE = regexp.MustCompile(`\d+\.(?:mpls|m2ts)(?:\(\d+\))?`)
 
 // DuplicatePlaylistsOf returns the playlists a scan reported as equal to (and
 // skipped in favour of) the given playlist.
@@ -209,7 +215,7 @@ func (g *titleGuard) collapsed() map[int]string {
 	out := make(map[int]string, len(pre))
 	dropped := 0
 	for _, i := range pre {
-		s := playlistName(g.seen[i])
+		s := g.seen[i]
 		if g.skipped[s] {
 			dropped++
 			continue
@@ -217,21 +223,6 @@ func (g *titleGuard) collapsed() map[int]string {
 		out[i-dropped] = s
 	}
 	return out
-}
-
-// playlistName returns the bare playlist file a rip pass announced a title as.
-//
-// A pass can name a title with a suffix the scan's other messages do not carry:
-// The Full Monty's announced "00329.mpls(8)", while the scan's equal-title
-// message, read through playlistFileRE, names it "00329.mpls". Compared as raw
-// strings the skipped playlist was never recognised, the feature at #6 was
-// taken to have moved, a correct rip was killed at 81%, and the retry at 6
-// copied 00301.mpls, a 353 MB extra, under the feature's name.
-func playlistName(s string) string {
-	if m := playlistFileRE.FindString(s); m != "" {
-		return m
-	}
-	return s
 }
 
 // allowDuplicates tells the guard which playlists a scan declared equal to the
@@ -350,12 +341,15 @@ func (g *titleGuard) moved(found string) *TitleMovedError {
 	}
 }
 
-// checkableSource reports whether an expectation names a file makemkvcon would
-// announce in its enumeration.
+// checkableSource reports whether an expectation names a title makemkvcon would
+// announce in its enumeration: a playlist or stream file, with or without the
+// "(N)" suffix that tells apart titles made from one playlist. A suffixed
+// title used to be treated as uncheckable, which switched the guard off for it.
 func checkableSource(s string) bool {
-	l := strings.ToLower(s)
-	return strings.HasSuffix(l, ".mpls") || strings.HasSuffix(l, ".m2ts")
+	return checkableSourceRE.MatchString(s)
 }
+
+var checkableSourceRE = regexp.MustCompile(`(?i)^\d+\.(?:mpls|m2ts)(?:\(\d+\))?$`)
 
 // indexOf reports where a source file landed in this pass, or -1.
 //

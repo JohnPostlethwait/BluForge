@@ -357,15 +357,24 @@ func TestGuardNumbersThePassAfterTheScansSkippedPlaylists(t *testing.T) {
 	}
 }
 
-// The Full Monty, 2026-11-04. The scan dropped 00329.mpls and numbered the
-// feature 00800.mpls 5. The rip pass announced the dropped playlist as
-// "00329.mpls(8)", which the guard compared to the skipped "00329.mpls" as a raw
-// string and never matched. It took the feature at #6 for a moved title, killed
-// a correct rip at 81%, and retried at 6, which after the drop is 00301.mpls, a
-// 353 MB extra delivered as the feature.
+// The Full Monty, 2026-11-04. The scan dropped 00329.mpls(8) and numbered the
+// feature 00800.mpls 5. The rip pass announced the dropped title at #3, before
+// the drop. The skipped set was read with a pattern that cut the "(8)" off, so
+// "00329.mpls" never matched the announced "00329.mpls(8)". The guard took the
+// feature at #6 for a moved title, killed a correct rip at 81%, and retried at
+// 6, which after the drop is 00301.mpls, a 353 MB extra delivered as the
+// feature.
 func TestGuardRecognisesASkippedPlaylistAnnouncedWithASuffix(t *testing.T) {
 	g := newTitleGuard(5, "00800.mpls")
-	g.allowSkipped([]string{"00329.mpls"})
+	g.allowSkipped(SkippedPlaylists(&DiscScan{
+		Titles: []TitleInfo{
+			{Index: 4, Attributes: map[int]string{16: "00348.mpls"}},
+			{Index: 5, Attributes: map[int]string{16: "00800.mpls"}},
+		},
+		Messages: []Message{
+			{Code: msgTitleEqual, Text: "Title 00329.mpls(8) is equal to title 00800.mpls and was skipped"},
+		},
+	}))
 
 	for _, ev := range []Event{
 		added("00300.mpls", 0),
@@ -588,5 +597,73 @@ func TestGuardWaitsToLearnWhereTheTitleWent(t *testing.T) {
 	}
 	if moved.Found != "00001.mpls" {
 		t.Errorf("Found = %q, want 00001.mpls", moved.Found)
+	}
+}
+
+// 30 Rock S6D3: makemkvcon makes three titles from one playlist and names them
+// 00015.mpls, 00015.mpls(1) and 00015.mpls(2). They are different episodes, so
+// the guard must tell them apart: one of the others at the requested index is
+// a moved title, not the one asked for.
+func TestGuardTellsApartTitlesMadeFromOnePlaylist(t *testing.T) {
+	g := newTitleGuard(4, "00015.mpls")
+	for _, ev := range []Event{
+		added("00012.mpls", 0),
+		added("00013.mpls", 1),
+		added("00014.mpls", 2),
+		added("00016.mpls", 3),
+		added("00015.mpls(1)", 4),
+		added("00015.mpls", 5),
+		added("00015.mpls(2)", 6),
+	} {
+		g.observe(ev)
+	}
+
+	var moved *TitleMovedError
+	if err := g.verdict(); !errors.As(err, &moved) {
+		t.Fatalf("verdict = %v, want a TitleMovedError: 00015.mpls(1) is not 00015.mpls", err)
+	}
+	if moved.CorrectIndex != 5 {
+		t.Errorf("CorrectIndex = %d, want 5", moved.CorrectIndex)
+	}
+}
+
+// A suffixed title is checked like any other. The guard used to treat
+// "00015.mpls(2)" as a name it could not check and let the rip run unguarded.
+func TestGuardChecksASuffixedTitle(t *testing.T) {
+	g := newTitleGuard(6, "00015.mpls(2)")
+	for _, ev := range []Event{
+		added("00015.mpls", 4),
+		added("00015.mpls(1)", 5),
+		added("00016.mpls", 6),
+		added("00015.mpls(2)", 7),
+	} {
+		g.observe(ev)
+	}
+
+	var moved *TitleMovedError
+	if err := g.verdict(); !errors.As(err, &moved) {
+		t.Fatalf("verdict = %v, want a TitleMovedError", err)
+	}
+	if moved.CorrectIndex != 7 {
+		t.Errorf("CorrectIndex = %d, want 7", moved.CorrectIndex)
+	}
+}
+
+// The skipped set keeps the suffix the equal-title message carries, so a
+// skipped "00508.mpls(4)" does not take 00508.mpls or another of its titles
+// with it.
+func TestSkippedPlaylistsKeepTheSuffix(t *testing.T) {
+	scan := &DiscScan{
+		Titles: []TitleInfo{
+			{Index: 0, Attributes: map[int]string{16: "00001.mpls"}},
+			{Index: 1, Attributes: map[int]string{16: "00508.mpls"}},
+		},
+		Messages: []Message{
+			{Code: msgTitleEqual, Text: "Title 00508.mpls(4) is equal to title 00001.mpls and was skipped"},
+		},
+	}
+	got := SkippedPlaylists(scan)
+	if len(got) != 1 || got[0] != "00508.mpls(4)" {
+		t.Errorf("SkippedPlaylists = %v, want [00508.mpls(4)]", got)
 	}
 }
