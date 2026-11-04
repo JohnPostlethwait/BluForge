@@ -49,10 +49,12 @@ func RunIsolateHelper(args []string) error {
 	}
 	name := filepath.Base(device)
 
-	// Look the program up before /dev changes; nothing it needs lives there,
-	// but a failure here is clearer before the mounts than after.
-	prog, err := exec.LookPath(argv[0])
-	if err != nil {
+	// The program is a fixed path, never looked up through the caller's PATH:
+	// the helper holds CAP_SYS_ADMIN until the exec, so nothing the caller
+	// controls should choose what it runs. The entrypoint installs makemkvcon
+	// here.
+	prog := makemkvconPath
+	if _, err := os.Stat(prog); err != nil {
 		return fmt.Errorf("isolate: %w", err)
 	}
 
@@ -73,6 +75,10 @@ func RunIsolateHelper(args []string) error {
 	}
 	return syscall.Exec(prog, argv, os.Environ())
 }
+
+// makemkvconPath is where the entrypoint installs makemkvcon, and the only
+// program the helper runs.
+const makemkvconPath = "/usr/bin/makemkvcon"
 
 // opticalNodeRE is the only form of drive the helper will isolate.
 var opticalNodeRE = regexp.MustCompile(`^/dev/sr[0-9]+$`)
@@ -110,7 +116,9 @@ func isolateDev(nodes []string) error {
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make mounts private: %w", err)
 	}
-	real, err := os.MkdirTemp("", "bluforge-realdev-")
+	// A fixed parent rather than $TMPDIR, for the same reason the program path
+	// is fixed: the caller's environment does not steer the privileged part.
+	real, err := os.MkdirTemp("/tmp", "bluforge-realdev-")
 	if err != nil {
 		return err
 	}
