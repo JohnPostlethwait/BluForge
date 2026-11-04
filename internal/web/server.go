@@ -228,6 +228,11 @@ func (s *Server) UpdateConfig(fn func(*config.AppConfig)) error {
 
 	s.cfg = &candidate
 
+	// The drive manager applies this on its next poll.
+	if s.driveMgr != nil {
+		s.driveMgr.SetIgnoredDrives(candidate.IgnoredDrives)
+	}
+
 	// Recovery writes disc backups under the output directory, so it has to
 	// follow the setting rather than keep using the value from startup.
 	if s.orchestrator != nil {

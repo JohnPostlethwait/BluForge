@@ -122,6 +122,16 @@ type Manager struct {
 	// labelled marks drives whose disc was named from its volume label and not
 	// yet by a makemkvcon listing, so a listing that disagrees is reported.
 	labelled map[int]bool
+	// ignored holds the makemkv.DriveIdentity of every drive the user has told
+	// BluForge to leave alone. See SetIgnoredDrives.
+	ignored map[string]bool
+	// ignoredPaths holds the device nodes the ignored drives had in the latest
+	// completed listing. The node moves when drives are replugged, so it is
+	// rebuilt from every listing rather than remembered.
+	ignoredPaths map[string]bool
+	// listed is every attached drive in the latest completed listing, ignored
+	// ones included, for the settings page.
+	listed []makemkv.DriveInfo
 }
 
 // physicalConfirmDuration is how long a physical status change must persist
@@ -137,16 +147,18 @@ const watchInterval = 1 * time.Second
 // NewManager creates a new Manager with the given executor and event callback.
 func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 	m := &Manager{
-		exec:        executor,
-		drives:      make(map[int]*DriveStateMachine),
-		known:       make(map[int]string),
-		absentSince: make(map[int]time.Time),
-		goneSince:   make(map[int]time.Time),
-		now:         time.Now,
-		onEvent:     onEvent,
-		probe:       newSysProbe(),
-		labeler:     blkidLabeler{},
-		labelled:    make(map[int]bool),
+		exec:         executor,
+		drives:       make(map[int]*DriveStateMachine),
+		known:        make(map[int]string),
+		absentSince:  make(map[int]time.Time),
+		goneSince:    make(map[int]time.Time),
+		now:          time.Now,
+		onEvent:      onEvent,
+		probe:        newSysProbe(),
+		labeler:      blkidLabeler{},
+		labelled:     make(map[int]bool),
+		ignored:      make(map[string]bool),
+		ignoredPaths: make(map[string]bool),
 	}
 	// The watcher reads the clock through m.now so tests can drive it, and so it
 	// stays in step if the clock is ever replaced.
@@ -165,6 +177,64 @@ func (m *Manager) listDrives(ctx context.Context) (infos []makemkv.DriveInfo, li
 	}
 	got, err := m.exec.ListDrives(ctx)
 	return got, true, err
+}
+
+// SetIgnoredDrives sets the drives BluForge leaves alone, by the drive names
+// makemkvcon reports. Each is matched by makemkv.DriveIdentity, so a drive
+// stays ignored when it is renumbered or its firmware is updated.
+//
+// It takes effect on the next poll. A tracked drive that is now ignored is
+// dropped then, without an event; one that is no longer ignored is picked up as
+// an ordinary arrival.
+func (m *Manager) SetIgnoredDrives(driveNames []string) {
+	set := make(map[string]bool, len(driveNames))
+	for _, name := range driveNames {
+		if id := makemkv.DriveIdentity(name); id != "" {
+			set[id] = true
+		}
+	}
+	m.mu.Lock()
+	m.ignored = set
+	m.mu.Unlock()
+}
+
+// ListedDrives returns every attached drive in the latest completed listing,
+// including ignored ones.
+func (m *Manager) ListedDrives() []makemkv.DriveInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return slices.Clone(m.listed)
+}
+
+// isIgnoredLocked reports whether a listed drive is one the user ignored.
+// Callers hold m.mu.
+//
+// makemkvcon can momentarily report a real drive without its name. Its device
+// node does not move while it stays connected, so a nameless drive at a node
+// an ignored drive held in the previous listing is taken for that drive.
+func (m *Manager) isIgnoredLocked(info makemkv.DriveInfo) bool {
+	if info.DriveName == "" {
+		return info.DevicePath != "" && m.ignoredPaths[info.DevicePath]
+	}
+	return m.ignored[info.Identity()]
+}
+
+// isIgnoredPath reports whether devicePath belonged to an ignored drive in the
+// latest listing.
+func (m *Manager) isIgnoredPath(devicePath string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.ignoredPaths[devicePath]
+}
+
+// forgetDriveLocked removes everything held for a drive index. Callers hold
+// m.mu.
+func (m *Manager) forgetDriveLocked(idx int) {
+	delete(m.drives, idx)
+	delete(m.known, idx)
+	delete(m.absentSince, idx)
+	delete(m.goneSince, idx)
+	delete(m.labelled, idx)
 }
 
 // Ready returns true after the first drive poll has completed.
@@ -231,6 +301,8 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 
 	// Track which drive indices are present in this poll.
 	seen := make(map[int]bool, len(infos))
+	ignoredPaths := make(map[string]bool)
+	var attached []makemkv.DriveInfo
 
 	for _, info := range infos {
 		// Skip slots with no hardware attached.
@@ -252,6 +324,25 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 				"device", info.DevicePath,
 				"flags", info.Flags,
 			)
+		}
+
+		attached = append(attached, info)
+
+		// An ignored drive is left out of everything that follows, and it is
+		// not marked seen: no state machine, no insert or eject, no
+		// disconnect. One tracked before it was ignored is dropped quietly.
+		if m.isIgnoredLocked(info) {
+			if info.DevicePath != "" {
+				if !m.ignoredPaths[info.DevicePath] {
+					slog.Info("ignoring drive", "drive_name", info.DriveName,
+						"index", info.Index, "device", info.DevicePath)
+				}
+				ignoredPaths[info.DevicePath] = true
+			}
+			if _, tracked := m.drives[info.Index]; tracked {
+				m.forgetDriveLocked(info.Index)
+			}
+			continue
 		}
 
 		seen[info.Index] = true
@@ -322,6 +413,9 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 			}
 		}
 	}
+
+	m.ignoredPaths = ignoredPaths
+	m.listed = attached
 
 	// Detect drives that have disappeared entirely.
 	//
@@ -399,14 +493,26 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 // to list, so a disc put into a free drive during another drive's rip would
 // stay unseen until that rip ended. See noteArrival.
 func (m *Manager) watchOnce(ctx context.Context) {
+	// Ignored drives are not in m.drives, so their nodes are never probed. The
+	// watcher's record of a node that now belongs to an ignored drive is
+	// dropped, so a reading taken before the drive was ignored cannot stand in
+	// as the baseline if it is un-ignored later.
 	m.mu.RLock()
 	paths := make([]string, 0, len(m.drives))
 	for _, d := range m.drives {
-		if p := d.DevicePath(); p != "" {
+		if p := d.DevicePath(); p != "" && !m.ignoredPaths[p] {
 			paths = append(paths, p)
 		}
 	}
+	ignored := make([]string, 0, len(m.ignoredPaths))
+	for p := range m.ignoredPaths {
+		ignored = append(ignored, p)
+	}
 	m.mu.RUnlock()
+
+	for _, path := range ignored {
+		m.watcher.forget(path)
+	}
 
 	for _, path := range paths {
 		reading := m.probe.Probe(path)
@@ -427,7 +533,12 @@ func (m *Manager) watchOnce(ctx context.Context) {
 // to end — most of an hour for a feature.
 //
 // A disc whose label cannot be read falls back to a listing that waits.
+//
+// Nothing is read from an ignored drive.
 func (m *Manager) noteArrival(ctx context.Context, devicePath string) {
+	if m.isIgnoredPath(devicePath) {
+		return
+	}
 	go func() {
 		label, err := m.labeler.Label(ctx, devicePath)
 		if err != nil {

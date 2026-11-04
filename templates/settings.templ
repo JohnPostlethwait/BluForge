@@ -20,6 +20,24 @@ type SettingsData struct {
 	KeyDBStatus string
 	// KeyDBKeys is the number of keys installed, shown on a successful refresh.
 	KeyDBKeys string
+	// Drives is every drive attached now plus any ignored drive that is not.
+	Drives []IgnoredDriveOption
+}
+
+// IgnoredDriveOption is one drive in the "Ignored drives" list.
+type IgnoredDriveOption struct {
+	// Name is the drive name makemkvcon reports, and the value saved.
+	Name string
+	// DevicePath is where the drive is now, or "" when it is not attached.
+	DevicePath string
+	Ignored    bool
+}
+
+func driveOptionLabel(d IgnoredDriveOption) string {
+	if d.DevicePath == "" {
+		return d.Name + " (not attached)"
+	}
+	return d.Name + " (" + d.DevicePath + ")"
 }
 
 templ Settings(data SettingsData) {
@@ -59,6 +77,24 @@ templ Settings(data SettingsData) {
 						<option value="rename" selected?={ data.DuplicateAction == "rename" }>Rename</option>
 					</select>
 				</div>
+			</div>
+			<div class="card mb-4">
+				<h2 class="section-title">Ignored drives</h2>
+				<p class="text-muted mb-4">
+					BluForge will not show or use these drives. It will not scan, rip or back up discs in them, and it will not watch them for discs. Changes apply on the next drive check.
+				</p>
+				<p class="field-hint">MakeMKV still opens every drive, ignored or not, each time BluForge asks it which drives are attached.</p>
+				if len(data.Drives) == 0 {
+					<p class="field-hint">No drives found.</p>
+				}
+				for _, d := range data.Drives {
+					<div class="form-group">
+						<label>
+							<input type="checkbox" name="ignored_drives" value={ d.Name } checked?={ d.Ignored } class="checkbox-inline"/>
+							{ driveOptionLabel(d) }
+						</label>
+					</div>
+				}
 			</div>
 			<div class="card mb-4">
 				<h2 class="section-title">MakeMKV License</h2>

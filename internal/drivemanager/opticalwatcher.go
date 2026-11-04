@@ -78,6 +78,12 @@ func decisive(s DriveStatus) bool {
 	}
 }
 
+// forget drops everything recorded for a device, so its next decisive reading
+// is a fresh baseline.
+func (w *opticalWatcher) forget(devicePath string) {
+	delete(w.states, devicePath)
+}
+
 // observe records one reading for a device and returns any confirmed transition.
 func (w *opticalWatcher) observe(devicePath string, reading DriveStatus) MediaTransition {
 	if !decisive(reading) {
