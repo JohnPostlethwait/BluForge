@@ -35,6 +35,13 @@ func ripServerWithDisc(t *testing.T, discName string) *Server {
 		Organizer: organizer.New(),
 	})
 	srv.echo.POST("/drives/:id/rip", srv.handleDriveRip)
+	// A rip the handler starts runs on after the request returns, writing into
+	// the test's temp dir and database. Let it finish before those are torn
+	// down: cleanups run last-registered first, so this runs before the store
+	// is closed and the temp dir removed. Without it the test failed now and
+	// then with "TempDir RemoveAll cleanup: directory not empty".
+	orch := srv.orchestrator
+	t.Cleanup(orch.Wait)
 	return srv
 }
 

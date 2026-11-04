@@ -53,6 +53,9 @@ type OrchestratorDeps struct {
 // destination path construction, duplicate detection, DB job creation,
 // engine submission, and completion handling.
 type Orchestrator struct {
+	// batches counts manual-rip batches still finishing in the background. See
+	// Wait.
+	batches     sync.WaitGroup
 	store       *db.Store
 	engine      *ripper.Engine
 	organizer   *organizer.Organizer
@@ -114,6 +117,17 @@ type Orchestrator struct {
 	// scanLocks serialises scans per drive. Guarded by scanLockMu.
 	scanLockMu sync.Mutex
 	scanLocks  map[int]*sync.Mutex
+}
+
+// Wait blocks until every rip this orchestrator has started has finished and
+// been cleaned up: the engine's rip goroutines, and each manual batch's removal
+// of its temp dir. A rip outlives the request that started it, so a test that
+// tears down its temp dir and database, or a shutdown, waits here first.
+func (o *Orchestrator) Wait() {
+	o.batches.Wait()
+	if o.engine != nil {
+		o.engine.Wait()
+	}
 }
 
 // lockDriveScan blocks until this drive's scan slot is free, returning the
@@ -228,7 +242,9 @@ func (o *Orchestrator) ManualRip(params ManualRipParams) RipResult {
 		tr := o.processTitle(params, sel, destPaths[i], parentTempDir, &wg)
 		result.Titles = append(result.Titles, tr)
 	}
+	o.batches.Add(1)
 	go func() {
+		defer o.batches.Done()
 		wg.Wait()
 		os.Remove(parentTempDir)
 	}()
