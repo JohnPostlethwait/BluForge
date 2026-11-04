@@ -176,13 +176,20 @@ func NewServer(deps ServerDeps) *Server {
 	e.GET("/settings", s.handleSettings)
 	e.POST("/settings", s.handleSettingsSave)
 	e.POST("/settings/refresh-keydb", s.handleRefreshKeyDB)
-	e.GET("/contributions", s.handleContributions)
-	e.GET("/contributions/:id", s.handleContributionDetail)
-	e.POST("/contributions/:id", s.handleContributionSave)
-	e.POST("/contributions/:id/submit", s.handleContributionSubmit)
-	e.POST("/contributions/:id/reset-pr", s.handleContributionResetPR)
-	e.POST("/contributions/:id/delete", s.handleContributionDelete)
-	e.GET("/api/tmdb/search", s.handleTMDBSearch)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.GET("/contributions", s.handleContributions)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.GET("/contributions/:id", s.handleContributionDetail)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.POST("/contributions/:id", s.handleContributionSave)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.POST("/contributions/:id/submit", s.handleContributionSubmit)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.POST("/contributions/:id/reset-pr", s.handleContributionResetPR)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.POST("/contributions/:id/delete", s.handleContributionDelete)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// e.GET("/api/tmdb/search", s.handleTMDBSearch)
 	e.GET("/events", s.handleSSE)
 
 	return s

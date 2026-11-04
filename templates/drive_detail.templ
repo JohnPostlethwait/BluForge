@@ -998,9 +998,12 @@ function cachedScanAge() {
 						</template>
 
 						<div class="step-card-header mt-3">
-							<a href="https://thediscdb.com/contribute" target="_blank" rel="noopener" class="skip-link">
-								Not finding it? Contribute to TheDiscDB &rarr;
-							</a>
+							// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+							if false {
+								<a href="https://thediscdb.com/contribute" target="_blank" rel="noopener" class="skip-link">
+									Not finding it? Contribute to TheDiscDB &rarr;
+								</a>
+							}
 							<button type="button" class="skip-link" x-on:click="goToStep(3)">Skip &mdash; rip without matching &rarr;</button>
 						</div>
 					</div>

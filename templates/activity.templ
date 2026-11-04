@@ -490,13 +490,16 @@ function formatDuration(secs) {
 			<h1>Activity</h1>
 		</div>
 
-		<div x-data x-show="$store.activity.contributionAvailable" x-cloak class="card alert-contribution">
-			<p>
-				<strong x-text="$store.activity.contributionDiscName"></strong> isn't in TheDiscDB yet.
-				<a :href="'/contributions/' + $store.activity.contributionId">Contribute it</a> so others benefit!
-			</p>
-			<button @click="$store.activity.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
-		</div>
+		// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+		if false {
+			<div x-data x-show="$store.activity.contributionAvailable" x-cloak class="card alert-contribution">
+				<p>
+					<strong x-text="$store.activity.contributionDiscName"></strong> isn't in TheDiscDB yet.
+					<a :href="'/contributions/' + $store.activity.contributionId">Contribute it</a> so others benefit!
+				</p>
+				<button @click="$store.activity.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
+			</div>
+		}
 
 		if data.Flash != "" {
 			<div x-data="{ show: true }" x-init="(function(){ var u = new URL(window.location); u.searchParams.delete('flash'); history.replaceState(null, '', u.toString()) })()" x-show="show" x-cloak class="alert alert-success flex justify-between items-center mb-4" role="status">
