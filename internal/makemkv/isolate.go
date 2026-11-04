@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,10 +41,36 @@ func makemkvconCommand(ctx context.Context, args ...string) *exec.Cmd {
 // variable so tests, whose binary is not bluforge, can run makemkvcon directly.
 var isolatedCommand = helperCommand
 
-// helperCommand runs makemkvcon under this binary's isolation helper, in a new
-// mount namespace.
-func helperCommand(ctx context.Context, device string, args []string) *exec.Cmd {
+// helperBinary is the isolation helper's file name, beside the bluforge
+// binary. It is bluforge itself carrying file capability cap_sys_admin+ei (see
+// the Dockerfile), so it alone can take up the CAP_SYS_ADMIN the entrypoint
+// passes down as inheritable. The server and every other child it starts hold
+// no capability in effect.
+const helperBinary = "bluforge-isolate"
+
+// helperPath returns the isolation helper to run: the capability-carrying copy
+// beside this binary when there is one, otherwise this binary, which can set up
+// the namespace itself only when it runs as root.
+func helperPath() (string, error) {
 	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if p := filepath.Join(filepath.Dir(self), helperBinary); fileExists(p) {
+		return p, nil
+	}
+	return self, nil
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// helperCommand runs makemkvcon under the isolation helper, which moves itself
+// into a new mount namespace before it starts makemkvcon.
+func helperCommand(ctx context.Context, device string, args []string) *exec.Cmd {
+	self, err := helperPath()
 	if err != nil {
 		// Without our own path there is no helper to run. Running makemkvcon
 		// unconfined instead would be the fault this exists to prevent, so the
@@ -55,7 +82,6 @@ func helperCommand(ctx context.Context, device string, args []string) *exec.Cmd 
 	helperArgs := append([]string{IsolateSubcommand, device, "--", "makemkvcon"}, args...)
 	cmd := exec.CommandContext(ctx, self, helperArgs...)
 	configureTeardown(cmd)
-	configureIsolation(cmd)
 	return cmd
 }
 

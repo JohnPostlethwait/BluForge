@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-jre-headless \
     libssl3 libexpat1 \
     libcurl4t64 zlib1g lsscsi \
-    gosu \
+    gosu libcap2-bin \
     build-essential pkg-config wget \
     libc6-dev libssl-dev libexpat1-dev zlib1g-dev \
     libavcodec-dev libavutil-dev libavformat-dev \
@@ -47,6 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY --from=go-builder /build/bluforge .
+# The drive-isolation helper: the same binary, carrying the one capability
+# it needs to give makemkvcon a private /dev. +ei grants CAP_SYS_ADMIN only
+# when the caller holds it as inheritable, which the entrypoint arranges for
+# BluForge alone; the server itself never has it in effect. See
+# internal/makemkv/isolate.go.
+RUN cp /app/bluforge /app/bluforge-isolate && setcap cap_sys_admin+ei /app/bluforge-isolate
 COPY --from=go-builder /build/static ./static
 
 COPY entrypoint.sh /app/entrypoint.sh

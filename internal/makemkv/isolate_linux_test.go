@@ -8,14 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 // listDevMode is a test-only helper mode: build the isolated /dev with the base
-// nodes, drop ambient capabilities as the helper does, then print the /dev
-// listing and this process's ambient capability set.
+// nodes, print the /dev listing, then exec a program that prints its own
+// effective capabilities.
 const listDevMode = "--test-list-dev"
 
 // TestMain lets the test binary act as the isolation helper, as bluforge's own
@@ -44,9 +43,6 @@ func listIsolatedDev() error {
 	if err := isolateDev(baseDevices); err != nil {
 		return err
 	}
-	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
-		return err
-	}
 	entries, err := os.ReadDir("/dev")
 	if err != nil {
 		return err
@@ -56,16 +52,9 @@ func listIsolatedDev() error {
 		names = append(names, e.Name())
 	}
 	fmt.Println(strings.Join(names, " "))
-	status, err := os.ReadFile("/proc/self/status")
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(status), "\n") {
-		if strings.HasPrefix(line, "CapAmb:") {
-			fmt.Println(strings.TrimSpace(strings.TrimPrefix(line, "CapAmb:")))
-		}
-	}
-	return nil
+	// Exec, as the helper does for makemkvcon, so what prints is the program's
+	// capability set after the exec rather than the helper's own.
+	return syscall.Exec("/bin/grep", []string{"grep", "^CapEff:", "/proc/self/status"}, os.Environ())
 }
 
 // requireIsolation skips unless the test is meant to set up mount namespaces
@@ -85,21 +74,20 @@ func TestProbeIsolationPasses(t *testing.T) {
 	}
 }
 
-// Inside the helper's namespace /dev holds the base nodes and nothing else, the
-// ambient capabilities are gone, and the caller's /dev is untouched.
+// Inside the helper's namespace /dev holds the base nodes and nothing else, and
+// the caller's /dev is untouched.
 func TestIsolatedDevHoldsOnlyTheBaseNodes(t *testing.T) {
 	requireIsolation(t)
 	before, err := os.ReadDir("/dev")
 	if err != nil {
 		t.Fatal(err)
 	}
-	self, err := os.Executable()
+	helper, err := helperPath()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(self, IsolateSubcommand, listDevMode)
-	configureIsolation(cmd)
+	cmd := exec.Command(helper, IsolateSubcommand, listDevMode)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("helper: %v: %s", err, out)
@@ -108,8 +96,12 @@ func TestIsolatedDevHoldsOnlyTheBaseNodes(t *testing.T) {
 	if lines[0] != "full null random tty urandom zero" {
 		t.Errorf("isolated /dev = %q, want only the base nodes", lines[0])
 	}
-	if len(lines) < 2 || strings.Trim(lines[1], "0") != "" {
-		t.Errorf("ambient capabilities after the drop = %v, want none", lines[1:])
+	// A non-root program must come out of the helper holding no capability:
+	// CAP_SYS_ADMIN is the helper's, for the mounts, and nobody else's.
+	if os.Geteuid() != 0 {
+		if len(lines) < 2 || strings.Trim(strings.TrimSpace(strings.TrimPrefix(lines[1], "CapEff:")), "0") != "" {
+			t.Errorf("program capabilities after the helper = %v, want none", lines[1:])
+		}
 	}
 
 	after, err := os.ReadDir("/dev")

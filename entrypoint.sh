@@ -168,16 +168,17 @@ if [ "$(id -u)" -eq 0 ]; then
     # so gosu resolves supplementary groups from /etc/group (e.g., disk group
     # for /dev/sr* access). Using UID:GID would clear supplementary groups.
     #
-    # Keep CAP_SYS_ADMIN, and only that, when the container has it (it runs
-    # privileged). BluForge needs it to confine each makemkvcon to its own
-    # drive in a private mount namespace; makemkvcon opens every drive it can
-    # see, and two of them reaching each other's drives wedged a USB bridge.
-    # BluForge drops the capability again before it starts makemkvcon. Without
-    # it, BluForge runs one makemkvcon at a time, which is safe.
+    # Hand CAP_SYS_ADMIN down as inheritable only, when the container has it
+    # (it runs privileged). BluForge holds no capability in effect; the one
+    # binary that can use this is /app/bluforge-isolate, whose file capability
+    # takes it up to give each makemkvcon a private /dev with only its own
+    # drive. makemkvcon opens every drive it can see, and two of them reaching
+    # each other's drives wedged a USB bridge. Without this, BluForge runs one
+    # makemkvcon at a time, which is safe.
     if setpriv --reuid="$USER_ID" --regid="$GROUP_ID" --init-groups \
-        --inh-caps=+sys_admin --ambient-caps=+sys_admin true 2>/dev/null; then
+        --inh-caps=+sys_admin true 2>/dev/null; then
         exec setpriv --reuid="$USER_ID" --regid="$GROUP_ID" --init-groups \
-            --inh-caps=+sys_admin --ambient-caps=+sys_admin /app/bluforge "$@"
+            --inh-caps=+sys_admin /app/bluforge "$@"
     fi
     exec gosu "$USER_NAME" /app/bluforge "$@"
 else

@@ -9,21 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
-
-// configureIsolation starts the helper in a new mount namespace, so the /dev it
-// builds is its own and the server's view is untouched.
-func configureIsolation(cmd *exec.Cmd) {
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Unshareflags |= syscall.CLONE_NEWNS
-}
 
 // baseDevices are the nodes makemkvcon needs that are not drives. This is the
 // set a hand test on Jotunheim ran makemkvcon with; nothing else in /dev is
@@ -34,10 +26,10 @@ var baseDevices = []string{"null", "zero", "full", "random", "urandom", "tty"}
 //
 //	bluforge __isolate-drive /dev/srN -- makemkvcon args...
 //
-// It runs in the mount namespace configureIsolation gave it. It replaces /dev
-// with a tmpfs holding only the drive's block node, the drive's SCSI generic
-// node, and baseDevices, then execs the program. makemkvcon can open only what
-// is in /dev, so the drive is the one drive it can reach.
+// It moves into a new mount namespace and replaces /dev there with a tmpfs
+// holding only the drive's block node, the drive's SCSI generic node, and
+// baseDevices, then execs the program. makemkvcon can open only what is in /dev,
+// so the drive is the one drive it can reach.
 //
 // It returns only on failure; on success the process becomes the program.
 func RunIsolateHelper(args []string) error {
@@ -69,18 +61,22 @@ func RunIsolateHelper(args []string) error {
 	if err := isolateDev(nodes); err != nil {
 		return fmt.Errorf("isolate %s: %w", device, err)
 	}
-
-	// The server holds CAP_SYS_ADMIN only so this helper can mount. makemkvcon
-	// must not inherit it.
-	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
-		return fmt.Errorf("isolate: drop ambient capabilities: %w", err)
-	}
+	// makemkvcon carries no file capability, so it starts with none: this
+	// helper's CAP_SYS_ADMIN does not survive the exec.
 	return syscall.Exec(prog, argv, os.Environ())
 }
 
-// isolateDev replaces /dev, in this mount namespace only, with a tmpfs holding
-// the named nodes bound from the real /dev.
+// isolateDev moves this thread into a new mount namespace and replaces /dev
+// there with a tmpfs holding the named nodes bound from the real /dev.
+//
+// A mount namespace belongs to a thread, so the thread is locked for good: the
+// mounts and the exec that follows must all happen on the thread that moved.
+// The exec replaces the whole process with that thread's view.
 func isolateDev(nodes []string) error {
+	runtime.LockOSThread()
+	if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+		return fmt.Errorf("enter a new mount namespace: %w", err)
+	}
 	// Keep every mount below private, so nothing done here propagates back to
 	// the server's namespace.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -123,16 +119,16 @@ func isolateDev(nodes []string) error {
 // drive: the same mounts and privilege drop a rip uses, so a pass means a rip's
 // isolation will work.
 //
-// It needs CAP_SYS_ADMIN, which the container's entrypoint keeps for this.
+// It needs the helper to hold CAP_SYS_ADMIN: the entrypoint passes it down as
+// inheritable, and the helper binary's file capability takes it up.
 func ProbeIsolation(ctx context.Context) error {
-	self, err := os.Executable()
+	helper, err := helperPath()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, self, IsolateSubcommand, "--probe")
-	configureIsolation(cmd)
+	cmd := exec.CommandContext(ctx, helper, IsolateSubcommand, "--probe")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -144,9 +140,6 @@ func ProbeIsolation(ctx context.Context) error {
 // with only the base nodes and exec /bin/true.
 func RunIsolateProbe() error {
 	if err := isolateDev(baseDevices); err != nil {
-		return err
-	}
-	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
 		return err
 	}
 	return syscall.Exec("/bin/true", []string{"true"}, os.Environ())
