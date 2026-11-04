@@ -30,7 +30,11 @@ type activityJobJSON struct {
 	Progress    int    `json:"progress"`
 	Error       string `json:"error,omitempty"`
 	DriveIndex  int    `json:"driveIndex"`
-	FinishedAt  string `json:"finishedAt,omitempty"`
+	// DriveName is the drive the job runs on, named as the dashboard names it.
+	// With two drives ripping at once the card was the only place to look, and
+	// it named the disc but not the drive. Empty for history rows.
+	DriveName  string `json:"driveName,omitempty"`
+	FinishedAt string `json:"finishedAt,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
 	// SalvageNote explains damage a salvaged rip knowingly contains. Empty for
 	// an ordinary rip.
@@ -141,6 +145,7 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 				Progress:    snap.Progress,
 				Error:       snap.Error,
 				DriveIndex:  snap.DriveIndex,
+				DriveName:   s.driveNameFor(snap.DriveIndex),
 				StartedAt:   startedAt,
 				// A page loaded mid-rip has seen no events, so the phase has to
 				// come from the engine or the byte counter starts out lying
@@ -172,6 +177,7 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 				ContentType:       normalizeContentType(snap.ContentType),
 				Status:            string(snap.Status),
 				DriveIndex:        snap.DriveIndex,
+				DriveName:         s.driveNameFor(snap.DriveIndex),
 				SizeBytes:         snap.TrackMetadata.SizeBytes,
 				SizeHuman:         snap.TrackMetadata.SizeHuman,
 				Duration:          snap.TrackMetadata.Duration,
@@ -513,4 +519,16 @@ func (s *Server) salvageNoteForJob(id int64) string {
 		return ""
 	}
 	return job.SalvageNote
+}
+
+// driveNameFor returns the name of drive index as the dashboard shows it, or ""
+// when the drive is not known (it was unplugged or ignored mid-rip).
+func (s *Server) driveNameFor(index int) string {
+	if s.driveMgr == nil {
+		return ""
+	}
+	if d := s.driveMgr.GetDrive(index); d != nil {
+		return d.DriveName()
+	}
+	return ""
 }

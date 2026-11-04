@@ -631,6 +631,7 @@ function formatDuration(secs) {
 										<div class="font-semibold" x-text="j.titleName"></div>
 										<div class="text-muted text-sm">
 											<a :href="'/drives/' + j.driveIndex" class="text-primary no-underline" x-text="j.discName"></a>
+											<span x-show="j.driveName" x-text="' · ' + j.driveName"></span>
 										</div>
 									</div>
 									<span class="badge" :class="'badge-' + j.contentType" x-show="j.contentType" x-text="j.contentType"></span>
@@ -708,6 +709,7 @@ function formatDuration(secs) {
 										<div class="font-semibold" x-text="j.titleName"></div>
 										<div class="text-muted text-sm">
 											<a :href="'/drives/' + j.driveIndex" class="text-primary no-underline" x-text="j.discName"></a>
+											<span x-show="j.driveName" x-text="' · ' + j.driveName"></span>
 										</div>
 									</div>
 									<div class="flex gap-2 items-center">
