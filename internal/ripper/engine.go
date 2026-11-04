@@ -351,6 +351,12 @@ func (e *Engine) run(job *Job) {
 		}
 	})
 
+	// The copy ends here, before the file is moved. A slow move to another
+	// disk is not copy time and must not lower the job's recorded rate.
+	if err == nil {
+		job.MarkCopyFinished()
+	}
+
 	// A failed rip reports what MakeMKV said on the way down, at ERROR and
 	// therefore whatever the log level is. The alternative — keeping it for
 	// DEBUG — is no use for a rip: turning the level up afterwards cannot

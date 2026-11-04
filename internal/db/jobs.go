@@ -10,7 +10,7 @@ import (
 const jobSelectCols = `id, drive_index, disc_name, title_index, title_name, content_type,
 	       output_path, status, progress, error_message, size_bytes, duration,
 	       created_at, updated_at, track_metadata, output_size_bytes, salvage_note,
-	       selection_opts, source_file`
+	       selection_opts, source_file, copy_started_at, copy_finished_at`
 
 // RipJob represents a row in the rip_jobs table.
 type RipJob struct {
@@ -40,11 +40,16 @@ type RipJob struct {
 	SelectionOpts string
 	// SourceFile is the playlist this title came from, e.g. "00800.mpls". The
 	// rip checks it against makemkvcon's numbering, which is not stable.
-	SourceFile    string
-	Duration      string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	TrackMetadata string // raw JSON, may be empty
+	SourceFile string
+	// CopyStartedAt and CopyFinishedAt bound the time MakeMKV spent writing
+	// the title. Zero when not recorded, which includes every job from before
+	// the columns existed.
+	CopyStartedAt  time.Time
+	CopyFinishedAt time.Time
+	Duration       string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	TrackMetadata  string // raw JSON, may be empty
 }
 
 // CreateJob inserts a new rip job and returns the generated ID.
@@ -158,6 +163,22 @@ func (s *Store) UpdateJobOutput(id int64, outputPath string, outputSizeBytes int
 	_, err := s.db.Exec(q, outputPath, outputSizeBytes, id)
 	if err != nil {
 		return fmt.Errorf("update job output %d: %w", id, err)
+	}
+
+	return nil
+}
+
+// UpdateJobCopyTimes records when MakeMKV started and finished writing the
+// title, the interval a job's throughput is measured over.
+func (s *Store) UpdateJobCopyTimes(id int64, started, finished time.Time) error {
+	const q = `
+		UPDATE rip_jobs
+		SET copy_started_at = ?, copy_finished_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`
+
+	_, err := s.db.Exec(q, started.UTC(), finished.UTC(), id)
+	if err != nil {
+		return fmt.Errorf("update job copy times %d: %w", id, err)
 	}
 
 	return nil
@@ -283,17 +304,25 @@ type scanner interface {
 func scanJob(s scanner) (*RipJob, error) {
 	var job RipJob
 	var trackMeta sql.NullString
+	var copyStarted, copyFinished sql.NullTime
 	err := s.Scan(
 		&job.ID, &job.DriveIndex, &job.DiscName, &job.TitleIndex, &job.TitleName,
 		&job.ContentType, &job.OutputPath, &job.Status, &job.Progress,
 		&job.ErrorMessage, &job.SizeBytes, &job.Duration,
 		&job.CreatedAt, &job.UpdatedAt, &trackMeta, &job.OutputSizeBytes,
 		&job.SalvageNote, &job.SelectionOpts, &job.SourceFile,
+		&copyStarted, &copyFinished,
 	)
 	if err != nil {
 		return nil, err
 	}
 	job.TrackMetadata = trackMeta.String
+	if copyStarted.Valid {
+		job.CopyStartedAt = copyStarted.Time
+	}
+	if copyFinished.Valid {
+		job.CopyFinishedAt = copyFinished.Time
+	}
 
 	return &job, nil
 }

@@ -426,6 +426,15 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			return ripErr
 		}
 
+		// The interval MakeMKV spent writing, which the job's throughput is
+		// measured over. Not recorded when the copy was never announced: no
+		// other stored interval describes the copy alone.
+		if snap := job.Snapshot(); !snap.CopyStartedAt.IsZero() && !snap.CopyFinishedAt.IsZero() {
+			if dbErr := o.store.UpdateJobCopyTimes(job.ID, snap.CopyStartedAt, snap.CopyFinishedAt); dbErr != nil {
+				slog.Error("failed to record copy times", "job_id", job.ID, "error", dbErr)
+			}
+		}
+
 		// makemkvcon wrote the .mkv itself, with its own idea of the mode. The
 		// move below preserves whatever it chose, so the film would carry it
 		// into the library; normalise here, while it is still ours alone.
