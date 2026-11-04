@@ -65,6 +65,17 @@ type Job struct {
 	Error      string    `json:"Error,omitempty"`
 	StartedAt  time.Time `json:"StartedAt"`
 	FinishedAt time.Time `json:"FinishedAt"`
+	// CopyStartedAt is when MakeMKV began writing the title, which can be
+	// minutes after StartedAt: the analysis before it writes nothing. Reset
+	// each time a copy starts, so a retried rip measures its own copy.
+	CopyStartedAt time.Time `json:"CopyStartedAt"`
+	// CopyFinishedAt is when MakeMKV finished writing, before the file is
+	// moved into place. Zero for a rip whose copy never started or failed.
+	CopyFinishedAt time.Time `json:"CopyFinishedAt"`
+	// CopyRate is the mean bytes per second of the copy so far: bytes copied
+	// over time since CopyStartedAt, taken when progress is recorded. Zero
+	// until enough has been copied for the mean to be worth showing.
+	CopyRate float64 `json:"CopyRate,omitempty"`
 	// FailureOutput is what MakeMKV said during a rip that failed, repeats
 	// collapsed into counts. Empty on a rip that succeeded.
 	//
@@ -156,11 +167,33 @@ const (
 	PhaseCopying = "copying"
 )
 
-// SetPhase records which part of the rip is running.
+// minCopiedForRate is how much has to be copied before a mean rate is
+// reported. The same warm-up the activity page waits for before its estimate
+// of time remaining: a mean over the first few megabytes swings wildly.
+const minCopiedForRate = 500 * 1024 * 1024
+
+// SetPhase records which part of the rip is running. Entering the copy records
+// when it started and clears any rate left from an earlier attempt.
 func (j *Job) SetPhase(phase string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.Phase = phase
+	if phase == PhaseCopying {
+		j.CopyStartedAt = time.Now()
+		j.CopyFinishedAt = time.Time{}
+		j.CopyRate = 0
+	}
+}
+
+// MarkCopyFinished records that MakeMKV finished writing. A rip that never
+// started copying has no interval to close, so nothing is recorded.
+func (j *Job) MarkCopyFinished() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.CopyStartedAt.IsZero() {
+		return
+	}
+	j.CopyFinishedAt = time.Now()
 }
 
 // CurrentPhase reports the running part of the rip.
@@ -190,11 +223,23 @@ func (j *Job) SetStatus(status JobStatus) {
 	j.Status = status
 }
 
-// UpdateProgress sets the progress percentage (0-100).
+// UpdateProgress sets the progress percentage (0-100). During the copy it also
+// updates the mean copy rate, from the same bytes-copied figure the activity
+// page shows: the title's size times the percentage.
 func (j *Job) UpdateProgress(pct int) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.Progress = pct
+	j.CopyRate = 0
+	if j.Phase != PhaseCopying || j.CopyStartedAt.IsZero() || j.TrackMetadata.SizeBytes <= 0 {
+		return
+	}
+	copied := float64(j.TrackMetadata.SizeBytes) * float64(pct) / 100
+	elapsed := time.Since(j.CopyStartedAt).Seconds()
+	if copied < minCopiedForRate || elapsed <= 0 {
+		return
+	}
+	j.CopyRate = copied / elapsed
 }
 
 // Complete transitions the job to Completed, sets OutputPath, and records
@@ -248,6 +293,10 @@ func (j *Job) Snapshot() Job {
 		StartedAt:     j.StartedAt,
 		FinishedAt:    j.FinishedAt,
 		TrackMetadata: j.TrackMetadata,
+
+		CopyStartedAt:  j.CopyStartedAt,
+		CopyFinishedAt: j.CopyFinishedAt,
+		CopyRate:       j.CopyRate,
 
 		FailureOutput:        j.FailureOutput,
 		FailureOutputDropped: j.FailureOutputDropped,

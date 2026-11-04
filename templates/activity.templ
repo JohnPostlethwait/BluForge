@@ -125,6 +125,9 @@ document.addEventListener('alpine:init', () => {
 		// Until MakeMKV starts copying, its progress describes an analysis
 		// pass and says nothing about bytes written.
 		active.phase = job.Phase || ''
+		// Mean bytes per second since the copy started; zero until enough has
+		// been copied to mean anything.
+		active.copyRate = job.CopyRate || 0
 
 		// Move out of active when done.
 		//
@@ -476,6 +479,12 @@ function formatBytes(bytes) {
 	return Math.round(bytes / (1024 * 1024)) + ' MB'
 }
 
+// formatRate renders a rate in bytes per second as megabytes (10^6 bytes) per
+// second, the unit the delivered file sizes in history use.
+function formatRate(bytesPerSec) {
+	return (bytesPerSec / 1e6).toFixed(1) + ' MB/s'
+}
+
 // Note: the modulo operator below uses "%%" because this script is passed through fmt.Sprintf at render time.
 function formatDuration(secs) {
 	if (secs < 60) return '<1m'
@@ -659,15 +668,18 @@ function formatDuration(secs) {
 									// disc the same short warm-up.
 									const copied = j.phase === 'copying' && j.sizeBytes ? j.sizeBytes * j.progress / 100 : 0
 									const enough = copied >= 500 * 1024 * 1024 || (!j.sizeBytes && j.progress >= 5)
+									// Mean rate since the copy started, computed by the server
+									// from the same bytes copied. Absent until enough has moved.
+									const rate = j.phase === 'copying' && j.copyRate > 0 ? ' \u00b7 ' + formatRate(j.copyRate) : ''
 									if (enough && j.progress > 0) {
 										const total = elapsed / (j.progress / 100)
 										const remaining = Math.max(0, total - elapsed)
-										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining'
+										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining' + rate
 									}
 									// Before that an estimate would swing wildly, but a blank
 									// where a number used to be reads as information lost rather
 									// than not yet known.
-									return elapsedStr + ' elapsed \u00b7 estimating\u2026'
+									return elapsedStr + ' elapsed \u00b7 estimating\u2026' + rate
 								})() : ''"></div>
 								<div class="text-right mt-2">
 									<button class="btn btn-danger btn-sm" x-on:click="cancelJob(j.id, $el)">Cancel</button>
@@ -765,6 +777,9 @@ function formatDuration(secs) {
 								</div>
 								<div class="text-muted text-sm">
 									<span x-text="r.createdAt"></span>
+									<template x-if="r.copyRate > 0">
+										<span> · <span x-text="formatRate(r.copyRate)"></span></span>
+									</template>
 									<template x-if="r.outputPath">
 										<span> · <span x-text="r.outputPath"></span></span>
 									</template>

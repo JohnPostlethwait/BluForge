@@ -60,6 +60,10 @@ type activityJobJSON struct {
 	SubtitleLanguages    []string            `json:"subtitleLanguages,omitempty"`
 	OutputPath           string              `json:"outputPath,omitempty"`
 	CreatedAt            string              `json:"createdAt,omitempty"`
+	// CopyRate is the mean copy throughput in bytes per second. For a running
+	// rip, the copy so far; for a completed one, the delivered file over the
+	// recorded copy interval. Zero when it is not known, and then not shown.
+	CopyRate float64 `json:"copyRate,omitempty"`
 }
 
 // activityStoreJSON is the Alpine.store('activity') shape.
@@ -142,6 +146,9 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 				// come from the engine or the byte counter starts out lying
 				// again until the next update arrives.
 				Phase: snap.Phase,
+				// Measured from when the copy started, so the analysis before
+				// it does not drag the mean down.
+				CopyRate: snap.CopyRate,
 				// A rip from a salvaged copy carries damage, and the card you
 				// watch for twenty minutes said nothing about it.
 				SalvageNote:       s.salvageNoteForJob(snap.ID),
@@ -261,6 +268,7 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 			FailureOutput:        failureOutput,
 			FailureOutputDropped: failureDropped,
 			SizeHuman:         deliveredSize(j.OutputSizeBytes, meta.SizeHuman),
+			CopyRate:          completedCopyRate(j.Status, j.OutputSizeBytes, j.CopyStartedAt, j.CopyFinishedAt),
 			AudioTracks:       meta.AudioTracks,
 			SubtitleLanguages: meta.SubtitleLanguages,
 		})
@@ -415,6 +423,23 @@ func deliveredSize(outputBytes int64, estimate string) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(outputBytes)/float64(div), "kMGTPE"[exp])
+}
+
+// completedCopyRate is a finished job's mean copy throughput in bytes per
+// second: the delivered file over the time MakeMKV spent writing it.
+//
+// Zero when either is missing. Jobs from before the copy interval was recorded
+// have only created_at and updated_at, which also cover the queue, the analysis
+// and the move; a rate from those would be lower than the copy ever ran.
+func completedCopyRate(status string, outputBytes int64, copyStarted, copyFinished time.Time) float64 {
+	if status != "completed" || outputBytes <= 0 || copyStarted.IsZero() || copyFinished.IsZero() {
+		return 0
+	}
+	secs := copyFinished.Sub(copyStarted).Seconds()
+	if secs <= 0 {
+		return 0
+	}
+	return float64(outputBytes) / secs
 }
 
 // salvageable reports whether a failure is one a salvage could get past.
