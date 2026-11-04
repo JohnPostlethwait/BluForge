@@ -26,6 +26,9 @@ type Engine struct {
 	active   map[int]*Job
 	queued   map[int][]*Job // per-drive FIFO queue
 	onUpdate func(*Job)
+	// running counts rip goroutines, from start to their last notification. See
+	// Wait.
+	running sync.WaitGroup
 	// failures holds what MakeMKV said during recent failed rips, so the
 	// activity page can show it beside a job it can otherwise only read back
 	// out of the database. Its own lock: it is read by page requests while a
@@ -63,8 +66,26 @@ func (e *Engine) Submit(job *Job) error {
 	}
 
 	e.active[job.DriveIndex] = job
-	go e.run(job)
+	e.start(job)
 	return nil
+}
+
+// start runs job on its own goroutine, counted for Wait. The caller holds e.mu.
+func (e *Engine) start(job *Job) {
+	e.running.Add(1)
+	go func() {
+		defer e.running.Done()
+		e.run(job)
+	}()
+}
+
+// Wait blocks until every rip started so far, and any it starts from its
+// drive's queue, has finished: completed or failed, organized, and announced.
+// A rip runs on its own goroutine and outlives the request that submitted it,
+// so anything that must not race one (a test tearing down its temp dir and
+// database, or a shutdown) waits here.
+func (e *Engine) Wait() {
+	e.running.Wait()
 }
 
 // drainQueue starts the next queued job for a drive, if any.
@@ -85,7 +106,7 @@ func (e *Engine) drainQueue(driveIndex int) {
 	}
 
 	e.active[driveIndex] = next
-	go e.run(next)
+	e.start(next)
 }
 
 // IsActive reports whether a rip is currently running on the given drive.
