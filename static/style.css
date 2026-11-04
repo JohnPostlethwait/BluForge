@@ -1319,3 +1319,23 @@ main a:not(.btn):not(.logo):not(.drive-card-link):not(.skip-link) {
   margin-top: 0.35rem;
   font-size: 0.8rem;
 }
+
+/* Active rip tiles: side by side, equal width, wrapping below two-up width.
+   The tiles keep their mb-3 for other layouts; the grid gap replaces it here. */
+.active-jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.active-jobs-grid > .card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Keep Cancel on the bottom edge when a neighbour tile is taller. */
+.active-jobs-grid > .card > :last-child {
+  margin-top: auto;
+  padding-top: 0.5rem; /* the mt-2 that auto replaces */
+}

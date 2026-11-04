@@ -614,7 +614,7 @@ function formatDuration(secs) {
 					<div class="empty-state"><p>No active jobs.</p></div>
 				</template>
 				<template x-if="$store.activity.active.length > 0">
-					<div>
+					<div class="active-jobs-grid">
 						<template x-for="j in $store.activity.active" :key="j.id">
 							<div class="card mb-3" :aria-label="'Rip job: ' + j.titleName">
 								<div class="job-card-header">
