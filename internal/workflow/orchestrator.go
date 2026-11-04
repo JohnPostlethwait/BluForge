@@ -1032,7 +1032,8 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan, op
 				mediaYear = strconv.Itoa(best.MediaItem.Year)
 				mediaType = best.MediaItem.Type
 				// Create an update contribution so the user can correct or augment the entry.
-				go o.EnsureUpdateContributionRecord(scan, best)
+				// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+				// go o.EnsureUpdateContributionRecord(scan, best)
 				return
 			}
 		}
@@ -1044,7 +1045,8 @@ func (o *Orchestrator) autoMatch(ctx context.Context, scan *makemkv.DiscScan, op
 
 	// Create a contribution record for this unmatched disc so the user
 	// can contribute it to TheDiscDB later.
-	o.EnsureContributionRecord(scan)
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// o.EnsureContributionRecord(scan)
 
 	return
 }
@@ -1087,13 +1089,15 @@ func (o *Orchestrator) EnsureContributionRecord(scan *makemkv.DiscScan) {
 		"disc_key", discKey, "disc_name", scan.DiscName, "contribution_id", id)
 
 	// Broadcast SSE event so the UI can show a notification.
-	if o.onBroadcast != nil {
-		data, _ := json.Marshal(map[string]any{
-			"contribution_id": id,
-			"disc_name":       scan.DiscName,
-		})
-		o.onBroadcast("contribution_available", string(data))
-	}
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// if o.onBroadcast != nil {
+	// 	data, _ := json.Marshal(map[string]any{
+	// 		"contribution_id": id,
+	// 		"disc_name":       scan.DiscName,
+	// 	})
+	// 	o.onBroadcast("contribution_available", string(data))
+	// }
+	_ = id
 }
 
 // EnsureUpdateContributionRecord stores a matched disc scan for potential
@@ -1182,13 +1186,15 @@ func (o *Orchestrator) EnsureUpdateContributionRecord(scan *makemkv.DiscScan, be
 	slog.Info("auto-rip: created update contribution record for matched disc",
 		"disc_key", discKey, "disc_name", scan.DiscName, "contribution_id", id)
 
-	if o.onBroadcast != nil {
-		data, _ := json.Marshal(map[string]any{
-			"contribution_id": id,
-			"disc_name":       scan.DiscName,
-		})
-		o.onBroadcast("contribution_available", string(data))
-	}
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// if o.onBroadcast != nil {
+	// 	data, _ := json.Marshal(map[string]any{
+	// 		"contribution_id": id,
+	// 		"disc_name":       scan.DiscName,
+	// 	})
+	// 	o.onBroadcast("contribution_available", string(data))
+	// }
+	_ = id
 }
 
 // titlesFromSearchResult builds TitleSelections from a TheDiscDB match using

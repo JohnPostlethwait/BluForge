@@ -99,24 +99,27 @@ templ Settings(data SettingsData) {
 					</label>
 				</div>
 			</div>
-			<div class="card mb-4">
-				<h2 class="section-title">TheDiscDB Contribution (optional)</h2>
-				<p class="text-muted mb-4">
-					Configure a GitHub Personal Access Token to enable contributing disc data back to
-					<a href="https://thediscdb.com" target="_blank" rel="noopener">TheDiscDB</a>.
-					The token needs <code>public_repo</code> scope.
-					<a href="https://github.com/settings/tokens/new?scopes=public_repo&description=BluForge+TheDiscDB+Contributions" target="_blank" rel="noopener">Create one here</a>.
-				</p>
-				<div class="form-group">
-					<label for="github_token">GitHub Personal Access Token</label>
-					<input type="password" id="github_token" name="github_token" value={ maskSecret(data.GitHubToken) } placeholder="Optional" autocomplete="off"/>
+			// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+			if false {
+				<div class="card mb-4">
+					<h2 class="section-title">TheDiscDB Contribution (optional)</h2>
+					<p class="text-muted mb-4">
+						Configure a GitHub Personal Access Token to enable contributing disc data back to
+						<a href="https://thediscdb.com" target="_blank" rel="noopener">TheDiscDB</a>.
+						The token needs <code>public_repo</code> scope.
+						<a href="https://github.com/settings/tokens/new?scopes=public_repo&description=BluForge+TheDiscDB+Contributions" target="_blank" rel="noopener">Create one here</a>.
+					</p>
+					<div class="form-group">
+						<label for="github_token">GitHub Personal Access Token</label>
+						<input type="password" id="github_token" name="github_token" value={ maskSecret(data.GitHubToken) } placeholder="Optional" autocomplete="off"/>
+					</div>
+					<div class="form-group">
+						<label for="tmdb_api_key">TMDB Read Access Token (optional)</label>
+						<input type="password" id="tmdb_api_key" name="tmdb_api_key" value={ maskSecret(data.TMDBApiKey) } placeholder="Optional" autocomplete="off"/>
+						<p class="field-hint">Required for TMDB search on the contribution page. Use the <strong>API Read Access Token</strong> (not the API Key) found under the API section at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>.</p>
+					</div>
 				</div>
-				<div class="form-group">
-					<label for="tmdb_api_key">TMDB Read Access Token (optional)</label>
-					<input type="password" id="tmdb_api_key" name="tmdb_api_key" value={ maskSecret(data.TMDBApiKey) } placeholder="Optional" autocomplete="off"/>
-					<p class="field-hint">Required for TMDB search on the contribution page. Use the <strong>API Read Access Token</strong> (not the API Key) found under the API section at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>.</p>
-				</div>
-			</div>
+			}
 			<div>
 				<button type="submit" class="btn btn-primary">Save Settings</button>
 			</div>

@@ -489,9 +489,10 @@ func (s *Server) handleDriveRip(c echo.Context) error {
 	params.SelectionOpts = makemkv.NewSelectionOpts(audioLangs, subtitleLangs, keepForcedSubs, keepLossless)
 
 	// If no DiscDB match, ensure a contribution record exists for later submission.
-	if cachedScan != nil && params.MediaItemID == "" {
-		s.orchestrator.EnsureContributionRecord(cachedScan)
-	}
+	// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+	// if cachedScan != nil && params.MediaItemID == "" {
+	// 	s.orchestrator.EnsureContributionRecord(cachedScan)
+	// }
 
 	result := s.orchestrator.ManualRip(params)
 

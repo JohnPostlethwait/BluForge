@@ -111,13 +111,16 @@ function stepLabel(n) { return stepLabels[n] || '' }
 			<h1>Dashboard</h1>
 		</div>
 
-		<div x-data x-show="$store.drives.contributionAvailable" x-cloak class="card alert-contribution">
-			<p>
-				<strong x-text="$store.drives.contributionDiscName"></strong> isn't in TheDiscDB yet.
-				<a :href="'/contributions/' + $store.drives.contributionId">Contribute it</a> so others benefit!
-			</p>
-			<button @click="$store.drives.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
-		</div>
+		// Hidden: TheDiscDB contributions are off until upstream agrees a manifest format.
+		if false {
+			<div x-data x-show="$store.drives.contributionAvailable" x-cloak class="card alert-contribution">
+				<p>
+					<strong x-text="$store.drives.contributionDiscName"></strong> isn't in TheDiscDB yet.
+					<a :href="'/contributions/' + $store.drives.contributionId">Contribute it</a> so others benefit!
+				</p>
+				<button @click="$store.drives.contributionAvailable = false" class="btn btn-sm mt-2">Dismiss</button>
+			</div>
+		}
 
 		<!-- Status Bar -->
 		<div class="status-bar" x-data role="status" aria-live="polite" aria-label="Drive status summary">
