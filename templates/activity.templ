@@ -157,7 +157,7 @@ document.addEventListener('alpine:init', () => {
 				failureOutputDropped: job.FailureOutputDropped || 0,
 				duration: '',
 				outputPath: '',
-				createdAt: new Date().toLocaleString(),
+				finishedAt: new Date().toISOString(),
 				sizeHuman: active.sizeHuman || '',
 				audioTracks: active.audioTracks || [],
 				subtitleLanguages: active.subtitleLanguages || [],
@@ -485,6 +485,16 @@ function formatRate(bytesPerSec) {
 	return (bytesPerSec / 1e6).toFixed(1) + ' MB/s'
 }
 
+// formatWhen shows an RFC 3339 time in the viewer's time zone, as
+// "2026-11-04 12:13". The server runs in UTC, so its own formatting showed
+// 20:13 for a rip that finished at 12:13 local.
+function formatWhen(iso) {
+	const d = new Date(iso)
+	if (isNaN(d)) return ''
+	const p = n => String(n).padStart(2, '0')
+	return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes())
+}
+
 // Note: the modulo operator below uses "%%" because this script is passed through fmt.Sprintf at render time.
 function formatDuration(secs) {
 	if (secs < 60) return '<1m'
@@ -781,7 +791,7 @@ function formatDuration(secs) {
 									<span x-show="r.subtitleLanguages && r.subtitleLanguages.length" x-text="' · Subs: ' + (r.subtitleLanguages || []).join(', ')"></span>
 								</div>
 								<div class="text-muted text-sm">
-									<span x-text="r.createdAt"></span>
+									<span x-text="r.finishedAt ? formatWhen(r.finishedAt) : r.createdAt"></span>
 									<template x-if="r.copyRate > 0">
 										<span> · <span x-text="formatRate(r.copyRate)"></span></span>
 									</template>

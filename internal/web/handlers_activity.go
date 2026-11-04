@@ -268,6 +268,12 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 			OutputPath:        j.OutputPath,
 			Duration:          j.Duration,
 			CreatedAt:         j.CreatedAt.Format("2006-01-02 15:04"),
+			// When the job reached its final state, which is what History is
+			// about. CreatedAt is when it was queued: every title picked from
+			// one disc shares it, so a disc's rows all read the same minute
+			// however long apart they finished. RFC 3339 in UTC, for the page
+			// to show in the viewer's own time zone.
+			FinishedAt: j.UpdatedAt.UTC().Format(time.RFC3339),
 			Salvageable:       salvageable(j.Status, j.ErrorMessage),
 			SalvageNote:       j.SalvageNote,
 
