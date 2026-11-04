@@ -48,13 +48,13 @@ func TestWatchOnceEjectsOnSustainedTrayOpen(t *testing.T) {
 	probe.seq["/dev/sr1"] = []DriveStatus{StatusDiscOK, StatusTrayOpen, StatusTrayOpen}
 	m.probe = probe
 
-	m.watchOnce() // DiscOK baseline
-	m.watchOnce() // TrayOpen pending
+	m.watchOnce(context.Background()) // DiscOK baseline
+	m.watchOnce(context.Background()) // TrayOpen pending
 	if got := countType(events, EventDiscEjected); got != 0 {
 		t.Fatalf("no eject expected before the confirm window, got %d", got)
 	}
 	now = now.Add(3 * time.Second)
-	m.watchOnce() // TrayOpen confirmed -> eject
+	m.watchOnce(context.Background()) // TrayOpen confirmed -> eject
 
 	if got := countType(events, EventDiscEjected); got != 1 {
 		t.Fatalf("want 1 eject after sustained tray-open, got %d (%v)", got, events)
@@ -80,10 +80,10 @@ func TestWatchOnceDoesNotEjectOnNotReady(t *testing.T) {
 	probe.seq["/dev/sr1"] = []DriveStatus{StatusDiscOK, StatusNotReady}
 	m.probe = probe
 
-	m.watchOnce()
+	m.watchOnce(context.Background())
 	now = now.Add(30 * time.Second)
-	m.watchOnce()
-	m.watchOnce()
+	m.watchOnce(context.Background())
+	m.watchOnce(context.Background())
 
 	if got := countType(events, EventDiscEjected); got != 0 {
 		t.Fatalf("NotReady must never eject, got %d (%v)", got, events)

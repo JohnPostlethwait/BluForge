@@ -121,7 +121,8 @@ func BuildSelectionString(opts SelectionOpts) string {
 }
 
 // WriteTempHome creates a temporary HOME directory containing a MakeMKV
-// settings.conf that encodes the given selectionString. The real ~/.MakeMKV
+// settings.conf that encodes the given selectionString, or keeps the user's
+// own selection when selectionString is empty. The real ~/.MakeMKV
 // settings.conf is copied first so that the registration key, app_DataDir,
 // and all other settings are preserved — only app_DefaultSelectionString is
 // overridden. The returned homeDir should be set as the HOME environment
@@ -161,10 +162,13 @@ func WriteTempHome(selectionString string) (homeDir string, cleanup func(), err 
 		}
 	}
 
-	// Overlay the selection string onto the (possibly copied) settings.
-	mergeSettingsFile(confPath, map[string]string{
-		"app_DefaultSelectionString": selectionString,
-	})
+	// Overlay the selection string onto the (possibly copied) settings. An
+	// empty selection leaves the user's own default in place.
+	if selectionString != "" {
+		mergeSettingsFile(confPath, map[string]string{
+			"app_DefaultSelectionString": selectionString,
+		})
+	}
 
 	return dir, cleanup, nil
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
@@ -113,6 +114,9 @@ type Manager struct {
 	// that happens while makemkvcon holds the drive for a scan or rip.
 	probe   opticalProbe
 	watcher *opticalWatcher
+	// listingQueued is true while a listing asked for by an arriving disc is
+	// waiting for the drives, so more readings of that disc do not queue more.
+	listingQueued atomic.Bool
 }
 
 // physicalConfirmDuration is how long a physical status change must persist
@@ -169,6 +173,19 @@ func (m *Manager) Ready() bool {
 // released. This prevents deadlocks when the onEvent callback reads drive
 // state via GetDrive/GetAllDrives (which acquire a read lock on the same mutex).
 func (m *Manager) PollOnce(ctx context.Context) {
+	m.poll(ctx, m.listDrives)
+}
+
+// pollWhenFree is PollOnce with a listing that waits for busy drives instead
+// of declining.
+func (m *Manager) pollWhenFree(ctx context.Context) {
+	m.poll(ctx, func(ctx context.Context) ([]makemkv.DriveInfo, bool, error) {
+		infos, err := m.exec.ListDrives(ctx)
+		return infos, true, err
+	})
+}
+
+func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemkv.DriveInfo, bool, error)) {
 	m.mu.RLock()
 	isFirst := !m.ready
 	m.mu.RUnlock()
@@ -177,7 +194,7 @@ func (m *Manager) PollOnce(ctx context.Context) {
 		slog.Info("polling drives via makemkvcon…")
 	}
 
-	infos, listed, err := m.listDrives(ctx)
+	infos, listed, err := list(ctx)
 	if err != nil {
 		// A listing that timed out did not fail — it never finished, because the
 		// drive stopped answering. Say that, rather than surface the interrupt's
@@ -361,10 +378,15 @@ func (m *Manager) PollOnce(ctx context.Context) {
 }
 
 // watchOnce probes every known drive once and acts on any confirmed physical
-// change. It runs independently of the executor mutex — it never lists drives
-// through makemkvcon — so it observes an eject or unplug that happens while a
-// scan or rip holds that mutex, which is exactly when the poller is blind.
-func (m *Manager) watchOnce() {
+// change. It runs independently of the executor's drive locks — it never lists
+// drives through makemkvcon — so it observes an eject or unplug that happens
+// while a scan or rip holds a drive, which is exactly when the poller is blind.
+//
+// A disc arriving is acted on too, though only makemkvcon can name it. While
+// any drive is busy the poller declines to list, so a disc put into a free
+// drive during another drive's rip would stay unseen until that rip ended.
+// Instead the arrival queues one listing that waits for the drives to free up.
+func (m *Manager) watchOnce(ctx context.Context) {
 	m.mu.RLock()
 	paths := make([]string, 0, len(m.drives))
 	for _, d := range m.drives {
@@ -376,12 +398,33 @@ func (m *Manager) watchOnce() {
 
 	for _, path := range paths {
 		reading := m.probe.Probe(path)
-		if m.watcher.observe(path, reading) == MediaGone {
+		switch m.watcher.observe(path, reading) {
+		case MediaGone:
 			// A vanished device node is a disconnect; a disc leaving a drive
 			// that is still there is an eject.
 			m.notePhysicalGone(path, reading == StatusGone)
+		case MediaPresent:
+			m.queueListing(ctx, path)
 		}
 	}
+}
+
+// queueListing lists drives once they are free, so a disc that arrived while
+// they were busy is picked up. One listing at a time: it lists every drive, so
+// a second would learn nothing the first does not.
+//
+// A queued listing goes ahead of work not yet started on any drive. That holds
+// a drive between titles until the other drive finishes its current one —
+// the price of seeing the new disc then rather than when every rip is done.
+func (m *Manager) queueListing(ctx context.Context, devicePath string) {
+	if !m.listingQueued.CompareAndSwap(false, true) {
+		return
+	}
+	slog.Info("disc arrived; listing drives once they are free", "device", devicePath)
+	go func() {
+		defer m.listingQueued.Store(false)
+		m.pollWhenFree(ctx)
+	}()
 }
 
 // watch runs watchOnce on a fixed cadence until ctx is cancelled.
@@ -393,7 +436,7 @@ func (m *Manager) watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			m.watchOnce()
+			m.watchOnce(ctx)
 			timer.Reset(watchInterval)
 		}
 	}

@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
@@ -155,12 +154,12 @@ func WithUnmountBefore(fn func(devicePath string) error) Option {
 }
 
 // Executor wraps makemkvcon and exposes high-level operations.
-// All commands are serialized via mu because makemkvcon does not support
-// concurrent execution — running multiple instances simultaneously produces
-// corrupted output.
+//
+// Commands on different drives run concurrently; commands on the same drive,
+// drive listings, and folder sources do not. See driveLocks.
 type Executor struct {
 	runner CmdRunner
-	mu     sync.Mutex
+	locks  driveLocks
 	// failureLogDir is where a failed rip's makemkvcon debug log is copied so it
 	// survives the temp HOME cleanup. Empty disables saving. See WithFailureLogDir.
 	failureLogDir string
@@ -199,27 +198,25 @@ type DiscScan struct {
 // list of drives reported via DRV lines.
 //
 // --cache=1 minimizes memory allocation for this lightweight operation.
-// LockDrive claims the drive for work that does not go through this executor.
+// LockDrive claims every drive for work that does not go through this executor.
 //
-// Everything makemkvcon does is serialised on one mutex because makemkvcon
-// cannot share a drive. A salvage also runs ddrescue, which is a separate
-// process outside that lock — and the drive poller, running every five seconds,
+// makemkvcon cannot share a drive. A salvage also runs ddrescue, which is a
+// separate process outside the executor — and the drive poller, running every five seconds,
 // contends with it for the same drive. Left unlocked, a rescue that should read
 // at 14 MB/s managed 2.4 MB/s and reported nine and a half hours remaining.
 //
 // The caller must always call UnlockDrive.
 func (e *Executor) LockDrive() {
-	e.mu.Lock()
+	e.locks.all.Lock()
 }
 
 // UnlockDrive releases the claim taken by LockDrive.
 func (e *Executor) UnlockDrive() {
-	e.mu.Unlock()
+	e.locks.all.Unlock()
 }
 
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	defer e.locks.every()()
 	return e.listDrives(ctx)
 }
 
@@ -239,18 +236,27 @@ func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 // Declining costs a stale drive list for the length of the operation, which is
 // what blocking produced anyway.
 func (e *Executor) TryListDrives(ctx context.Context) ([]DriveInfo, bool, error) {
-	if !e.mu.TryLock() {
+	if !e.locks.all.TryLock() {
 		return nil, false, nil
 	}
-	defer e.mu.Unlock()
+	defer e.locks.all.Unlock()
 
 	drives, err := e.listDrives(ctx)
 	return drives, true, err
 }
 
 // listDrives is the body shared by ListDrives and TryListDrives. Callers must
-// already hold e.mu.
+// already hold every drive. A listing that completes is remembered for
+// devicePathListing.
 func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
+	drives, err := e.runListDrives(ctx)
+	if err == nil {
+		e.locks.remember(drives)
+	}
+	return drives, err
+}
+
+func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, driveListTimeout)
 	defer cancel()
 
@@ -428,16 +434,15 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 
 	driveIndex := src.DriveIndex
 
-	// Pre-lookup: get the device path for MPLS enrichment.  This is a separate,
-	// lightweight lock acquisition that completes before the main scan starts.
+	// Pre-lookup: get the device path for MPLS enrichment. It may list drives,
+	// which needs every drive, so it must finish before this drive is claimed.
 	// Folder sources are read directly and need no device.
 	var devicePath string
 	if src.IsDisc() {
 		devicePath = e.DevicePathForDrive(ctx, driveIndex)
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	defer e.locks.source(src)()
 
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
@@ -555,15 +560,21 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 	return scan, nil
 }
 
-// DevicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex
-// by running a lightweight ListDrives call.  Returns "" on any error; callers
+// DevicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex.
+// While another drive is busy it reads the last completed listing rather than
+// waiting to list; see devicePathListing. Returns "" on any error; callers
 // treat a missing path as a non-fatal condition.
 func (e *Executor) DevicePathForDrive(ctx context.Context, driveIndex int) string {
-	info, ok := e.driveInfo(ctx, driveIndex)
-	if !ok {
+	drives, err := e.devicePathListing(ctx)
+	if err != nil {
 		return ""
 	}
-	return info.DevicePath
+	for _, d := range drives {
+		if d.Index == driveIndex {
+			return d.DevicePath
+		}
+	}
+	return ""
 }
 
 // DiscLabelForDrive returns the disc label the drive is reporting.
@@ -874,8 +885,7 @@ const backupTimeout = 4 * time.Hour
 //
 // onEvent receives parsed events (including PRGV progress) and may be nil.
 func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(Event)) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	defer e.locks.one(driveIndex)()
 
 	ctx, cancel := context.WithTimeout(ctx, backupTimeout)
 	defer cancel()
@@ -969,15 +979,14 @@ func (e *Executor) runEvents(ctx context.Context, onEvent func(Event), args ...s
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
 func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expectSource string, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
-	// The device-path lookup runs a ListDrives, which takes e.mu itself, so it
-	// must happen before the lock below — as it does for a scan.
+	// The device-path lookup may list drives, which needs every drive, so it
+	// must happen before this drive is claimed — as it does for a scan.
 	var devicePath string
 	if src.IsDisc() {
 		devicePath = e.DevicePathForDrive(ctx, src.DriveIndex)
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	defer e.locks.source(src)()
 
 	// Release any mount BluForge holds on this device before driving makemkvcon
 	// against it — the same invariant a scan enforces. A recovery rip is a folder
@@ -1008,7 +1017,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// so the stop goes through exactly the machinery a timeout uses: ask the
 	// process group first, kill only what will not go. Signalling directly would
 	// send SIGTERM with nothing behind it, and a makemkvcon that ignored it would
-	// hang Wait — and the executor mutex with it — for good.
+	// hang Wait — and this drive's lock with it — for good.
 	runCtx, stopRip := context.WithCancel(ctx)
 	defer stopRip()
 
@@ -1027,16 +1036,22 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// $HOME/MakeMKV_log.txt. Because we set HOME here, we know that path without
 	// having to be told — a fallback for the fatal-reason capture below in case
 	// the announce line is ever absent from the stream.
-	var homeDebugLog string
+	//
+	// Every rip gets its own HOME, with or without a selection. Rips on two
+	// drives run at once, and with a shared HOME both would write their debug
+	// log to the same file and read the other's failure back as their own.
+	var selStr string
 	if selection != nil && !selection.IsEmpty() {
-		selStr := BuildSelectionString(*selection)
-		homeDir, cleanup, err := WriteTempHome(selStr)
-		if err != nil {
-			return fmt.Errorf("makemkv: prepare selection home: %w", err)
-		}
-		defer cleanup()
-		cmd.Env = append(os.Environ(), "HOME="+homeDir)
-		homeDebugLog = filepath.Join(homeDir, "MakeMKV_log.txt")
+		selStr = BuildSelectionString(*selection)
+	}
+	homeDir, cleanup, err := WriteTempHome(selStr)
+	if err != nil {
+		return fmt.Errorf("makemkv: prepare rip home: %w", err)
+	}
+	defer cleanup()
+	cmd.Env = append(os.Environ(), "HOME="+homeDir)
+	homeDebugLog := filepath.Join(homeDir, "MakeMKV_log.txt")
+	if selStr != "" {
 		slog.Info("makemkvcon: using track selection", "selection_string", selStr, "temp_home", homeDir)
 	}
 
