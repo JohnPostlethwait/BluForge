@@ -122,6 +122,11 @@ type Manager struct {
 	// labelled marks drives whose disc was named from its volume label and not
 	// yet by a makemkvcon listing, so a listing that disagrees is reported.
 	labelled map[int]bool
+	// labelling holds the device paths with a volume-label read running, so a
+	// drive that keeps reporting arrivals gets one read at a time rather than a
+	// pile of them. Guarded by labellingMu.
+	labellingMu sync.Mutex
+	labelling   map[string]bool
 }
 
 // physicalConfirmDuration is how long a physical status change must persist
@@ -428,7 +433,26 @@ func (m *Manager) watchOnce(ctx context.Context) {
 //
 // A disc whose label cannot be read falls back to a listing that waits.
 func (m *Manager) noteArrival(ctx context.Context, devicePath string) {
+	// One read per device at a time. The read has no timeout of its own (see
+	// blkidLabeler), so a drive reporting arrival after arrival would otherwise
+	// stack up readers behind a slow or stuck one.
+	m.labellingMu.Lock()
+	if m.labelling == nil {
+		m.labelling = make(map[string]bool)
+	}
+	if m.labelling[devicePath] {
+		m.labellingMu.Unlock()
+		return
+	}
+	m.labelling[devicePath] = true
+	m.labellingMu.Unlock()
+
 	go func() {
+		defer func() {
+			m.labellingMu.Lock()
+			delete(m.labelling, devicePath)
+			m.labellingMu.Unlock()
+		}()
 		label, err := m.labeler.Label(ctx, devicePath)
 		if err != nil {
 			slog.Info("could not read the arriving disc's volume label; listing drives once they are free",
