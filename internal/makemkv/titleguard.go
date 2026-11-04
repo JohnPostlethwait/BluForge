@@ -201,9 +201,6 @@ func (g *titleGuard) allowSkipped(playlists []string) {
 // guard took #3 at face value, killed a correct rip, and retried at an index
 // that no longer existed once 00004 was dropped.
 func (g *titleGuard) collapsed() map[int]string {
-	if len(g.skipped) == 0 {
-		return g.seen
-	}
 	pre := make([]int, 0, len(g.seen))
 	for i := range g.seen {
 		pre = append(pre, i)
@@ -212,7 +209,7 @@ func (g *titleGuard) collapsed() map[int]string {
 	out := make(map[int]string, len(pre))
 	dropped := 0
 	for _, i := range pre {
-		s := g.seen[i]
+		s := playlistName(g.seen[i])
 		if g.skipped[s] {
 			dropped++
 			continue
@@ -220,6 +217,21 @@ func (g *titleGuard) collapsed() map[int]string {
 		out[i-dropped] = s
 	}
 	return out
+}
+
+// playlistName returns the bare playlist file a rip pass announced a title as.
+//
+// A pass can name a title with a suffix the scan's other messages do not carry:
+// The Full Monty's announced "00329.mpls(8)", while the scan's equal-title
+// message, read through playlistFileRE, names it "00329.mpls". Compared as raw
+// strings the skipped playlist was never recognised, the feature at #6 was
+// taken to have moved, a correct rip was killed at 81%, and the retry at 6
+// copied 00301.mpls, a 353 MB extra, under the feature's name.
+func playlistName(s string) string {
+	if m := playlistFileRE.FindString(s); m != "" {
+		return m
+	}
+	return s
 }
 
 // allowDuplicates tells the guard which playlists a scan declared equal to the

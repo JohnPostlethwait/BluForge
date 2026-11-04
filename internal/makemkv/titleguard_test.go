@@ -357,6 +357,33 @@ func TestGuardNumbersThePassAfterTheScansSkippedPlaylists(t *testing.T) {
 	}
 }
 
+// The Full Monty, 2026-11-04. The scan dropped 00329.mpls and numbered the
+// feature 00800.mpls 5. The rip pass announced the dropped playlist as
+// "00329.mpls(8)", which the guard compared to the skipped "00329.mpls" as a raw
+// string and never matched. It took the feature at #6 for a moved title, killed
+// a correct rip at 81%, and retried at 6, which after the drop is 00301.mpls, a
+// 353 MB extra delivered as the feature.
+func TestGuardRecognisesASkippedPlaylistAnnouncedWithASuffix(t *testing.T) {
+	g := newTitleGuard(5, "00800.mpls")
+	g.allowSkipped([]string{"00329.mpls"})
+
+	for _, ev := range []Event{
+		added("00300.mpls", 0),
+		added("00311.mpls", 1),
+		added("00319.mpls", 2),
+		added("00329.mpls(8)", 3),
+		added("00344.mpls", 4),
+		added("00348.mpls", 5),
+		added("00800.mpls", 6),
+		saving(),
+	} {
+		g.observe(ev)
+		if err := g.verdict(); err != nil {
+			t.Fatalf("guard killed a rip whose post-collapse index holds the feature: %v", err)
+		}
+	}
+}
+
 // A skipped playlist ahead of the feature shifts every later title, whatever it
 // duplicates. When the feature really has moved, the retry index the guard
 // reports must be the post-collapse one, since that is the numbering the retry
