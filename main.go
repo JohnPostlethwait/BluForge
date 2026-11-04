@@ -29,6 +29,21 @@ import (
 )
 
 func main() {
+	// 0. The drive-isolation helper. BluForge re-executes itself with this
+	// argument to run one makemkvcon confined to one drive; see
+	// makemkv.makemkvconCommand. It must run before anything else, since on
+	// success it becomes makemkvcon.
+	if len(os.Args) > 1 && os.Args[1] == makemkv.IsolateSubcommand {
+		var err error
+		if len(os.Args) > 2 && os.Args[2] == "--probe" {
+			err = makemkv.RunIsolateProbe()
+		} else {
+			err = makemkv.RunIsolateHelper(os.Args[2:])
+		}
+		fmt.Fprintln(os.Stderr, "bluforge:", err)
+		os.Exit(1)
+	}
+
 	// 1. Structured JSON logging to stdout, filtered at BLUFORGE_LOG_LEVEL.
 	//
 	// First statement in the process: everything below this line logs, and a
@@ -71,7 +86,21 @@ func main() {
 	// A failed rip's makemkvcon debug log is saved under /config/logs (the
 	// persistent volume) so its reason can be read after the fact — the temp HOME
 	// it is written to is deleted as soon as the rip returns.
-	executor := makemkv.NewExecutor(makemkv.WithFailureLogDir("/config/logs"))
+	//
+	// makemkvcon opens every drive it can see, whatever it is asked to read, so
+	// work on two drives runs at once only if each makemkvcon can be confined to
+	// its own drive. Probe that once, for real, and say which mode is in force.
+	isolationErr := makemkv.ProbeIsolation(context.Background())
+	if isolationErr != nil {
+		slog.Warn("makemkvcon cannot be confined to one drive here; running one makemkvcon at a time",
+			"error", isolationErr)
+	} else {
+		slog.Info("makemkvcon confined to one drive per command; drives work at the same time")
+	}
+	executor := makemkv.NewExecutor(
+		makemkv.WithFailureLogDir("/config/logs"),
+		makemkv.WithDriveIsolation(isolationErr == nil),
+	)
 	if path, err := exec.LookPath("makemkvcon"); err != nil {
 		slog.Error("makemkvcon not found in PATH", "error", err)
 	} else {

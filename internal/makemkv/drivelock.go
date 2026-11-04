@@ -8,8 +8,8 @@ import (
 // driveLocks decides which makemkvcon commands may run at the same time.
 //
 // A drive does one thing at a time: two makemkvcon processes reading the same
-// disc corrupt each other's output. Two different drives are two different
-// devices, so work on one does not wait for work on another.
+// disc corrupt each other's output. Work on two different drives runs at once
+// only when each makemkvcon is isolated to its own drive; see Executor.claim.
 //
 // A drive listing (info disc:9999) is different. It probes every drive, so it
 // runs alone, and so does anything not tied to one drive here: a folder source,
@@ -62,13 +62,20 @@ func (l *driveLocks) every() func() {
 	return l.all.Unlock
 }
 
-// source claims what a command on src needs: its drive for a disc, every
-// drive for a folder, which is not tied to a drive here.
-func (l *driveLocks) source(src Source) func() {
-	if src.IsDisc() {
-		return l.one(src.DriveIndex)
+// claim takes the locks a makemkvcon command on src needs and returns the
+// release function and the source argument to give makemkvcon.
+//
+// makemkvcon opens every drive it can see, so one drive's command can run
+// beside another's only when it cannot see the other drive. With isolation that
+// holds: the command is addressed by its device node and runs with that drive
+// alone in its /dev (see makemkvconCommand), and claims just its own drive.
+// Without isolation, or without a device path to isolate to, the command would
+// reach every drive, so it claims every drive and waits for the others.
+func (e *Executor) claim(src Source, devicePath string) (release func(), target string) {
+	if src.IsDisc() && e.isolate && devicePath != "" {
+		return e.locks.one(src.DriveIndex), devTargetPrefix + devicePath
 	}
-	return l.every()
+	return e.locks.every(), src.Arg()
 }
 
 func (l *driveLocks) remember(drives []DriveInfo) {

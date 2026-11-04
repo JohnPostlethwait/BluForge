@@ -3,6 +3,7 @@ package makemkv
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -33,14 +34,33 @@ func newGatedRunner(targets ...string) *gatedRunner {
 	return g
 }
 
-// commandTarget finds the disc:N argument a command acts on.
+// commandTarget finds the drive a command acts on, as disc:N. An isolated
+// command names its drive dev:/dev/srN; twoDriverOutput puts drive N at
+// /dev/srN, so it maps back to disc:N.
 func commandTarget(args []string) string {
 	for _, a := range args {
 		if strings.HasPrefix(a, "disc:") {
 			return a
 		}
+		if strings.HasPrefix(a, "dev:/dev/sr") {
+			return "disc:" + strings.TrimPrefix(a, "dev:/dev/sr")
+		}
 	}
 	return ""
+}
+
+// runIsolatedDirectly makes isolated commands run makemkvcon straight off PATH
+// for the length of the test. The test binary is not bluforge, so it cannot act
+// as the isolation helper; the helper's own argv is tested separately.
+func runIsolatedDirectly(t *testing.T) {
+	t.Helper()
+	prev := isolatedCommand
+	isolatedCommand = func(ctx context.Context, _ string, args []string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, "makemkvcon", args...)
+		configureTeardown(cmd)
+		return cmd
+	}
+	t.Cleanup(func() { isolatedCommand = prev })
 }
 
 func (g *gatedRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
@@ -86,7 +106,7 @@ func newFakeRip(t *testing.T) *fakeRip {
 	t.Helper()
 	dir := t.TempDir()
 	script := `#!/bin/sh
-for a in "$@"; do case "$a" in disc:*) target="$a";; esac; done
+for a in "$@"; do case "$a" in disc:*) target="$a";; dev:/dev/sr*) target="disc:${a#dev:/dev/sr}";; esac; done
 echo "$HOME" >> "` + dir + `/homes"
 : > "` + dir + `/started-$target"
 while [ ! -e "` + dir + `/release-$target" ]; do sleep 0.02; done
@@ -96,6 +116,7 @@ exit 0
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runIsolatedDirectly(t)
 	return &fakeRip{dir: dir}
 }
 
@@ -153,7 +174,7 @@ func startRip(ex *Executor, drive int, outDir string) <-chan struct{} {
 func TestScanOfAnotherDriveRunsWhileOneDriveRips(t *testing.T) {
 	fr := newFakeRip(t)
 	g := newGatedRunner()
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	ripDone := startRip(ex, 0, t.TempDir())
 	fr.waitStarted(t, "disc:0")
@@ -172,7 +193,7 @@ func TestScanOfAnotherDriveRunsWhileOneDriveRips(t *testing.T) {
 // Two rips on two drives run side by side.
 func TestRipsOnTwoDrivesRunTogether(t *testing.T) {
 	fr := newFakeRip(t)
-	ex := NewExecutor(WithRunner(newGatedRunner()), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(newGatedRunner()), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	rip0 := startRip(ex, 0, t.TempDir())
 	fr.waitStarted(t, "disc:0")
@@ -190,7 +211,7 @@ func TestRipsOnTwoDrivesRunTogether(t *testing.T) {
 // rips sharing one HOME would write into, and read back, the same file.
 func TestEachRipGetsItsOwnHome(t *testing.T) {
 	fr := newFakeRip(t)
-	ex := NewExecutor(WithRunner(newGatedRunner()), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(newGatedRunner()), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	rip0 := startRip(ex, 0, t.TempDir())
 	fr.waitStarted(t, "disc:0")
@@ -220,7 +241,7 @@ func TestEachRipGetsItsOwnHome(t *testing.T) {
 func TestScanOfARippingDriveWaits(t *testing.T) {
 	fr := newFakeRip(t)
 	g := newGatedRunner()
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	ripDone := startRip(ex, 0, t.TempDir())
 	fr.waitStarted(t, "disc:0")
@@ -245,7 +266,7 @@ func TestScanOfARippingDriveWaits(t *testing.T) {
 // being read: an unlocked poll took a ddrescue rescue from 14 MB/s to 2.4 MB/s.
 func TestListingWaitsForEveryBusyDrive(t *testing.T) {
 	g := newGatedRunner("disc:0")
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	backupDone := make(chan struct{})
 	go func() {
@@ -285,7 +306,7 @@ func TestDevicePathComesFromTheLastListingWhileAnotherDriveIsBusy(t *testing.T) 
 	g := newGatedRunner("disc:0")
 	var mu sync.Mutex
 	var unmounted []string
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(func(p string) error {
+	ex := NewExecutor(WithRunner(g), WithDriveIsolation(true), WithUnmountBefore(func(p string) error {
 		mu.Lock()
 		unmounted = append(unmounted, p)
 		mu.Unlock()
@@ -325,7 +346,7 @@ func TestDevicePathComesFromTheLastListingWhileAnotherDriveIsBusy(t *testing.T) 
 // executor — still holds every drive, as before.
 func TestLockDriveStillExcludesEveryDrive(t *testing.T) {
 	g := newGatedRunner()
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	ex.LockDrive()
 	scanDone := make(chan struct{})
@@ -346,7 +367,7 @@ func TestLockDriveStillExcludesEveryDrive(t *testing.T) {
 // behaviour: it runs alone.
 func TestFolderScanRunsAlone(t *testing.T) {
 	g := newGatedRunner("disc:0")
-	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount))
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
 
 	backupDone := make(chan struct{})
 	go func() {

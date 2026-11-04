@@ -51,8 +51,7 @@ const driveListTimeout = 30 * time.Second
 func (r *realRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
 	slog.Debug("makemkvcon: executing", "args", args)
 
-	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
-	configureTeardown(cmd)
+	cmd := makemkvconCommand(ctx, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("makemkvcon: command failed", "args", args, "error", err, "output_bytes", len(out))
@@ -79,8 +78,7 @@ type StreamRunner interface {
 func (r *realRunner) RunStream(ctx context.Context, onLine func(string), args ...string) error {
 	slog.Debug("makemkvcon: streaming", "args", args)
 
-	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
-	configureTeardown(cmd)
+	cmd := makemkvconCommand(ctx, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("makemkv: stdout pipe: %w", err)
@@ -160,6 +158,10 @@ func WithUnmountBefore(fn func(devicePath string) error) Option {
 type Executor struct {
 	runner CmdRunner
 	locks  driveLocks
+	// isolate is true when each makemkvcon command on a disc can be confined
+	// to its own drive. Only then do commands on different drives run at once.
+	// See WithDriveIsolation and claim.
+	isolate bool
 	// failureLogDir is where a failed rip's makemkvcon debug log is copied so it
 	// survives the temp HOME cleanup. Empty disables saving. See WithFailureLogDir.
 	failureLogDir string
@@ -172,6 +174,14 @@ type Executor struct {
 
 // NewExecutor creates an Executor. By default it uses the real makemkvcon
 // binary; pass WithRunner to inject a mock for testing.
+// WithDriveIsolation lets scans, rips and backups on different drives run at
+// the same time, each makemkvcon confined to its own drive's device nodes.
+// Pass the result of ProbeIsolation: without working isolation every
+// makemkvcon command runs alone, since each one opens every drive it can see.
+func WithDriveIsolation(enabled bool) Option {
+	return func(e *Executor) { e.isolate = enabled }
+}
+
 func NewExecutor(opts ...Option) *Executor {
 	e := &Executor{
 		runner:        &realRunner{},
@@ -442,7 +452,8 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 		devicePath = e.DevicePathForDrive(ctx, driveIndex)
 	}
 
-	defer e.locks.source(src)()
+	release, target := e.claim(src, devicePath)
+	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
@@ -463,7 +474,6 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 		}
 	}
 
-	target := src.Arg()
 	rawOutput, events, cmdErr := e.runScan(ctx, target, onEvent)
 
 	// A scan killed by the ceiling reports whatever the kernel did — "signal:
@@ -885,12 +895,15 @@ const backupTimeout = 4 * time.Hour
 //
 // onEvent receives parsed events (including PRGV progress) and may be nil.
 func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(Event)) error {
-	defer e.locks.one(driveIndex)()
+	src := DiscSource(driveIndex)
+	// The lookup may list drives, which needs every drive, so it comes first.
+	devicePath := e.DevicePathForDrive(ctx, driveIndex)
+	release, target := e.claim(src, devicePath)
+	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, backupTimeout)
 	defer cancel()
 
-	src := DiscSource(driveIndex)
 	slog.Info("makemkvcon: starting backup", "source", src.Arg(), "dest", destDir)
 
 	var messages []Message
@@ -917,7 +930,7 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 	}
 
 	// No --decrypt: see the doc comment above.
-	err := e.runEvents(ctx, collect, "-r", "--progress=-same", "backup", src.Arg(), destDir)
+	err := e.runEvents(ctx, collect, "-r", "--progress=-same", "backup", target, destDir)
 	if err != nil {
 		// A backup that failed because the container cannot see the drive at all
 		// must say so. Left as a bare "backup failed" it sends the user looking
@@ -986,7 +999,8 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		devicePath = e.DevicePathForDrive(ctx, src.DriveIndex)
 	}
 
-	defer e.locks.source(src)()
+	release, target := e.claim(src, devicePath)
+	defer release()
 
 	// Release any mount BluForge holds on this device before driving makemkvcon
 	// against it — the same invariant a scan enforces. A recovery rip is a folder
@@ -1000,7 +1014,6 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		}
 	}
 
-	target := src.Arg()
 	titleStr := fmt.Sprintf("%d", titleID)
 
 	// expect names the playlist this title number is supposed to be, so the line
@@ -1027,8 +1040,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	// announcing where — streamRip reads that announcement and, on a fatal exit,
 	// we read the log's tail. The log lives under the selection HOME below, so it
 	// is cleaned up with it.
-	cmd := exec.CommandContext(runCtx, "makemkvcon", "-r", "--progress=-same", "--debug", "mkv", target, titleStr, outputDir)
-	configureTeardown(cmd)
+	cmd := makemkvconCommand(runCtx, "-r", "--progress=-same", "--debug", "mkv", target, titleStr, outputDir)
 
 	// Apply track selection via a temporary HOME directory when requested.
 	//
