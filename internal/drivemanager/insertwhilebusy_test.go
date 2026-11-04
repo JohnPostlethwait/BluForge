@@ -2,6 +2,7 @@ package drivemanager
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,10 +67,98 @@ func (h *heldExecutor) release() {
 	close(h.released)
 }
 
-// While another drive rips, the poller cannot list, so a disc put into a free
-// drive went unseen until that rip ended. The physical watcher sees the disc
-// arrive; that signal asks for a listing that waits its turn rather than
-// being skipped, so the disc shows up as soon as the drives allow.
+// fakeLabeler answers volume-label reads from a map, failing for anything
+// not in it.
+type fakeLabeler struct {
+	mu     sync.Mutex
+	labels map[string]string
+	reads  int
+}
+
+func (f *fakeLabeler) Label(_ context.Context, devicePath string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if l, ok := f.labels[devicePath]; ok {
+		return l, nil
+	}
+	return "", errors.New("no label")
+}
+
+func waitForEvents(t *testing.T, mu *sync.Mutex, events *[]DriveEvent, typ EventType, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := countType(*events, typ)
+		mu.Unlock()
+		if n >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Fatalf("%s events = %d, want %d", typ, countType(*events, typ), want)
+}
+
+// While another drive rips, the poller cannot list, and a listing that waits
+// sits behind that drive's current title — most of an hour for a feature. A
+// disc put into a free drive is named from its own volume label instead, read
+// from that device alone, so it can be scanned straight away.
+func TestDiscInsertedWhileDrivesAreHeldIsNamedFromItsVolumeLabel(t *testing.T) {
+	exec := &heldExecutor{listing: withoutDisc()}
+	var mu sync.Mutex
+	var events []DriveEvent
+	m := NewManager(exec, func(ev DriveEvent) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+	m.labeler = &fakeLabeler{labels: map[string]string{"/dev/sr1": "SECOND_DISC"}}
+	m.PollOnce(context.Background())
+
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	probe := newFakeProbe()
+	probe.seq["/dev/sr1"] = []DriveStatus{StatusNoDisc, StatusDiscOK, StatusDiscOK}
+	m.probe = probe
+
+	exec.hold(withDisc("SECOND_DISC"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	m.watchOnce(ctx)
+	m.watchOnce(ctx)
+	now = now.Add(3 * time.Second)
+	m.watchOnce(ctx)
+
+	waitForEvents(t, &mu, &events, EventDiscInserted, 1)
+	dsm := m.GetDrive(1)
+	if got := dsm.DiscName(); got != "SECOND_DISC" {
+		t.Errorf("drive 1 disc = %q, want SECOND_DISC", got)
+	}
+	if dsm.State() != StateDetected {
+		t.Errorf("drive 1 state = %v, want detected", dsm.State())
+	}
+	if got := exec.waiting.Load(); got != 0 {
+		t.Errorf("waiting listings = %d, want none when the label was read", got)
+	}
+
+	// When the drives free up and the poller lists the same name, that is the
+	// disc already announced, not a new one.
+	exec.release()
+	m.PollOnce(context.Background())
+	mu.Lock()
+	n := countType(events, EventDiscInserted)
+	mu.Unlock()
+	if n != 1 {
+		t.Errorf("disc_inserted events = %d after the poll, want still 1", n)
+	}
+}
+
+// A disc whose label cannot be read falls back to a listing that waits for the
+// drives, so it is still seen once they free up.
 func TestDiscInsertedWhileDrivesAreHeldIsSeenOnceTheyFree(t *testing.T) {
 	exec := &heldExecutor{listing: withoutDisc()}
 	var mu sync.Mutex
@@ -79,6 +168,7 @@ func TestDiscInsertedWhileDrivesAreHeldIsSeenOnceTheyFree(t *testing.T) {
 		events = append(events, ev)
 		mu.Unlock()
 	})
+	m.labeler = &fakeLabeler{}
 	m.PollOnce(context.Background())
 
 	now := time.Unix(0, 0)

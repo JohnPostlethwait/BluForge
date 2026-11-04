@@ -117,6 +117,11 @@ type Manager struct {
 	// listingQueued is true while a listing asked for by an arriving disc is
 	// waiting for the drives, so more readings of that disc do not queue more.
 	listingQueued atomic.Bool
+	// labeler names an arriving disc from its volume label; see noteArrival.
+	labeler volumeLabeler
+	// labelled marks drives whose disc was named from its volume label and not
+	// yet by a makemkvcon listing, so a listing that disagrees is reported.
+	labelled map[int]bool
 }
 
 // physicalConfirmDuration is how long a physical status change must persist
@@ -140,6 +145,8 @@ func NewManager(executor DriveExecutor, onEvent func(DriveEvent)) *Manager {
 		now:         time.Now,
 		onEvent:     onEvent,
 		probe:       newSysProbe(),
+		labeler:     blkidLabeler{},
+		labelled:    make(map[int]bool),
 	}
 	// The watcher reads the clock through m.now so tests can drive it, and so it
 	// stays in step if the clock is ever replaced.
@@ -264,6 +271,11 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 		if info.HasDisc() {
 			// A disc is present now; any earlier empty reading was transient.
 			delete(m.absentSince, info.Index)
+			if hadDisc && m.labelled[info.Index] && prev != info.DiscName {
+				slog.Warn("makemkvcon names the disc differently from its volume label; treating it as a new disc",
+					"drive_index", info.Index, "volume_label", prev, "makemkv_name", info.DiscName)
+			}
+			delete(m.labelled, info.Index)
 			if !hadDisc || prev != info.DiscName {
 				// New disc inserted (or disc name changed — treat as new insert).
 				m.known[info.Index] = info.DiscName
@@ -298,6 +310,7 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 
 				delete(m.known, info.Index)
 				delete(m.absentSince, info.Index)
+				delete(m.labelled, info.Index)
 				dsm.ForceReset()
 				pending = append(pending, DriveEvent{
 					Type:       EventDiscEjected,
@@ -382,10 +395,9 @@ func (m *Manager) poll(ctx context.Context, list func(context.Context) ([]makemk
 // drives through makemkvcon — so it observes an eject or unplug that happens
 // while a scan or rip holds a drive, which is exactly when the poller is blind.
 //
-// A disc arriving is acted on too, though only makemkvcon can name it. While
-// any drive is busy the poller declines to list, so a disc put into a free
-// drive during another drive's rip would stay unseen until that rip ended.
-// Instead the arrival queues one listing that waits for the drives to free up.
+// A disc arriving is acted on too. While any drive is busy the poller declines
+// to list, so a disc put into a free drive during another drive's rip would
+// stay unseen until that rip ended. See noteArrival.
 func (m *Manager) watchOnce(ctx context.Context) {
 	m.mu.RLock()
 	paths := make([]string, 0, len(m.drives))
@@ -404,8 +416,71 @@ func (m *Manager) watchOnce(ctx context.Context) {
 			// that is still there is an eject.
 			m.notePhysicalGone(path, reading == StatusGone)
 		case MediaPresent:
-			m.queueListing(ctx, path)
+			m.noteArrival(ctx, path)
 		}
+	}
+}
+
+// noteArrival names a disc that has just arrived in devicePath from its volume
+// label, read from that device alone, so it can be scanned while other drives
+// are busy. A listing would have to wait for every busy drive's current title
+// to end — most of an hour for a feature.
+//
+// A disc whose label cannot be read falls back to a listing that waits.
+func (m *Manager) noteArrival(ctx context.Context, devicePath string) {
+	go func() {
+		label, err := m.labeler.Label(ctx, devicePath)
+		if err != nil {
+			slog.Info("could not read the arriving disc's volume label; listing drives once they are free",
+				"device", devicePath, "error", err)
+			m.queueListing(ctx, devicePath)
+			return
+		}
+		m.noteLabelledDisc(devicePath, label)
+	}()
+}
+
+// noteLabelledDisc records a disc named from its volume label, as a listing
+// would have. A drive that already has a disc is left alone: a listing got
+// there first, and its name is makemkvcon's own.
+func (m *Manager) noteLabelledDisc(devicePath, label string) {
+	m.mu.Lock()
+	var (
+		idx   int
+		dsm   *DriveStateMachine
+		found bool
+	)
+	for i, d := range m.drives {
+		if d.DevicePath() == devicePath {
+			idx, dsm, found = i, d, true
+			break
+		}
+	}
+	if !found {
+		m.mu.Unlock()
+		return
+	}
+	if _, hadDisc := m.known[idx]; hadDisc {
+		m.mu.Unlock()
+		return
+	}
+	m.known[idx] = label
+	m.labelled[idx] = true
+	delete(m.absentSince, idx)
+	dsm.SetDiscName(label)
+	dsm.SetState(StateDetected)
+	ev := DriveEvent{
+		Type:       EventDiscInserted,
+		DriveIndex: idx,
+		DiscName:   label,
+		State:      dsm.State(),
+		DevicePath: devicePath,
+	}
+	m.mu.Unlock()
+
+	slog.Info("disc arrived", "drive_index", idx, "device", devicePath, "volume_label", label)
+	if m.onEvent != nil {
+		m.onEvent(ev)
 	}
 }
 
@@ -551,6 +626,7 @@ func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
 	dsm.ForceReset()
 	delete(m.known, idx)
 	delete(m.absentSince, idx)
+	delete(m.labelled, idx)
 	m.mu.Unlock()
 
 	evType := EventDiscEjected
