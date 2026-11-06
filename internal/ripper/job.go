@@ -144,7 +144,7 @@ func NewJob(driveIndex, titleIndex int, discName, outputDir string) *Job {
 // jobs are also built by hand in tests and by older call sites, and a zero
 // Source would otherwise silently mean "drive 0".
 func (j *Job) RipSource() makemkv.Source {
-	if j.Source.Kind == makemkv.SourceFile && j.Source.Path != "" {
+	if !j.Source.IsDisc() && j.Source.Path != "" {
 		return j.Source
 	}
 	return makemkv.DiscSource(j.DriveIndex)

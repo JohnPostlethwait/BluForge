@@ -22,8 +22,8 @@ import (
 func TestTryListDrivesDeclinesWhileTheDriveIsBusy(t *testing.T) {
 	exec := NewExecutor(WithRunner(&mockCmdRunner{output: testutil.SampleDriveListOutput}))
 
-	exec.LockDrive()
-	defer exec.UnlockDrive()
+	release := exec.ClaimDrive(0)
+	defer release()
 
 	done := make(chan struct{})
 	var ok bool
@@ -76,11 +76,11 @@ func TestTryListDrivesListsWhenTheDriveIsFree(t *testing.T) {
 func TestTryListDrivesRecoversAfterTheDriveIsReleased(t *testing.T) {
 	exec := NewExecutor(WithRunner(&mockCmdRunner{output: testutil.SampleDriveListOutput}))
 
-	exec.LockDrive()
+	release := exec.ClaimDrive(0)
 	if _, ok, _ := exec.TryListDrives(context.Background()); ok {
 		t.Fatal("listed while held")
 	}
-	exec.UnlockDrive()
+	release()
 
 	if _, ok, err := exec.TryListDrives(context.Background()); !ok || err != nil {
 		t.Errorf("ok=%v err=%v after release, want ok=true err=nil", ok, err)

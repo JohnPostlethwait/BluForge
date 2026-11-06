@@ -37,9 +37,11 @@ const streamDir = "BDMV/STREAM"
 
 // DriveLocker claims a drive for work that does not run through the MakeMKV
 // executor. Optional: a backupper without it simply competes with the poller.
+//
+// It claims the one drive being read. Claiming every drive held up rips on the
+// others for the hours a rescue can take.
 type DriveLocker interface {
-	LockDrive()
-	UnlockDrive()
+	ClaimDrive(driveIndex int) (release func())
 }
 
 // SalvageRequest describes a disc to recover from physical damage.
@@ -99,6 +101,14 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 		return nil, fmt.Errorf("salvage: create backup dir %s: %w", dir, err)
 	}
 
+	// A DVD is imaged whole rather than backed up and patched: MakeMKV's
+	// backup only handles Blu-ray, and a whole DVD is small enough to copy.
+	dvd := o.discIsDVD(req.DevicePath)
+	source := makemkv.CopySource(dir)
+	if dvd {
+		source = makemkv.ISOSource(filepath.Join(dir, dvdImageName))
+	}
+
 	// Record it now, not on success. The startup sweep deletes any scratch the
 	// database does not know about, and a salvage runs for hours: a restart
 	// partway through deleted a backup and 11.8GB of rescued data on the first
@@ -108,12 +118,16 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 			DriveIndex: req.DriveIndex,
 			DiscLabel:  req.DiscLabel,
 			BackupDir:  dir,
-			SourceArg:  makemkv.FileSource(dir).Arg(),
+			SourceArg:  source.Arg(),
 			Partial:    true,
 		}); err != nil {
 			slog.Warn("salvage: could not record the scratch copy; a restart could delete it",
 				"dir", dir, "error", err)
 		}
+	}
+
+	if dvd {
+		return o.salvageDVD(ctx, req, dir, source, report)
 	}
 
 	// 1. Back up what the disc will give, unless a copy is already here. A
@@ -188,7 +202,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	// 4. Read the repaired tree. Reads now succeed everywhere, including across
 	// the zero-filled gaps, so MakeMKV has no reason to abandon the title.
 	report("verifying", 90, "")
-	src := makemkv.FileSource(dir)
+	src := makemkv.CopySource(dir)
 	scan, err := o.backupper.ScanSource(ctx, src)
 	if err != nil {
 		return nil, fmt.Errorf("salvage: scan the repaired copy: %w", err)
@@ -649,8 +663,7 @@ func (o *Orchestrator) rescueStreams(
 	// drive underneath it. That contention took a rescue from 14 MB/s to
 	// 2.4 MB/s.
 	if locker, ok := o.backupper.(DriveLocker); ok {
-		locker.LockDrive()
-		defer locker.UnlockDrive()
+		defer locker.ClaimDrive(req.DriveIndex)()
 		slog.Info("salvage: holding the drive for the rescue", "files", len(short))
 	} else {
 		slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
@@ -734,16 +747,7 @@ func isSalvageMap(rel string) bool {
 // all of it recorded against those failed jobs. Finishing the salvage and
 // stopping there sent them back to the beginning.
 func (o *Orchestrator) ripAfterSalvage(driveIndex int, discLabel, outputDir string) int {
-	if o.store == nil || discLabel == "" {
-		return 0
-	}
-	failed, err := o.store.ListJobsByStatus("failed")
-	if err != nil {
-		slog.Error("salvage: could not look up what to rip again", "error", err)
-		return 0
-	}
-
-	mine := latestFailedBatch(failed, discLabel)
+	mine := o.SalvageBatch(discLabel)
 	if len(mine) == 0 {
 		slog.Info("salvage: nothing was waiting to be ripped for this disc", "disc", discLabel)
 		return 0
@@ -797,6 +801,23 @@ func (o *Orchestrator) ripAfterSalvage(driveIndex int, discLabel, outputDir stri
 		Titles:          titles,
 	})
 	return len(titles)
+}
+
+// SalvageBatch returns the failed rips a salvage of this disc would repeat:
+// the most recent attempt's failures, one per title.
+//
+// The page offers salvage once per disc from this, so the offer names exactly
+// what the salvage will rip again.
+func (o *Orchestrator) SalvageBatch(discLabel string) []db.RipJob {
+	if o.store == nil || discLabel == "" {
+		return nil
+	}
+	failed, err := o.store.ListJobsByStatus("failed")
+	if err != nil {
+		slog.Error("salvage: could not look up what to rip again", "error", err)
+		return nil
+	}
+	return latestFailedBatch(failed, discLabel)
 }
 
 func parseTrackMeta(raw string) ripper.TrackMetadata {

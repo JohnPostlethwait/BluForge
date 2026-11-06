@@ -21,14 +21,15 @@ type lockOrderBackupper struct {
 	root   string
 }
 
-func (b *lockOrderBackupper) LockDrive() {
+func (b *lockOrderBackupper) ClaimDrive(int) func() {
 	b.mu.Lock()
 	b.held = true
 	b.events = append(b.events, "lock")
 	b.mu.Unlock()
+	return b.release
 }
 
-func (b *lockOrderBackupper) UnlockDrive() {
+func (b *lockOrderBackupper) release() {
 	b.mu.Lock()
 	b.held = false
 	b.events = append(b.events, "unlock")

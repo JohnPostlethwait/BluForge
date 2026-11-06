@@ -208,23 +208,6 @@ type DiscScan struct {
 // list of drives reported via DRV lines.
 //
 // --cache=1 minimizes memory allocation for this lightweight operation.
-// LockDrive claims every drive for work that does not go through this executor.
-//
-// makemkvcon cannot share a drive. A salvage also runs ddrescue, which is a
-// separate process outside the executor — and the drive poller, running every five seconds,
-// contends with it for the same drive. Left unlocked, a rescue that should read
-// at 14 MB/s managed 2.4 MB/s and reported nine and a half hours remaining.
-//
-// The caller must always call UnlockDrive.
-func (e *Executor) LockDrive() {
-	e.locks.all.Lock()
-}
-
-// UnlockDrive releases the claim taken by LockDrive.
-func (e *Executor) UnlockDrive() {
-	e.locks.all.Unlock()
-}
-
 func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
 	defer e.locks.every()()
 	return e.listDrives(ctx)
@@ -452,7 +435,7 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 		devicePath = e.DevicePathForDrive(ctx, driveIndex)
 	}
 
-	release, target := e.claim(src, devicePath)
+	release, target, ctx := e.claim(ctx, src, devicePath)
 	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
@@ -537,6 +520,9 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 	// CLPI files (what makemkvcon reads in robot info mode) often omit language
 	// codes for UHD disc authorings.
 	switch {
+	case src.Kind == SourceISO:
+		// Only DVDs are imaged, and a DVD has no playlists: MakeMKV reports its
+		// languages itself.
 	case !src.IsDisc():
 		// A folder source is already a readable disc tree, so playlists are
 		// read straight out of it — no mount required.
@@ -898,7 +884,7 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 	src := DiscSource(driveIndex)
 	// The lookup may list drives, which needs every drive, so it comes first.
 	devicePath := e.DevicePathForDrive(ctx, driveIndex)
-	release, target := e.claim(src, devicePath)
+	release, target, ctx := e.claim(ctx, src, devicePath)
 	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, backupTimeout)
@@ -999,7 +985,7 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 		devicePath = e.DevicePathForDrive(ctx, src.DriveIndex)
 	}
 
-	release, target := e.claim(src, devicePath)
+	release, target, ctx := e.claim(ctx, src, devicePath)
 	defer release()
 
 	// Release any mount BluForge holds on this device before driving makemkvcon

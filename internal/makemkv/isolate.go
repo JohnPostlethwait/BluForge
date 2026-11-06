@@ -19,6 +19,23 @@ const IsolateSubcommand = "__isolate-drive"
 // so it becomes disc:0 there; the device path is the address that stays true.
 const devTargetPrefix = "dev:"
 
+// NoDrive is the helper's device argument for a makemkvcon that is to see no
+// drive at all.
+const NoDrive = "none"
+
+type noDriveKey struct{}
+
+// withNoDrive marks ctx so the makemkvcon command built under it is isolated
+// with no drive in its /dev.
+func withNoDrive(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noDriveKey{}, true)
+}
+
+func runsWithNoDrive(ctx context.Context) bool {
+	v, _ := ctx.Value(noDriveKey{}).(bool)
+	return v
+}
+
 // makemkvconCommand builds the command for one makemkvcon invocation.
 //
 // makemkvcon opens every optical drive it can see on start, whatever source it
@@ -27,8 +44,14 @@ const devTargetPrefix = "dev:"
 // storm on Jotunheim. A command addressed as dev:/dev/srN runs in a private
 // mount namespace whose /dev holds that drive and nothing else, so it cannot
 // touch any other drive. Every other command runs makemkvcon directly.
+//
+// A command on a detached source (see withNoDrive) runs in the same kind of
+// namespace with no drive at all, so it needs no drive's lock either.
 func makemkvconCommand(ctx context.Context, args ...string) *exec.Cmd {
 	device := isolatedDevice(args)
+	if device == "" && runsWithNoDrive(ctx) {
+		device = NoDrive
+	}
 	if device == "" {
 		cmd := exec.CommandContext(ctx, "makemkvcon", args...)
 		configureTeardown(cmd)

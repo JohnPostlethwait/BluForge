@@ -324,7 +324,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 	}
 
 	progress("rescanning", 0)
-	src := makemkv.FileSource(backupDir)
+	src := makemkv.CopySource(backupDir)
 	scan, err := o.backupper.ScanSource(ctx, src)
 	if err != nil {
 		detail := fmt.Sprintf("stripped backup still failed to scan: %v", err)
@@ -721,7 +721,7 @@ func (o *Orchestrator) RestoreBackups() error {
 
 		o.recoveredMu.Lock()
 		o.recovered[b.DriveIndex] = &recoveredDisc{
-			source:     makemkv.FileSource(b.BackupDir),
+			source:     copySource(b.BackupDir),
 			dir:        b.BackupDir,
 			discLabels: discLabelsFor(b.DiscLabel, b.BackupDir),
 		}

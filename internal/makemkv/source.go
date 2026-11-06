@@ -10,6 +10,9 @@ const (
 	SourceDisc SourceKind = iota
 	// SourceFile is a decrypted or backed-up disc folder, addressed as "file:<path>".
 	SourceFile
+	// SourceISO is a disc image, addressed as "iso:<path>". A salvaged DVD is
+	// imaged whole, still CSS-encrypted, and MakeMKV decrypts it from the image.
+	SourceISO
 )
 
 // Source identifies what makemkvcon should read from. Scans and rips both take
@@ -18,7 +21,12 @@ const (
 type Source struct {
 	Kind       SourceKind
 	DriveIndex int    // valid when Kind == SourceDisc
-	Path       string // valid when Kind == SourceFile
+	Path       string // valid when Kind == SourceFile or SourceISO
+	// Detached marks a source that is complete on disk and reads no drive: a
+	// disc image or a real copy. makemkvcon on it can run with no drive in
+	// sight, beside work on any drive. A symlink tree into a mounted disc
+	// reads that disc, so it is not detached.
+	Detached bool
 }
 
 // DiscSource returns a Source addressing the drive at driveIndex.
@@ -31,10 +39,24 @@ func FileSource(path string) Source {
 	return Source{Kind: SourceFile, Path: path}
 }
 
+// CopySource returns a Source addressing a disc folder copied whole onto
+// disk, which reads no drive.
+func CopySource(path string) Source {
+	return Source{Kind: SourceFile, Path: path, Detached: true}
+}
+
+// ISOSource returns a Source addressing a disc image on disk.
+func ISOSource(path string) Source {
+	return Source{Kind: SourceISO, Path: path, Detached: true}
+}
+
 // Arg renders the source as the argument makemkvcon expects.
 func (s Source) Arg() string {
-	if s.Kind == SourceFile {
+	switch s.Kind {
+	case SourceFile:
 		return "file:" + s.Path
+	case SourceISO:
+		return "iso:" + s.Path
 	}
 	return fmt.Sprintf("disc:%d", s.DriveIndex)
 }

@@ -874,9 +874,12 @@ function formatDuration(secs) {
 											x-on:click="salvageDisc(r.driveIndex, r.discName)">
 											<span x-text="r.salvageResumable ? 'Resume salvage…' : 'Salvage this disc…'"></span>
 										</button>
-										<span class="text-muted text-sm" x-show="!$store.activity.salvageActive" x-text="r.salvageResumable ? ' Continues from where the last attempt stopped' : ' Recover what is still readable, accepting damaged video'"></span>
+										<span class="text-muted text-sm" x-show="!$store.activity.salvageActive" x-text="r.salvageResumable ? ' Continues from where the last attempt stopped' : (r.salvageTitles > 1 ? ' Copies everything still readable from the disc, then rips these ' + r.salvageTitles + ' titles again. Unreadable spots will glitch.' : ' Copies everything still readable from the disc, then rips this title again. Unreadable spots will glitch.')"></span>
 										<span class="text-muted text-sm" x-show="$store.activity.salvageActive"> A salvage is already running</span>
 									</div>
+								</template>
+								<template x-if="r.salvageCovered">
+									<p class="text-muted text-sm mt-2">Salvaging this disc rips this title again.</p>
 								</template>
 							</div>
 						</template>

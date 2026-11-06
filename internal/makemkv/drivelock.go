@@ -12,9 +12,9 @@ import (
 // only when each makemkvcon is isolated to its own drive; see Executor.claim.
 //
 // A drive listing (info disc:9999) is different. It probes every drive, so it
-// runs alone, and so does anything not tied to one drive here: a folder source,
-// or a salvage's ddrescue held through LockDrive. An unlocked poll against a
-// drive ddrescue was reading took a rescue from 14 MB/s to 2.4 MB/s.
+// runs alone, and so does a folder source that reads a drive through a mount.
+// A salvage's ddrescue holds just its own drive, through ClaimDrive. A disc
+// image or whole copy reads no drive and, isolated, holds nothing.
 //
 // all is held for reading by work on one drive and for writing by work that
 // needs every drive. A drive's lane is taken before all, so work queued for a
@@ -71,11 +71,32 @@ func (l *driveLocks) every() func() {
 // alone in its /dev (see makemkvconCommand), and claims just its own drive.
 // Without isolation, or without a device path to isolate to, the command would
 // reach every drive, so it claims every drive and waits for the others.
-func (e *Executor) claim(src Source, devicePath string) (release func(), target string) {
+//
+// A detached source — a disc image or a whole copy — reads no drive. With
+// isolation its makemkvcon runs with no drive in its /dev, so it claims
+// nothing and runs beside work on any drive; the returned context carries that
+// to makemkvconCommand. Without isolation it would still open every drive, so
+// it claims every drive like any other.
+func (e *Executor) claim(ctx context.Context, src Source, devicePath string) (release func(), target string, _ context.Context) {
 	if src.IsDisc() && e.isolate && devicePath != "" {
-		return e.locks.one(src.DriveIndex), devTargetPrefix + devicePath
+		return e.locks.one(src.DriveIndex), devTargetPrefix + devicePath, ctx
 	}
-	return e.locks.every(), src.Arg()
+	if src.Detached && e.isolate {
+		return func() {}, src.Arg(), withNoDrive(ctx)
+	}
+	return e.locks.every(), src.Arg(), ctx
+}
+
+// ClaimDrive holds one drive for work that does not go through this executor:
+// a salvage's ddrescue reading the device directly. Nothing else may drive it
+// meanwhile, and a drive listing, which probes every drive, waits — the poller
+// contending with an unlocked rescue took it from 14 MB/s to 2.4 MB/s. Work on any
+// other drive is unaffected: an isolated makemkvcon cannot see this drive, and
+// an unisolated one claims every drive and so waits too.
+//
+// The caller must call the returned release.
+func (e *Executor) ClaimDrive(driveIndex int) (release func()) {
+	return e.locks.one(driveIndex)
 }
 
 func (l *driveLocks) remember(drives []DriveInfo) {

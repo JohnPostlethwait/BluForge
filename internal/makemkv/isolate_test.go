@@ -60,7 +60,7 @@ func TestIsolatedScanAddressesTheDriveByItsDeviceNode(t *testing.T) {
 // beside other drives' work: it would reach them all.
 func TestWithoutADevicePathAScanClaimsEveryDrive(t *testing.T) {
 	ex := NewExecutor(WithRunner(newGatedRunner()), WithDriveIsolation(true))
-	release, target := ex.claim(DiscSource(3), "")
+	release, target, _ := ex.claim(context.Background(), DiscSource(3), "")
 	defer release()
 
 	if target != "disc:3" {

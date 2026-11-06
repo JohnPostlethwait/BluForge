@@ -46,6 +46,11 @@ type activityJobJSON struct {
 	// is what puts the offer on the card. Only ever an offer: a salvage
 	// produces damaged video and is the user's decision to make.
 	Salvageable bool `json:"salvageable,omitempty"`
+	// SalvageTitles is how many titles the offered salvage would rip again.
+	SalvageTitles int `json:"salvageTitles,omitempty"`
+	// SalvageCovered marks a failed title that the disc's salvage offer, on
+	// another card, would rip again.
+	SalvageCovered bool `json:"salvageCovered,omitempty"`
 	// Phase is "analyzing" or "copying" for a running rip. Progress advances
 	// through both, but only means bytes written during the copy.
 	Phase string `json:"phase,omitempty"`
@@ -288,9 +293,49 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 
 	if s.orchestrator != nil {
 		store.DiscsWithBackup = s.orchestrator.DiscsWithBackup()
+		s.offerSalvageOncePerDisc(store.History)
 	}
 
 	return store, nil
+}
+
+// offerSalvageOncePerDisc puts the salvage offer on one card per disc.
+//
+// A salvage recovers the whole disc and then rips every title from its latest
+// failed attempt again. Offering it on each failed card read as a per-title
+// action, three identical buttons for one operation. The first card of the
+// attempt carries the offer and says how many titles it covers; the rest say
+// they are covered by it.
+func (s *Server) offerSalvageOncePerDisc(rows []activityJobJSON) {
+	batches := make(map[string]map[int64]bool)
+	offered := make(map[string]bool)
+	for i := range rows {
+		r := &rows[i]
+		if !r.Salvageable {
+			continue
+		}
+		batch, ok := batches[r.DiscName]
+		if !ok {
+			batch = make(map[int64]bool)
+			for _, j := range s.orchestrator.SalvageBatch(r.DiscName) {
+				batch[j.ID] = true
+			}
+			batches[r.DiscName] = batch
+		}
+		r.Salvageable = false
+		if !batch[r.ID] {
+			// A failure from an earlier attempt. A salvage would not rip it.
+			continue
+		}
+		if offered[r.DiscName] {
+			r.SalvageCovered = true
+			continue
+		}
+		offered[r.DiscName] = true
+		r.Salvageable = true
+		r.SalvageTitles = len(batch)
+		r.SalvageResumable = s.orchestrator.SalvageResumable(r.DiscName)
+	}
 }
 
 // handleActivity renders the activity page. It never returns JSON, even when the

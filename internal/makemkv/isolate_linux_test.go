@@ -136,3 +136,29 @@ func TestHelperRefusesAnythingButMakemkvconOnAnOpticalDrive(t *testing.T) {
 		}
 	}
 }
+
+// A makemkvcon reading a disc image gets the base nodes and no drive at all.
+func TestNoDriveIsolationHoldsOnlyTheBaseNodes(t *testing.T) {
+	nodes, err := isolatedNodes(NoDrive)
+	if err != nil {
+		t.Fatalf("isolatedNodes: %v", err)
+	}
+	if strings.Join(nodes, " ") != strings.Join(baseDevices, " ") {
+		t.Errorf("nodes = %v, want only %v", nodes, baseDevices)
+	}
+}
+
+// NoDrive widens what the helper accepts by that one exact word, and it still
+// runs makemkvcon and nothing else.
+func TestHelperRefusesNoDriveForAnythingButMakemkvcon(t *testing.T) {
+	for _, args := range [][]string{
+		{NoDrive, "--", "/bin/sh", "-c", "id"},
+		{"None", "--", "makemkvcon", "info"},
+		{NoDrive + "0", "--", "makemkvcon", "info"},
+		{"/dev/" + NoDrive, "--", "makemkvcon", "info"},
+	} {
+		if err := RunIsolateHelper(args); err == nil {
+			t.Errorf("RunIsolateHelper(%q) accepted it", args)
+		}
+	}
+}

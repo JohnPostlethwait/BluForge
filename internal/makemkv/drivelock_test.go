@@ -20,6 +20,13 @@ type gatedRunner struct {
 	release map[string]chan struct{} // close to let a command on target finish
 	ran     []string                 // targets run, in order
 	lists   int
+	noDrive int // commands run marked to see no drive
+}
+
+func (g *gatedRunner) noDriveRuns() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.noDrive
 }
 
 func newGatedRunner(targets ...string) *gatedRunner {
@@ -72,6 +79,9 @@ func (g *gatedRunner) Run(ctx context.Context, args ...string) (*strings.Reader,
 		return strings.NewReader(twoDriverOutput), nil
 	}
 	g.ran = append(g.ran, target)
+	if runsWithNoDrive(ctx) {
+		g.noDrive++
+	}
 	started, release := g.started[target], g.release[target]
 	g.mu.Unlock()
 	if started != nil {
@@ -342,25 +352,145 @@ func TestDevicePathComesFromTheLastListingWhileAnotherDriveIsBusy(t *testing.T) 
 	waitClosed(t, backupDone, "the backup of drive 0")
 }
 
-// Work held through LockDrive — a salvage's ddrescue, which runs outside this
-// executor — still holds every drive, as before.
-func TestLockDriveStillExcludesEveryDrive(t *testing.T) {
+// A salvage's ddrescue holds its own drive through ClaimDrive. Work on that
+// drive and drive listings wait; a rip on the other drive does not. Claiming
+// every drive held a second drive idle for the hours a rescue can run.
+func TestClaimDriveHoldsOnlyThatDrive(t *testing.T) {
 	g := newGatedRunner()
 	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
+	// The poller has listed before any salvage starts, which is what a scan
+	// reads its device path from while a drive is busy.
+	if _, err := ex.ListDrives(context.Background()); err != nil {
+		t.Fatalf("ListDrives: %v", err)
+	}
 
-	ex.LockDrive()
-	scanDone := make(chan struct{})
+	release := ex.ClaimDrive(0)
+
+	other := make(chan struct{})
 	go func() {
 		_, _ = ex.ScanDisc(context.Background(), 1)
+		close(other)
+	}()
+	waitClosed(t, other, "the scan of drive 1 while drive 0 is claimed")
+
+	if _, listed, _ := ex.TryListDrives(context.Background()); listed {
+		t.Error("a drive listing ran while drive 0 was claimed")
+	}
+
+	same := make(chan struct{})
+	go func() {
+		_, _ = ex.ScanDisc(context.Background(), 0)
+		close(same)
+	}()
+	select {
+	case <-same:
+		t.Fatal("a scan of drive 0 ran while it was claimed")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	waitClosed(t, same, "the scan of drive 0 once released")
+}
+
+// Without isolation every makemkvcon reaches every drive, so a claimed drive
+// still holds up work addressed to the other one.
+func TestClaimDriveWithoutIsolationHoldsEveryDrive(t *testing.T) {
+	g := newGatedRunner()
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(false))
+
+	release := ex.ClaimDrive(0)
+	scanDone := make(chan struct{})
+	go func() {
+		_, _ = ex.ScanSource(context.Background(), DiscSource(1))
 		close(scanDone)
 	}()
 	select {
 	case <-scanDone:
-		t.Fatal("a scan ran while LockDrive was held")
+		t.Fatal("an unisolated scan ran while a drive was claimed")
 	case <-time.After(200 * time.Millisecond):
 	}
-	ex.UnlockDrive()
-	waitClosed(t, scanDone, "the scan once LockDrive was released")
+	release()
+	waitClosed(t, scanDone, "the scan once the drive was released")
+}
+
+// A salvaged disc image reads no drive. Isolated with no drive in sight, its
+// scan runs while another drive is busy, and is marked to run that way.
+func TestDetachedScanRunsBesideABusyDrive(t *testing.T) {
+	g := newGatedRunner("disc:0")
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
+
+	backupDone := make(chan struct{})
+	go func() {
+		_ = ex.Backup(context.Background(), 0, t.TempDir(), nil)
+		close(backupDone)
+	}()
+	waitClosed(t, g.started["disc:0"], "the backup of drive 0 to start")
+
+	scanDone := make(chan struct{})
+	go func() {
+		_, _ = ex.ScanSource(context.Background(), ISOSource(filepath.Join(t.TempDir(), "disc.iso")))
+		close(scanDone)
+	}()
+	waitClosed(t, scanDone, "the image scan while drive 0 is busy")
+	if got := g.noDriveRuns(); got != 1 {
+		t.Errorf("%d commands ran with no drive, want the image scan", got)
+	}
+
+	close(g.release["disc:0"])
+	waitClosed(t, backupDone, "the backup of drive 0")
+}
+
+// Without isolation a detached source's makemkvcon would still open every
+// drive, so it waits like any folder source.
+func TestDetachedScanRunsAloneWithoutIsolation(t *testing.T) {
+	g := newGatedRunner("disc:0")
+	ex := NewExecutor(WithRunner(g), WithUnmountBefore(noUnmount), WithDriveIsolation(false))
+
+	backupDone := make(chan struct{})
+	go func() {
+		_ = ex.Backup(context.Background(), 0, t.TempDir(), nil)
+		close(backupDone)
+	}()
+	waitClosed(t, g.started["disc:0"], "the backup of drive 0 to start")
+
+	scanDone := make(chan struct{})
+	go func() {
+		_, _ = ex.ScanSource(context.Background(), ISOSource(filepath.Join(t.TempDir(), "disc.iso")))
+		close(scanDone)
+	}()
+	select {
+	case <-scanDone:
+		t.Fatal("an unisolated image scan ran while drive 0 was busy")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if got := g.noDriveRuns(); got != 0 {
+		t.Errorf("%d commands asked for no-drive isolation with isolation off", got)
+	}
+
+	close(g.release["disc:0"])
+	waitClosed(t, backupDone, "the backup of drive 0")
+	waitClosed(t, scanDone, "the image scan")
+}
+
+// The no-drive mark reaches the helper as NoDrive.
+func TestNoDriveCommandUsesTheHelper(t *testing.T) {
+	var device string
+	prev := isolatedCommand
+	isolatedCommand = func(ctx context.Context, d string, args []string) *exec.Cmd {
+		device = d
+		return exec.CommandContext(ctx, "true")
+	}
+	t.Cleanup(func() { isolatedCommand = prev })
+
+	makemkvconCommand(withNoDrive(context.Background()), "-r", "info", "iso:/x/disc.iso")
+	if device != NoDrive {
+		t.Errorf("helper device = %q, want %q", device, NoDrive)
+	}
+
+	device = ""
+	makemkvconCommand(context.Background(), "-r", "info", "file:/x")
+	if device != "" {
+		t.Errorf("an unmarked folder command was isolated to %q", device)
+	}
 }
 
 // A folder source has no drive of its own here, so it keeps the old

@@ -68,3 +68,12 @@ func TestEngineRipsFromJobSource(t *testing.T) {
 		t.Errorf("rip issued against %q, want the backup folder", got[0].Arg())
 	}
 }
+
+// A salvaged DVD is a disc image, and rips from it rather than the drive.
+func TestJobRipSourceKeepsISO(t *testing.T) {
+	job := NewJob(1, 3, "DISC", "/tmp/out")
+	job.Source = makemkv.ISOSource("/output/.bluforge-scratch/disc-abc123/disc.iso")
+	if got := job.RipSource().Arg(); got != "iso:/output/.bluforge-scratch/disc-abc123/disc.iso" {
+		t.Errorf("RipSource() = %q, want the disc image", got)
+	}
+}

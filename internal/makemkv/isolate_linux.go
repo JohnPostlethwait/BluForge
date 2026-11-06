@@ -41,14 +41,12 @@ func RunIsolateHelper(args []string) error {
 		return errors.New("usage: " + IsolateSubcommand + " /dev/srN -- makemkvcon args...")
 	}
 	device, argv := args[0], args[2:]
-	if !opticalNodeRE.MatchString(device) {
+	if device != NoDrive && !opticalNodeRE.MatchString(device) {
 		return fmt.Errorf("isolate: %s is not an optical drive node", device)
 	}
 	if argv[0] != "makemkvcon" {
 		return fmt.Errorf("isolate: runs makemkvcon only, not %q", argv[0])
 	}
-	name := filepath.Base(device)
-
 	// The program is a fixed path, never looked up through the caller's PATH:
 	// the helper holds CAP_SYS_ADMIN until the exec, so nothing the caller
 	// controls should choose what it runs. The entrypoint installs makemkvcon
@@ -58,13 +56,9 @@ func RunIsolateHelper(args []string) error {
 		return fmt.Errorf("isolate: %w", err)
 	}
 
-	nodes := append([]string{name}, baseDevices...)
-	sgs, err := os.ReadDir(filepath.Join("/sys/block", name, "device", "scsi_generic"))
+	nodes, err := isolatedNodes(device)
 	if err != nil {
-		return fmt.Errorf("isolate: find the SCSI generic node for %s: %w", device, err)
-	}
-	for _, sg := range sgs {
-		nodes = append(nodes, sg.Name())
+		return fmt.Errorf("isolate: %w", err)
 	}
 
 	if err := isolateDev(nodes); err != nil {
@@ -74,6 +68,26 @@ func RunIsolateHelper(args []string) error {
 		return fmt.Errorf("isolate: %w", err)
 	}
 	return syscall.Exec(prog, argv, os.Environ())
+}
+
+// isolatedNodes lists the /dev entries an isolated makemkvcon gets: the drive's
+// block and SCSI generic nodes and baseDevices, or baseDevices alone for
+// NoDrive, which reads a disc image or copy and must reach no drive.
+func isolatedNodes(device string) ([]string, error) {
+	nodes := append([]string(nil), baseDevices...)
+	if device == NoDrive {
+		return nodes, nil
+	}
+	name := filepath.Base(device)
+	nodes = append(nodes, name)
+	sgs, err := os.ReadDir(filepath.Join("/sys/block", name, "device", "scsi_generic"))
+	if err != nil {
+		return nil, fmt.Errorf("find the SCSI generic node for %s: %w", device, err)
+	}
+	for _, sg := range sgs {
+		nodes = append(nodes, sg.Name())
+	}
+	return nodes, nil
 }
 
 // makemkvconPath is where the entrypoint installs makemkvcon, and the only

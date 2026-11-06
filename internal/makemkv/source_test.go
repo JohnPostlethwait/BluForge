@@ -16,6 +16,7 @@ func TestSourceArg(t *testing.T) {
 		{"disc nonzero", DiscSource(3), "disc:3"},
 		{"file source", FileSource("/output/.bluforge-scratch/slug"), "file:/output/.bluforge-scratch/slug"},
 		{"file source with spaces", FileSource("/mnt/My Disc"), "file:/mnt/My Disc"},
+		{"iso source", ISOSource("/output/.bluforge-scratch/slug/disc.iso"), "iso:/output/.bluforge-scratch/slug/disc.iso"},
 	}
 
 	for _, tt := range tests {
@@ -33,6 +34,9 @@ func TestSourceIsDisc(t *testing.T) {
 	}
 	if FileSource("/tmp/x").IsDisc() {
 		t.Error("FileSource.IsDisc() = true, want false")
+	}
+	if ISOSource("/tmp/x.iso").IsDisc() {
+		t.Error("ISOSource.IsDisc() = true, want false")
 	}
 }
 
