@@ -70,7 +70,8 @@ install_makemkv() {
 
     # Cleanup build temp dir
     rm -rf "$MKTMP"
-    cd /
+    # BluForge serves static/ relative to its working directory.
+    cd /app
 
     echo "[entrypoint] MakeMKV ${MAKEMKV_VERSION} installed and cached to ${MAKEMKV_CACHE_DIR}."
 }
