@@ -16,9 +16,11 @@ MAKEMKV_VERSION="${MAKEMKV_VERSION:-1.18.3}"
 MAKEMKV_CACHE_DIR="/config/makemkv-${MAKEMKV_VERSION}"
 
 install_makemkv() {
-    if [ -x "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" ]; then
+    # makemkvcon runs mmgplsrv and mmccextr as helpers. A cache made before
+    # they were saved lacks them, so rebuild once to get them.
+    if [ -x "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" ] && [ -x "${MAKEMKV_CACHE_DIR}/bin/mmgplsrv" ] && [ -x "${MAKEMKV_CACHE_DIR}/bin/mmccextr" ]; then
         echo "[entrypoint] Restoring MakeMKV ${MAKEMKV_VERSION} from cache..."
-        cp "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" /usr/bin/makemkvcon
+        cp "${MAKEMKV_CACHE_DIR}/bin/makemkvcon" "${MAKEMKV_CACHE_DIR}/bin/mmgplsrv" "${MAKEMKV_CACHE_DIR}/bin/mmccextr" /usr/bin/
         if ls "${MAKEMKV_CACHE_DIR}/lib/"*.so.* >/dev/null 2>&1; then
             cp "${MAKEMKV_CACHE_DIR}/lib/"*.so.* /usr/lib/
         fi
@@ -34,9 +36,12 @@ install_makemkv() {
 
     MKTMP=$(mktemp -d)
 
-    wget --show-progress -P "$MKTMP" \
-        "https://www.makemkv.com/download/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" \
-        "https://www.makemkv.com/download/makemkv-bin-${MAKEMKV_VERSION}.tar.gz"
+    # The current release is under download/; older ones move to download/old/.
+    for pkg in oss bin; do
+        f="makemkv-${pkg}-${MAKEMKV_VERSION}.tar.gz"
+        wget -q -P "$MKTMP" "https://www.makemkv.com/download/$f" ||
+            wget -q -P "$MKTMP" "https://www.makemkv.com/download/old/$f"
+    done
 
     tar xf "$MKTMP/makemkv-oss-${MAKEMKV_VERSION}.tar.gz" -C "$MKTMP"
     tar xf "$MKTMP/makemkv-bin-${MAKEMKV_VERSION}.tar.gz" -C "$MKTMP"
@@ -57,7 +62,7 @@ install_makemkv() {
 
     # Cache installed artifacts to /config so subsequent starts skip compilation
     mkdir -p "${MAKEMKV_CACHE_DIR}/bin" "${MAKEMKV_CACHE_DIR}/lib" "${MAKEMKV_CACHE_DIR}/share"
-    cp /usr/bin/makemkvcon "${MAKEMKV_CACHE_DIR}/bin/"
+    cp /usr/bin/makemkvcon /usr/bin/mmgplsrv /usr/bin/mmccextr "${MAKEMKV_CACHE_DIR}/bin/"
     for lib in libdriveio.so.0 libmakemkv.so.1 libmmbd.so.0; do
         [ -f "/usr/lib/$lib" ] && cp "/usr/lib/$lib" "${MAKEMKV_CACHE_DIR}/lib/"
     done
