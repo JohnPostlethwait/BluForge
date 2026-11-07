@@ -19,7 +19,7 @@ func TestCurrentSalvageTellsAFreshPageWhatIsRunning(t *testing.T) {
 	b := &blockingBackupper{release: make(chan struct{}), started: make(chan struct{})}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if got := orch.CurrentSalvage(); got.Active {

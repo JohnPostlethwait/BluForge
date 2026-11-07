@@ -6,7 +6,8 @@ import "fmt"
 type SourceKind int
 
 const (
-	// SourceDisc is a physical drive, addressed as "disc:N".
+	// SourceDisc is a physical drive, addressed by its device node as
+	// "dev:/dev/srN".
 	SourceDisc SourceKind = iota
 	// SourceFile is a decrypted or backed-up disc folder, addressed as "file:<path>".
 	SourceFile
@@ -20,23 +21,42 @@ const (
 // MakeMKV refuses to open.
 type Source struct {
 	Kind       SourceKind
-	DriveIndex int    // valid when Kind == SourceDisc
-	Path       string // valid when Kind == SourceFile or SourceISO
+	DriveIndex int // valid when Kind == SourceDisc
+	// Device is the drive's node, e.g. /dev/sr1, when Kind == SourceDisc. Only
+	// internal/drives fills it in: a disc is read through the drive's holder.
+	Device string
+	Path   string // valid when Kind == SourceFile or SourceISO
 	// Detached marks a source that is complete on disk and reads no drive: a
 	// disc image or a real copy. makemkvcon on it can run with no drive in
 	// sight, beside work on any drive. A symlink tree into a mounted disc
 	// reads that disc, so it is not detached.
 	Detached bool
+	// Linked marks a tree of links into a mounted disc: it reads drive
+	// DriveIndex through that mount, so the drive is held and mounted for as
+	// long as makemkvcon reads it.
+	Linked bool
 }
 
-// DiscSource returns a Source addressing the drive at driveIndex.
+// DiscSource returns a Source naming the drive at driveIndex. It carries no
+// device: internal/drives resolves it when the drive is held.
 func DiscSource(driveIndex int) Source {
 	return Source{Kind: SourceDisc, DriveIndex: driveIndex}
+}
+
+// DeviceSource returns a Source addressing the drive at driveIndex by its node.
+func DeviceSource(driveIndex int, device string) Source {
+	return Source{Kind: SourceDisc, DriveIndex: driveIndex, Device: device}
 }
 
 // FileSource returns a Source addressing a disc folder on disk.
 func FileSource(path string) Source {
 	return Source{Kind: SourceFile, Path: path}
+}
+
+// LinkedSource returns a Source addressing a tree of links into the mounted
+// disc in drive driveIndex.
+func LinkedSource(driveIndex int, path string) Source {
+	return Source{Kind: SourceFile, DriveIndex: driveIndex, Path: path, Linked: true}
 }
 
 // CopySource returns a Source addressing a disc folder copied whole onto
@@ -57,6 +77,9 @@ func (s Source) Arg() string {
 		return "file:" + s.Path
 	case SourceISO:
 		return "iso:" + s.Path
+	}
+	if s.Device != "" {
+		return devTargetPrefix + s.Device
 	}
 	return fmt.Sprintf("disc:%d", s.DriveIndex)
 }

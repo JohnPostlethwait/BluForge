@@ -18,10 +18,10 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/drivemanager"
+	"github.com/johnpostlethwait/bluforge/internal/drives"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/logging"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
-	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 	"github.com/johnpostlethwait/bluforge/internal/web"
@@ -103,10 +103,11 @@ func main() {
 	} else {
 		slog.Info("makemkvcon confined to one drive per command; drives work at the same time")
 	}
-	executor := makemkv.NewExecutor(
+	// The broker is the one owner of every drive: nothing else in BluForge
+	// opens a drive or runs a program against one. See internal/drives.
+	broker := drives.New(isolationErr == nil, []makemkv.Option{
 		makemkv.WithFailureLogDir("/config/logs"),
-		makemkv.WithDriveIsolation(isolationErr == nil),
-	)
+	})
 	if path, err := exec.LookPath("makemkvcon"); err != nil {
 		slog.Error("makemkvcon not found in PATH", "error", err)
 	} else {
@@ -126,7 +127,7 @@ func main() {
 	org := organizer.New()
 
 	// 9. Create rip engine with onUpdate callback.
-	ripEngine := ripper.NewEngine(executor)
+	ripEngine := ripper.NewEngine(broker)
 	ripEngine.OnUpdate(func(job *ripper.Job) {
 		slog.Info("rip job update", "drive_index", job.DriveIndex, "status", job.Status, "progress", job.Progress)
 		data, err := json.Marshal(job)
@@ -145,10 +146,11 @@ func main() {
 		OnBroadcast: func(event, data string) {
 			sseHub.Broadcast(web.SSEEvent{Event: event, Data: data})
 		},
-		Scanner:   executor,
+		Scanner:   broker,
 		DiscDB:    discdbClient,
 		Cache:     discdbCache,
-		Backupper: executor,
+		Backupper: broker,
+		Holder:    broker,
 	})
 	// Recovery writes disc backups under the output directory, so it needs to
 	// know where that is even when triggered from the scan path.
@@ -200,7 +202,7 @@ func main() {
 	// has no business delaying the web server by tens of seconds.
 	go func() {
 		start := time.Now()
-		drivemanager.CheckOpticalAccess()
+		drives.CheckOpticalAccess()
 		slog.Info("optical access check complete", "took", time.Since(start).String())
 	}()
 
@@ -210,7 +212,7 @@ func main() {
 	// a forward-reference error.
 	var srv *web.Server
 	var driveMgr *drivemanager.Manager
-	driveMgr = drivemanager.NewManager(executor, func(ev drivemanager.DriveEvent) {
+	driveMgr = drivemanager.NewManager(broker, func(ev drivemanager.DriveEvent) {
 		slog.Info("drive event", "type", ev.Type, "drive_index", ev.DriveIndex, "disc_name", ev.DiscName)
 		data, err := json.Marshal(ev)
 		if err != nil {
@@ -235,7 +237,7 @@ func main() {
 		switch ev.Type {
 		case drivemanager.EventDiscEjected, drivemanager.EventDiscInserted, drivemanager.EventDriveDisconnect:
 			if ev.DevicePath != "" {
-				if err := mpls.ForceUnmount(ev.DevicePath); err != nil {
+				if err := broker.ReleaseMount(ev.DevicePath); err != nil {
 					slog.Warn("could not release the disc mount after a drive event",
 						"device", ev.DevicePath, "event", ev.Type, "error", err)
 				}

@@ -23,7 +23,7 @@ import (
 // Fails under -race before the fix.
 func TestBuildDriveStoreDoesNotRaceWithASearch(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SESSION_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 	srv := newTestServer(t, mgr)
 
 	drv := mgr.GetDrive(0)

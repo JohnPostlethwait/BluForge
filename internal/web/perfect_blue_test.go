@@ -69,7 +69,7 @@ func TestSwappingToASameLabelDiscShowsTheNewDisc(t *testing.T) {
 	}}
 
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "PERFECT_BLUE"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{Scanner: scanner})
 	srv := newTestServer(t, mgr)

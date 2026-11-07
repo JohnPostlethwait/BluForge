@@ -20,7 +20,7 @@ func (r *seqRunner) Run(_ context.Context, args ...string) (*strings.Reader, err
 	switch {
 	case strings.Contains(joined, "disc:9999"):
 		*r.seq = append(*r.seq, "listdrives")
-	case strings.Contains(joined, "info disc:"):
+	case strings.Contains(joined, "info dev:"):
 		*r.seq = append(*r.seq, "scan")
 	default:
 		*r.seq = append(*r.seq, "run:"+joined)
@@ -39,7 +39,7 @@ func TestScanReleasesTheDeviceMountBeforeDrivingMakemkvcon(t *testing.T) {
 		return nil
 	}))
 
-	_, _ = ex.ScanDisc(context.Background(), 1)
+	_, _ = ex.ScanSource(context.Background(), discSrc(1))
 
 	unmountAt, scanAt := -1, -1
 	for i, e := range seq {
@@ -73,7 +73,7 @@ func TestRipAbortsWhenTheDeviceMountCannotBeReleased(t *testing.T) {
 		return errors.New("still mounted at /mnt/sr1")
 	}))
 
-	err := ex.StartRip(context.Background(), DiscSource(1), 0, "", t.TempDir(), nil, nil)
+	err := ex.StartRip(context.Background(), discSrc(1), 0, "", t.TempDir(), nil, nil)
 	if err == nil {
 		t.Fatal("the rip proceeded even though the device mount could not be released")
 	}
@@ -91,7 +91,7 @@ func TestScanAbortsWhenTheDeviceMountCannotBeReleased(t *testing.T) {
 		return errors.New("still mounted at /mnt/sr1")
 	}))
 
-	_, err := ex.ScanDisc(context.Background(), 1)
+	_, err := ex.ScanSource(context.Background(), discSrc(1))
 	if err == nil {
 		t.Fatal("the scan proceeded even though the device mount could not be released")
 	}

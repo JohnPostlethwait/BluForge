@@ -34,7 +34,7 @@ func TestPausingIsReportedAsPausedNotFailed(t *testing.T) {
 	b := &pausableBackupper{started: make(chan struct{})}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if err := orch.StartSalvage(0); err != nil {
@@ -78,7 +78,7 @@ func TestSalvageEventsCarryWhetherThereIsSomethingToResume(t *testing.T) {
 	close(b.release)
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if err := orch.StartSalvage(0); err != nil {

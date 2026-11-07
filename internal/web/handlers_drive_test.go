@@ -85,7 +85,7 @@ func TestHandleDriveSearch_EmptyQuery(t *testing.T) {
 
 func TestHandleDashboard_JSONStore(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TestDisc"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.echo.GET("/", srv.handleDashboard)
@@ -143,7 +143,7 @@ func TestHandleDriveSearch_JSONEmptyQuery(t *testing.T) {
 
 func TestDriveSelectFlow_PersistsAcrossRefresh(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld Season 1"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.echo.POST("/drives/:id/select", srv.handleDriveSelectAlpine)
@@ -198,7 +198,7 @@ func TestDriveSessionClearedOnEject(t *testing.T) {
 
 func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "Seinfeld_Season_1"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{})
 
@@ -289,7 +289,7 @@ func TestHandleDriveMatch_ReturnsEnrichedTitles(t *testing.T) {
 func TestHandleDriveDetail_ActiveRipSetsStoreFields(t *testing.T) {
 	// Set up a drive manager with a disc loaded.
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "THE_BFG"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	// Set up a blocking rip engine with one active job on drive index 0.
 	// blockingRipExecutor is defined in handlers_activity_test.go (same package).

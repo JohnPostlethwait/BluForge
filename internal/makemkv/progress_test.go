@@ -53,7 +53,7 @@ func TestScanDiscWithProgressReportsEvents(t *testing.T) {
 
 	var mu sync.Mutex
 	var ops []string
-	scan, err := ex.ScanDiscWithProgress(context.Background(), 0, func(ev Event) {
+	scan, err := ex.ScanSourceWithProgress(context.Background(), discSrc(0), func(ev Event) {
 		mu.Lock()
 		defer mu.Unlock()
 		if ev.Operation != "" {
@@ -75,7 +75,7 @@ func TestScanDiscWithProgressReportsEvents(t *testing.T) {
 		t.Fatal("no command was run")
 	}
 	last := runner.calls[len(runner.calls)-1]
-	if last[len(last)-1] != "disc:0" {
-		t.Errorf("scanned %q, want disc:0", last[len(last)-1])
+	if last[len(last)-1] != "dev:/dev/sr0" {
+		t.Errorf("scanned %q, want dev:/dev/sr0", last[len(last)-1])
 	}
 }

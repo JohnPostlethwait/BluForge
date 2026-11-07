@@ -48,7 +48,7 @@ func TestASalvagesTitlesAreReachableAfterwards(t *testing.T) {
 	orch, _, outputDir := setupOrchestratorWithScanner(t, &mockDriveExecutor{})
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	// The disc is known before a salvage can be asked for: the drive reported it

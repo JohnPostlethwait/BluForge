@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
@@ -21,20 +22,32 @@ type lockOrderBackupper struct {
 	root   string
 }
 
-func (b *lockOrderBackupper) ClaimDrive(int) func() {
-	b.mu.Lock()
-	b.held = true
-	b.events = append(b.events, "lock")
-	b.mu.Unlock()
-	return b.release
+// orderHolder is a drive holder that records, into the backupper's log, when
+// the drive is held and let go.
+type orderHolder struct {
+	b    *lockOrderBackupper
+	root string
 }
 
-func (b *lockOrderBackupper) release() {
-	b.mu.Lock()
-	b.held = false
-	b.events = append(b.events, "unlock")
-	b.mu.Unlock()
+func (h *orderHolder) WithDiscRoot(ctx context.Context, _ int, _ string, fn func(ctx context.Context, root string, unmount func()) error) error {
+	h.b.mu.Lock()
+	h.b.held = true
+	h.b.events = append(h.b.events, "lock")
+	h.b.mu.Unlock()
+	defer func() {
+		h.b.mu.Lock()
+		h.b.held = false
+		h.b.events = append(h.b.events, "unlock")
+		h.b.mu.Unlock()
+	}()
+	return fn(ctx, h.root, func() {})
 }
+
+func (h *orderHolder) Rescue(ctx context.Context, _ int, runner ddrescue.Runner, opts ddrescue.Options, onProgress func(ddrescue.Progress)) error {
+	return ddrescue.Rescue(ctx, runner, opts, onProgress)
+}
+
+func (h *orderHolder) DiscSize(context.Context, int) (int64, error) { return 0, nil }
 
 func (b *lockOrderBackupper) Backup(_ context.Context, _ int, destDir string, _ func(makemkv.Event)) error {
 	entries, _ := os.ReadDir(filepath.Join(b.root, streamDir))
@@ -88,7 +101,7 @@ func TestTheDriveIsReleasedBeforeTheFolderScan(t *testing.T) {
 	b := &lockOrderBackupper{root: root, omit: filepath.Join(streamDir, "00000.m2ts")}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 1024}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = &orderHolder{b: b, root: root}
 	orch.outputDir = outputDir
 
 	if _, err := orch.Salvage(context.Background(), SalvageRequest{
@@ -127,7 +140,7 @@ func TestTheDriveIsReleasedWhenARescueFails(t *testing.T) {
 	b := &lockOrderBackupper{root: root, omit: filepath.Join(streamDir, "00000.m2ts")}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{err: errDeadlock}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = &orderHolder{b: b, root: root}
 	orch.outputDir = outputDir
 
 	if _, err := orch.Salvage(context.Background(), SalvageRequest{

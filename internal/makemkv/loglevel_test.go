@@ -106,7 +106,7 @@ func TestAScanStillAnnouncesItselfAtInfo(t *testing.T) {
 	ex := NewExecutor(WithRunner(runner))
 
 	c := captureRecords(t, slog.LevelInfo, func() {
-		_, _ = ex.ScanDisc(context.Background(), 0)
+		_, _ = ex.ScanSource(context.Background(), discSrc(0))
 	})
 
 	if !c.containsAt(slog.LevelInfo, "starting scan") {

@@ -48,7 +48,7 @@ func TestBackupOmitsDecryptFlag(t *testing.T) {
 	runner := &recordingRunner{output: "PRGV:100,100,100\n"}
 	ex := NewExecutor(WithRunner(runner))
 
-	if err := ex.Backup(context.Background(), 1, "/scratch/slug", nil); err != nil {
+	if err := ex.Backup(context.Background(), discSrc(1), "/scratch/slug", nil); err != nil {
 		t.Fatalf("Backup returned error: %v", err)
 	}
 
@@ -62,8 +62,8 @@ func TestBackupOmitsDecryptFlag(t *testing.T) {
 	if !argvContains(argv, "backup") {
 		t.Errorf("Backup did not issue the backup verb; argv = %v", argv)
 	}
-	if !argvContains(argv, "disc:1") {
-		t.Errorf("Backup did not target disc:1; argv = %v", argv)
+	if !argvContains(argv, "dev:/dev/sr1") {
+		t.Errorf("Backup did not target dev:/dev/sr1; argv = %v", argv)
 	}
 	if !argvContains(argv, "/scratch/slug") {
 		t.Errorf("Backup did not pass the destination; argv = %v", argv)
@@ -75,7 +75,7 @@ func TestBackupReportsProgress(t *testing.T) {
 	ex := NewExecutor(WithRunner(runner))
 
 	var got []int
-	err := ex.Backup(context.Background(), 0, "/scratch/slug", func(ev Event) {
+	err := ex.Backup(context.Background(), discSrc(0), "/scratch/slug", func(ev Event) {
 		if ev.Type == "PRGV" && ev.Progress != nil && ev.Progress.Max > 0 {
 			got = append(got, ev.Progress.Total*100/ev.Progress.Max)
 		}
@@ -99,7 +99,7 @@ func TestBackupNoDrivesGivesActionableError(t *testing.T) {
 	}
 	ex := NewExecutor(WithRunner(runner))
 
-	err := ex.Backup(context.Background(), 0, "/scratch/slug", nil)
+	err := ex.Backup(context.Background(), discSrc(0), "/scratch/slug", nil)
 	if err == nil {
 		t.Fatal("Backup succeeded, want error")
 	}
@@ -135,7 +135,7 @@ TCOUT:0
 	runner := &recordingRunner{output: spuriousOutput, err: errors.New("exit status 1")}
 	ex := NewExecutor(WithRunner(runner))
 
-	_, err := ex.ScanSource(context.Background(), DiscSource(2))
+	_, err := ex.ScanSource(context.Background(), discSrc(2))
 	if err == nil {
 		t.Fatal("ScanSource succeeded, want error")
 	}

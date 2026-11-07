@@ -35,7 +35,7 @@ func TestPauseWorksFromTheMomentASalvageStarts(t *testing.T) {
 	b := &slowStartBackupper{entered: make(chan struct{}), ctxErr: make(chan error, 1)}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if err := orch.StartSalvage(0); err != nil {

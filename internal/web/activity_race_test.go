@@ -56,7 +56,7 @@ func (p *progressingRipExecutor) StartRip(_ context.Context, _ makemkv.Source, _
 // handler and a running rip at the same time, so the race was invisible.
 func TestActivityHandlerDoesNotRaceWithARunningRip(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "RACE_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	exec := &progressingRipExecutor{stop: make(chan struct{})}
 	engine := ripper.NewEngine(exec)

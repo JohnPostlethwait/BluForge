@@ -60,7 +60,7 @@ func TestASameLabelSwapUnbindsTheRepairedCopy(t *testing.T) {
 		discNamed("PERFECT_BLUE", "00010.mpls", "00011.mpls"),
 	}}
 	orch, _, _ := setupOrchestratorWithScanner(t, scanner)
-	orch.openDiscRoot = func(string) (string, func(), error) { return bonusInDrive, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return bonusInDrive, func() {}, nil })
 	bindCopy(orch, 0, copyOfMain, "PERFECT_BLUE")
 	orch.SetDriveDisc(0, "PERFECT_BLUE")
 
@@ -86,7 +86,7 @@ func TestTheDiscACopyWasMadeFromIsStillReadFromTheCopy(t *testing.T) {
 
 	scanner := &swappableScanner{discs: []*makemkv.DiscScan{discNamed("PERFECT_BLUE", "00800.mpls")}}
 	orch, _, _ := setupOrchestratorWithScanner(t, scanner)
-	orch.openDiscRoot = func(string) (string, func(), error) { return sameDiscInDrive, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return sameDiscInDrive, func() {}, nil })
 	orch.InjectCachedScan(0, discNamed("PERFECT_BLUE", "00800.mpls", "00801.mpls"))
 	bindCopy(orch, 0, copyOfDisc, "PERFECT_BLUE")
 	orch.SetDriveDisc(0, "PERFECT_BLUE")
@@ -111,7 +111,7 @@ func TestAnUnreadableDiscLeavesTheCopyBound(t *testing.T) {
 
 	scanner := &swappableScanner{discs: []*makemkv.DiscScan{discNamed("PERFECT_BLUE", "00800.mpls")}}
 	orch, _, _ := setupOrchestratorWithScanner(t, scanner)
-	orch.openDiscRoot = func(string) (string, func(), error) { return "", func() {}, os.ErrNotExist }
+	orch.holder = holderFor(func(string) (string, func(), error) { return "", func() {}, os.ErrNotExist })
 	orch.InjectCachedScan(0, discNamed("PERFECT_BLUE", "00800.mpls"))
 	bindCopy(orch, 0, copyOfDisc, "PERFECT_BLUE")
 	orch.SetDriveDisc(0, "PERFECT_BLUE")

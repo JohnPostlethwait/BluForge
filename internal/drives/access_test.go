@@ -1,21 +1,9 @@
-package drivemanager
+package drives
 
 import (
 	"strings"
 	"testing"
 )
-
-func TestStateRecoveringIsDistinctFromDetected(t *testing.T) {
-	dsm := NewDriveState(0, "/dev/sr0")
-
-	dsm.SetState(StateRecovering)
-	if dsm.State() != StateRecovering {
-		t.Errorf("State() = %q, want %q", dsm.State(), StateRecovering)
-	}
-	if StateRecovering == StateDetected || StateRecovering == StateEmpty {
-		t.Error("StateRecovering collides with an existing state")
-	}
-}
 
 // The diagnosis exists so the message names the cause. A user reading it should
 // not have to know that makemkvcon enumerates drives through /dev/sg*.

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnpostlethwait/bluforge/internal/drives"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
@@ -240,14 +241,19 @@ func TestScanBroadcastsFailure(t *testing.T) {
 	}
 }
 
-// The real executor has to satisfy ProgressScanner, or scanOnce falls back to
-// the silent path at runtime and the page goes quiet again with nothing failing
-// to say so.
-func TestTheRealExecutorNarratesItsScans(t *testing.T) {
-	var scanner DiscScanner = makemkv.NewExecutor()
+// The real scanner, the drives broker, has to satisfy ProgressScanner, or
+// scanOnce falls back to the silent path at runtime and the page goes quiet
+// again with nothing failing to say so. It must also be the holder and the
+// backupper main wires it as.
+func TestTheBrokerNarratesItsScans(t *testing.T) {
+	var scanner DiscScanner = drives.New(false, nil)
 	if _, ok := scanner.(ProgressScanner); !ok {
-		t.Error("*makemkv.Executor no longer satisfies ProgressScanner; scans will run silently")
+		t.Error("*drives.Broker no longer satisfies ProgressScanner; scans will run silently")
 	}
+	var _ DriveHolder = drives.New(false, nil)
+	var _ DiscBackupper = drives.New(false, nil)
+	var _ DeviceLocator = drives.New(false, nil)
+	var _ DiscLabeller = drives.New(false, nil)
 }
 
 // A scanner that predates progress reporting must still work.

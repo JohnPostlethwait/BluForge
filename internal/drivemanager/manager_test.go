@@ -2,358 +2,269 @@ package drivemanager
 
 import (
 	"context"
-	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/johnpostlethwait/bluforge/internal/drives"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
 
-// mockExecutor is a test double for DriveExecutor.
-type mockExecutor struct {
-	drives []makemkv.DriveInfo
+// fakeSource stands in for the drives broker.
+type fakeSource struct {
+	mu         sync.Mutex
+	slots      []drives.Slot
+	infos      map[int]makemkv.DriveInfo
+	status     map[string]drives.Status
+	identified []int
 }
 
-func (m *mockExecutor) ListDrives(_ context.Context) ([]makemkv.DriveInfo, error) {
-	return m.drives, nil
+func newFakeSource() *fakeSource {
+	return &fakeSource{infos: map[int]makemkv.DriveInfo{}, status: map[string]drives.Status{}}
 }
 
-func (m *mockExecutor) ScanDisc(_ context.Context, _ int) (*makemkv.DiscScan, error) {
-	return &makemkv.DiscScan{}, nil
+func (f *fakeSource) Slots() ([]drives.Slot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]drives.Slot(nil), f.slots...), nil
 }
 
-func TestManagerDetectsDiscInsert(t *testing.T) {
-	var events []DriveEvent
-
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {
-		events = append(events, e)
-	})
-
-	mgr.PollOnce(context.Background())
-
-	// First poll emits disc_inserted + state_change (ready).
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
-	}
-
-	ev := events[0]
-	if ev.Type != EventDiscInserted {
-		t.Errorf("expected EventDiscInserted, got %q", ev.Type)
-	}
-	if ev.DriveIndex != 0 {
-		t.Errorf("expected DriveIndex 0, got %d", ev.DriveIndex)
-	}
-	if ev.DiscName != "MOVIE_DISC" {
-		t.Errorf("expected DiscName %q, got %q", "MOVIE_DISC", ev.DiscName)
-	}
-	if events[1].Type != EventStateChange {
-		t.Errorf("expected EventStateChange, got %q", events[1].Type)
-	}
+func (f *fakeSource) Identify(_ context.Context, idx int) (makemkv.DriveInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identified = append(f.identified, idx)
+	return f.infos[idx], nil
 }
 
-func TestManagerDetectsDiscEject(t *testing.T) {
-	var events []DriveEvent
-
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {
-		events = append(events, e)
-	})
-
-	// First poll: disc is present — should emit insert.
-	mgr.PollOnce(context.Background())
-
-	// Disc is gone. An eject is only believed once the absence has persisted for
-	// ejectConfirmDuration: a drive that is busy reports empty transiently, and
-	// acting on that discarded the user's selection in production. The clock is
-	// advanced rather than slept through.
-	mock.drives = []makemkv.DriveInfo{
-		{Index: 0, State: makemkv.DriveStateEmptyClosed, DriveName: "/dev/sr0", DiscName: "", Flags: 0},
-	}
-	base := time.Now()
-	mgr.now = func() time.Time { return base }
-	mgr.PollOnce(context.Background())
-	mgr.now = func() time.Time { return base.Add(ejectConfirmDuration) }
-	mgr.PollOnce(context.Background())
-
-	// First poll: insert + state_change. Confirmed absence: eject.
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events (insert + state_change + eject), got %d", len(events))
-	}
-
-	if events[0].Type != EventDiscInserted {
-		t.Errorf("expected first event to be EventDiscInserted, got %q", events[0].Type)
-	}
-
-	eject := events[2]
-	if eject.Type != EventDiscEjected {
-		t.Errorf("expected EventDiscEjected, got %q", eject.Type)
-	}
-	if eject.DriveIndex != 0 {
-		t.Errorf("expected DriveIndex 0, got %d", eject.DriveIndex)
-	}
-	if eject.DiscName != "MOVIE_DISC" {
-		t.Errorf("expected DiscName %q in eject event, got %q", "MOVIE_DISC", eject.DiscName)
-	}
+func (f *fakeSource) ProbeStatus(device string) drives.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.status[device]
 }
 
-func TestManagerMultipleDrives(t *testing.T) {
-	var events []DriveEvent
-
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
-			{Index: 1, State: makemkv.DriveStateInserted, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
-		},
+func (f *fakeSource) attach(idx int, name, disc string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	dev := "/dev/sr" + string(rune('0'+idx))
+	f.slots = append(f.slots, drives.Slot{Index: idx, Device: dev})
+	state := makemkv.DriveStateEmptyClosed
+	if disc != "" {
+		state = makemkv.DriveStateInserted
 	}
+	f.infos[idx] = makemkv.DriveInfo{Index: idx, DriveName: name, DiscName: disc, DevicePath: dev, State: state}
+}
 
-	mgr := NewManager(mock, func(e DriveEvent) {
-		events = append(events, e)
-	})
-
-	mgr.PollOnce(context.Background())
-
-	// First poll: 2 inserts + 1 state_change.
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events (2 inserts + state_change), got %d", len(events))
+func (f *fakeSource) setDisc(idx int, disc string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	info := f.infos[idx]
+	info.DiscName = disc
+	info.State = makemkv.DriveStateEmptyClosed
+	if disc != "" {
+		info.State = makemkv.DriveStateInserted
 	}
+	f.infos[idx] = info
+}
 
-	// Collect insert events by drive index for order-independent check.
-	byIndex := make(map[int]DriveEvent)
-	for _, ev := range events {
-		if ev.Type == EventDiscInserted {
-			byIndex[ev.DriveIndex] = ev
+func (f *fakeSource) setStatus(device string, s drives.Status) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.status[device] = s
+}
+
+type recorder struct {
+	mu     sync.Mutex
+	events []DriveEvent
+}
+
+func (r *recorder) on(ev DriveEvent) {
+	r.mu.Lock()
+	r.events = append(r.events, ev)
+	r.mu.Unlock()
+}
+
+func (r *recorder) count(t EventType) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, ev := range r.events {
+		if ev.Type == t {
+			n++
 		}
 	}
-
-	for _, idx := range []int{0, 1} {
-		ev, ok := byIndex[idx]
-		if !ok {
-			t.Errorf("missing insert event for drive %d", idx)
-			continue
-		}
-		if ev.Type != EventDiscInserted {
-			t.Errorf("drive %d: expected EventDiscInserted, got %q", idx, ev.Type)
-		}
-	}
-
-	if byIndex[0].DiscName != "DISC_ONE" {
-		t.Errorf("drive 0: expected DiscName %q, got %q", "DISC_ONE", byIndex[0].DiscName)
-	}
-	if byIndex[1].DiscName != "DISC_TWO" {
-		t.Errorf("drive 1: expected DiscName %q, got %q", "DISC_TWO", byIndex[1].DiscName)
-	}
+	return n
 }
 
-func TestReady_FalseBeforePoll(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-
-	if mgr.Ready() {
-		t.Error("expected Ready() to be false before PollOnce")
-	}
-}
-
-func TestReady_TrueAfterPoll(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-	mgr.PollOnce(context.Background())
-
-	if !mgr.Ready() {
-		t.Error("expected Ready() to be true after PollOnce")
-	}
-}
-
-func TestGetDrive_ValidIndex(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-	mgr.PollOnce(context.Background())
-
-	drive := mgr.GetDrive(0)
-	if drive == nil {
-		t.Fatal("expected non-nil drive for index 0")
-	}
-	if drive.Index() != 0 {
-		t.Errorf("expected Index() == 0, got %d", drive.Index())
-	}
-}
-
-func TestGetDrive_InvalidIndex(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-	mgr.PollOnce(context.Background())
-
-	drive := mgr.GetDrive(99)
-	if drive != nil {
-		t.Errorf("expected nil for invalid index 99, got %+v", drive)
-	}
-}
-
-func TestGetAllDrives_AfterPoll(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC_ONE", Flags: 1},
-			{Index: 1, State: makemkv.DriveStateInserted, DriveName: "/dev/sr1", DiscName: "DISC_TWO", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-	mgr.PollOnce(context.Background())
-
-	allDrives := mgr.GetAllDrives()
-	if len(allDrives) != 2 {
-		t.Errorf("expected 2 drives, got %d", len(allDrives))
-	}
-}
-
-func TestGetAllDrives_NoDrives(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-	mgr.PollOnce(context.Background())
-
-	allDrives := mgr.GetAllDrives()
-	if len(allDrives) != 0 {
-		t.Errorf("expected 0 drives, got %d", len(allDrives))
-	}
-}
-
-// mockErrorExecutor is a test double that returns configurable errors.
-type mockErrorExecutor struct {
-	listErr error
-	drives  []makemkv.DriveInfo
-}
-
-func (m *mockErrorExecutor) ListDrives(_ context.Context) ([]makemkv.DriveInfo, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	return m.drives, nil
-}
-
-func (m *mockErrorExecutor) ScanDisc(_ context.Context, _ int) (*makemkv.DiscScan, error) {
-	return &makemkv.DiscScan{}, nil
-}
-
-func TestManagerRun_StopsOnCancel(t *testing.T) {
-	mock := &mockExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "MOVIE_DISC", Flags: 1},
-		},
-	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		mgr.Run(ctx, 10*time.Millisecond)
-		close(done)
-	}()
-
-	// Wait for at least one poll to complete (Run calls PollOnce immediately).
-	deadline := time.After(2 * time.Second)
-	for {
-		if mgr.Ready() {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for Ready() to become true")
-		default:
-			time.Sleep(time.Millisecond)
+func (r *recorder) last(t EventType) (DriveEvent, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if r.events[i].Type == t {
+			return r.events[i], true
 		}
 	}
+	return DriveEvent{}, false
+}
 
-	// Cancel the context and verify the goroutine exits promptly.
-	cancel()
-
-	select {
-	case <-done:
-		// goroutine exited — success
-	case <-time.After(1 * time.Second):
-		t.Fatal("Manager.Run did not exit within 1 second after context cancellation")
-	}
-
-	// Verify the drive was detected.
-	drive := mgr.GetDrive(0)
-	if drive == nil {
-		t.Fatal("expected GetDrive(0) to return non-nil after poll")
-	}
-	if drive.DiscName() != "MOVIE_DISC" {
-		t.Errorf("expected disc name MOVIE_DISC, got %q", drive.DiscName())
+func eventually(t *testing.T, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-func TestPollOnce_ExecutorError_FirstPoll(t *testing.T) {
-	mock := &mockErrorExecutor{
-		listErr: fmt.Errorf("makemkv: connection failed"),
+// At startup each drive is identified on its own and reported as it is.
+func TestDrivesAreFoundAndIdentified(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "EARTHQUAKE_UPK1")
+	src.attach(2, "BD-RE PIONEER BD-RW BDR-XD08U 1.04 SER2", "")
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+
+	m.refreshSlots(context.Background(), true)
+
+	if d := m.GetDrive(1); d == nil || d.State() != StateDetected || d.DiscName() != "EARTHQUAKE_UPK1" {
+		t.Errorf("drive 1 = %+v, want Earthquake detected", d)
 	}
-
-	mgr := NewManager(mock, func(e DriveEvent) {})
-
-	mgr.PollOnce(context.Background())
-
-	// ListDrives errored on first poll, so ready should remain false.
-	if mgr.Ready() {
-		t.Error("expected Ready() to be false after ListDrives error on first poll")
+	if d := m.GetDrive(2); d == nil || d.State() != StateEmpty {
+		t.Errorf("drive 2 = %+v, want empty", d)
+	}
+	ev, ok := rec.last(EventDiscInserted)
+	if !ok || ev.DriveIndex != 1 || ev.DevicePath != "/dev/sr1" {
+		t.Errorf("insert event = %+v, want drive 1 at /dev/sr1", ev)
 	}
 }
 
-func TestPollOnce_ExecutorError_AfterSuccess(t *testing.T) {
-	mock := &mockErrorExecutor{
-		drives: []makemkv.DriveInfo{
-			{Index: 0, State: makemkv.DriveStateInserted, DriveName: "/dev/sr0", DiscName: "DISC", Flags: 1},
-		},
+// An ignored drive is identified once, to learn its name, and then left alone:
+// not tracked, not watched, not identified again.
+func TestAnIgnoredDriveIsLeftAlone(t *testing.T) {
+	src := newFakeSource()
+	src.attach(0, "BD-RE ASUS BW-16D1HT 3.10 KLFO82D3028", "SOMETHING")
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	m.SetIgnoredDrives([]string{"BD-RE ASUS BW-16D1HT 3.02 KLFO82D3028"})
+
+	m.refreshSlots(context.Background(), true)
+	m.refreshSlots(context.Background(), true)
+
+	if m.GetDrive(0) != nil {
+		t.Error("an ignored drive is tracked")
+	}
+	if rec.count(EventDiscInserted) != 0 {
+		t.Error("an ignored drive's disc was announced")
+	}
+	if len(src.identified) != 1 {
+		t.Errorf("identified the ignored drive %d times, want once", len(src.identified))
+	}
+	if listed := m.ListedDrives(); len(listed) != 1 {
+		t.Errorf("listed %d drives, want the ignored one for the settings page", len(listed))
+	}
+}
+
+// A drive gone from sysfs is gone: the kernel's own record needs no debounce.
+func TestADriveGoneFromSysfsIsDisconnected(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "EARTHQUAKE_UPK1")
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	m.refreshSlots(context.Background(), true)
+
+	src.mu.Lock()
+	src.slots = nil
+	src.mu.Unlock()
+	m.refreshSlots(context.Background(), true)
+
+	if m.GetDrive(1) != nil {
+		t.Error("an unplugged drive is still tracked")
+	}
+	ev, ok := rec.last(EventDriveDisconnect)
+	if !ok || ev.DevicePath != "/dev/sr1" || ev.DiscName != "EARTHQUAKE_UPK1" {
+		t.Errorf("disconnect event = %+v", ev)
+	}
+}
+
+// A drive plugged in later is found and identified.
+func TestADriveAttachedLaterIsFound(t *testing.T) {
+	src := newFakeSource()
+	m := NewManager(src, (&recorder{}).on)
+	m.refreshSlots(context.Background(), true)
+
+	src.attach(2, "BD-RE PIONEER BD-RW BDR-XD08U 1.04 SER2", "")
+	m.refreshSlots(context.Background(), true)
+
+	if m.GetDrive(2) == nil {
+		t.Error("a drive attached after startup was not found")
+	}
+}
+
+// The watcher drives disc changes: a disc leaving is an eject, one arriving is
+// identified under its drive's hold and announced. Two discs of a set sharing
+// one label are told apart this way, because the tray opening between them is
+// seen.
+func TestTheWatcherSeesADiscSwap(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "PERFECT_BLUE")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background()) // baseline
+
+	src.setStatus("/dev/sr1", drives.StatusTrayOpen)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+	if rec.count(EventDiscEjected) != 1 {
+		t.Fatalf("ejects = %d, want 1", rec.count(EventDiscEjected))
 	}
 
-	mgr := NewManager(mock, func(e DriveEvent) {})
+	src.setDisc(1, "PERFECT_BLUE")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+	eventually(t, func() bool { return rec.count(EventDiscInserted) == 2 }, "the second disc to be announced")
+}
 
-	// First poll succeeds.
-	mgr.PollOnce(context.Background())
-	if !mgr.Ready() {
-		t.Fatal("expected Ready() to be true after successful first poll")
+// A busy drive reports not-ready; that is not an eject.
+func TestABusyDriveIsNotAnEject(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "EARTHQUAKE_UPK1")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background())
+
+	src.setStatus("/dev/sr1", drives.StatusNotReady)
+	for i := 0; i < 5; i++ {
+		now = now.Add(10 * time.Second)
+		m.watchOnce(context.Background())
 	}
+	if rec.count(EventDiscEjected) != 0 {
+		t.Error("a busy drive was taken for an eject")
+	}
+}
 
-	// Second poll fails.
-	mock.listErr = fmt.Errorf("makemkv: device disconnected")
-	mgr.PollOnce(context.Background())
+// SetDriveState reports a state nothing physical can: recovery.
+func TestSetDriveStateAnnouncesIt(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "EARTHQUAKE_UPK1")
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	m.refreshSlots(context.Background(), true)
 
-	// Ready should stay true even after a subsequent error.
-	if !mgr.Ready() {
-		t.Error("expected Ready() to remain true after error on second poll")
+	m.SetDriveState(1, StateRecovering)
+	ev, ok := rec.last(EventStateChange)
+	if !ok || ev.State != StateRecovering || ev.DevicePath != "/dev/sr1" {
+		t.Errorf("state change = %+v", ev)
 	}
 }

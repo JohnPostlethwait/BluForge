@@ -90,7 +90,7 @@ func TestHandleSettingsSave_IgnoredDrivesTakeEffectOnNextPoll(t *testing.T) {
 	srv := testSettingsServer(t)
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "DISC"}, nil)
 	srv.driveMgr = mgr
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 	if len(mgr.GetAllDrives()) != 1 {
 		t.Fatal("the drive should be tracked before it is ignored")
 	}
@@ -103,7 +103,7 @@ func TestHandleSettingsSave_IgnoredDrivesTakeEffectOnNextPoll(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	srv.echo.ServeHTTP(httptest.NewRecorder(), req)
 
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 	if n := len(mgr.GetAllDrives()); n != 0 {
 		t.Errorf("drives after ignoring = %d, want 0", n)
 	}

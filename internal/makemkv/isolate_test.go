@@ -5,70 +5,61 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
-	"time"
 )
 
-// Jotunheim, 2026-11-04. makemkvcon opens every drive it can see, whatever
-// source it is given, so with per-drive locks alone a rip starting on one drive
-// sent commands to a drive another makemkvcon was ripping. The BU40N's USB
-// bridge wedged into a reset storm. Without isolation, a second drive's rip
-// must wait for the first to finish.
-func TestWithoutIsolationRipsOnTwoDrivesRunOneAtATime(t *testing.T) {
-	fr := newFakeRip(t)
-	ex := NewExecutor(WithRunner(newGatedRunner()), WithUnmountBefore(noUnmount))
-
-	rip0 := startRip(ex, 0, t.TempDir())
-	fr.waitStarted(t, "disc:0")
-	rip1 := startRip(ex, 1, t.TempDir())
-
-	time.Sleep(300 * time.Millisecond)
-	if _, err := os.Stat(filepath.Join(fr.dir, "started-disc:1")); err == nil {
-		t.Fatal("a second makemkvcon started on drive 1 while drive 0 ripped, without isolation")
+// With isolation a disc command runs with its drive alone in /dev, addressed
+// by its node: inside the private /dev it is the only drive, so makemkvcon
+// numbers it disc:0, and the drive's own index would name nothing.
+func TestAnIsolatedDiscCommandSeesOnlyItsDrive(t *testing.T) {
+	ex := NewExecutor(WithDriveIsolation(true))
+	target, ctx, err := ex.resolve(context.Background(), discSrc(1))
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	fr.release(t, "disc:0")
-	waitClosed(t, rip0, "the rip of drive 0")
-	fr.waitStarted(t, "disc:1")
-	fr.release(t, "disc:1")
-	waitClosed(t, rip1, "the rip of drive 1")
+	if target != "dev:/dev/sr1" {
+		t.Errorf("target = %q, want dev:/dev/sr1", target)
+	}
+	if got := isolationFrom(ctx); got != "/dev/sr1" {
+		t.Errorf("isolated to %q, want /dev/sr1", got)
+	}
 }
 
-// An isolated command must name its drive by device node: inside the private
-// /dev it is the only drive, so makemkvcon numbers it disc:0, and the drive's
-// own index would name nothing.
-func TestIsolatedScanAddressesTheDriveByItsDeviceNode(t *testing.T) {
-	g := newGatedRunner()
-	var got [][]string
-	ex := NewExecutor(WithRunner(&argsRunner{inner: g, got: &got}), WithUnmountBefore(noUnmount), WithDriveIsolation(true))
-
-	_, _ = ex.ScanDisc(context.Background(), 1)
-
-	for _, args := range got {
-		if slices.Contains(args, "info") && !slices.Contains(args, "disc:9999") {
-			if !slices.Contains(args, "dev:/dev/sr1") {
-				t.Errorf("scan args = %v, want the source dev:/dev/sr1", args)
-			}
-			return
+// A copy or a link tree is read through the filesystem, so with isolation its
+// makemkvcon sees no drive at all.
+func TestAnIsolatedCopySeesNoDrive(t *testing.T) {
+	ex := NewExecutor(WithDriveIsolation(true))
+	for _, src := range []Source{
+		ISOSource("/scratch/disc.iso"),
+		CopySource("/scratch/copy"),
+		LinkedSource(1, "/scratch/links"),
+	} {
+		_, ctx, err := ex.resolve(context.Background(), src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := isolationFrom(ctx); got != NoDrive {
+			t.Errorf("%v isolated to %q, want no drive", src, got)
 		}
 	}
-	t.Fatalf("no scan was run; commands: %v", got)
 }
 
-// A disc whose device path is unknown cannot be isolated. It must not run
-// beside other drives' work: it would reach them all.
-func TestWithoutADevicePathAScanClaimsEveryDrive(t *testing.T) {
-	ex := NewExecutor(WithRunner(newGatedRunner()), WithDriveIsolation(true))
-	release, target, _ := ex.claim(context.Background(), DiscSource(3), "")
-	defer release()
-
-	if target != "disc:3" {
-		t.Errorf("target = %q, want disc:3", target)
-	}
-	if ex.locks.all.TryRLock() {
-		ex.locks.all.RUnlock()
-		t.Error("a command that cannot be isolated did not claim every drive")
+// Without isolation nothing is confined; internal/drives makes such commands
+// take turns instead.
+func TestWithoutIsolationNothingIsConfined(t *testing.T) {
+	ex := NewExecutor()
+	for _, src := range []Source{discSrc(0), ISOSource("/scratch/disc.iso")} {
+		_, ctx, err := ex.resolve(context.Background(), src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := isolationFrom(ctx); got != "" {
+			t.Errorf("%v isolated to %q without isolation", src, got)
+		}
+		cmd := makemkvconCommand(ctx, "-r", "info", src.Arg())
+		if filepath.Base(cmd.Path) != "makemkvcon" && cmd.Args[0] != "makemkvcon" {
+			t.Errorf("%v ran %v, want makemkvcon directly", src, cmd.Args)
+		}
 	}
 }
 
@@ -87,22 +78,11 @@ func TestHelperCommandRunsMakemkvconUnderTheHelper(t *testing.T) {
 	}
 }
 
-// Commands not addressed to a device run makemkvcon directly: a listing must
-// see every drive.
-func TestAListingIsNotIsolated(t *testing.T) {
-	cmd := makemkvconCommand(context.Background(), "-r", "--cache=1", "info", "disc:9999")
-	if filepath.Base(cmd.Path) != "makemkvcon" && cmd.Args[0] != "makemkvcon" {
-		t.Errorf("listing ran %v, want makemkvcon directly", cmd.Args)
+// An isolated command goes through the helper.
+func TestAnIsolatedCommandRunsUnderTheHelper(t *testing.T) {
+	ctx := withIsolation(context.Background(), "/dev/sr2")
+	cmd := makemkvconCommand(ctx, "-r", "info", "dev:/dev/sr2")
+	if !slices.Contains(cmd.Args, IsolateSubcommand) || !slices.Contains(cmd.Args, "/dev/sr2") {
+		t.Errorf("isolated command ran %v, want the helper confining it to /dev/sr2", cmd.Args)
 	}
-}
-
-// argsRunner records each command's arguments before handing it on.
-type argsRunner struct {
-	inner *gatedRunner
-	got   *[][]string
-}
-
-func (a *argsRunner) Run(ctx context.Context, args ...string) (*strings.Reader, error) {
-	*a.got = append(*a.got, append([]string(nil), args...))
-	return a.inner.Run(ctx, args...)
 }

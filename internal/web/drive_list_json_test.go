@@ -21,7 +21,7 @@ import (
 // One builder, used by both, is what makes that impossible to reintroduce.
 func TestDriveListJSON_IdleDriveIsNotReportedAsRipping(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TEST_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv, _ := setupDashboardServer(t, mgr)
 
@@ -45,7 +45,7 @@ func TestDriveListJSON_IdleDriveIsNotReportedAsRipping(t *testing.T) {
 
 func TestDriveListJSON_ReportsProgressOfAnActiveRip(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TEST_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	blocker := &blockingRipExecutor{block: make(chan struct{})}
 	engine := ripper.NewEngine(blocker)

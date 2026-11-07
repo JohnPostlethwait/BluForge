@@ -188,9 +188,9 @@ func setupRecovery(t *testing.T, scrambled bool) *recoveryFixture {
 		Organizer:   organizer.New(),
 		OnBroadcast: func(string, string) {},
 		Backupper:   backupper,
-		OpenDiscRoot: func(string) (string, func(), error) {
+		Holder: holderFor(func(string) (string, func(), error) {
 			return discRoot, func() {}, nil
-		},
+		}),
 	})
 
 	return &recoveryFixture{orch: orch, store: store, output: output, backup: backupper, discRoot: discRoot}

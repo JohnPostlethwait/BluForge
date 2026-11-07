@@ -40,9 +40,9 @@ func setupSymlinkRecovery(t *testing.T) (*Orchestrator, *fakeBackupper, string, 
 		Organizer:   organizer.New(),
 		OnBroadcast: func(string, string) {},
 		Backupper:   backupper,
-		OpenDiscRoot: func(string) (string, func(), error) {
+		Holder: holderFor(func(string) (string, func(), error) {
 			return discRoot, func() { unmounted = true }, nil
-		},
+		}),
 	})
 	orch.SetOutputDir(output)
 
@@ -92,34 +92,32 @@ func TestRecoveryPrefersSymlinksOverCopying(t *testing.T) {
 	}
 }
 
-// The links point at a mounted disc, so unmounting before the rips finish would
-// break them.
-func TestSymlinkRecoveryHoldsTheMountUntilReleased(t *testing.T) {
+// No mount outlives the holder that made it: a mount left up between scan and
+// rip is the condition that wedged drives in September. The links point at the
+// disc's mount point, which does not move, so every later read of them holds
+// the drive and mounts the disc for its own length — which the source says.
+func TestSymlinkRecoveryLeavesNoMountBehind(t *testing.T) {
 	orch, _, output, unmounted := setupSymlinkRecovery(t)
 
 	rec, err := orch.RecoverSpuriousAACS(context.Background(), RecoveryRequest{
-		DriveIndex: 0,
-		DevicePath: "/dev/sr0",
+		DriveIndex: 2,
+		DevicePath: "/dev/sr2",
 		DiscLabel:  "SOME_DISC",
 		OutputDir:  output,
 	})
 	if err != nil {
 		t.Fatalf("RecoverSpuriousAACS: %v", err)
 	}
-	if *unmounted {
-		t.Fatal("the disc was unmounted while its link tree was still in use")
-	}
-
-	orch.registerRecovered(0, rec)
-	claim := orch.retainRecovered(0)
-	if *unmounted {
-		t.Fatal("unmounted while a job held the tree")
-	}
-
-	orch.releaseRecovered(claim, true)
 	if !*unmounted {
-		t.Error("the mount was not released after the last job finished")
+		t.Error("the disc was left mounted after recovery returned")
 	}
+	if !rec.Source.Linked || rec.Source.DriveIndex != 2 {
+		t.Errorf("source = %+v, want a link tree that reads drive 2 under its hold", rec.Source)
+	}
+
+	orch.registerRecovered(2, rec)
+	claim := orch.retainRecovered(2)
+	orch.releaseRecovered(claim, true)
 	if _, err := os.Stat(rec.Dir); !os.IsNotExist(err) {
 		t.Error("the link tree was left behind")
 	}

@@ -122,7 +122,7 @@ func TestFullRipFlow(t *testing.T) {
 		driveEvents = append(driveEvents, ev)
 		eventMu.Unlock()
 	})
-	mgr.PollOnce(ctx)
+	mgr.Refresh(ctx)
 
 	eventMu.Lock()
 	evCopy := make([]drivemanager.DriveEvent, len(driveEvents))

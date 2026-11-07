@@ -21,7 +21,7 @@ func newClearServer(t *testing.T) (*Server, *workflow.Orchestrator, *db.Store, s
 	t.Helper()
 
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	store, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -186,7 +186,7 @@ func TestClearMatchRejectsAnUnknownDrive(t *testing.T) {
 // router the browser talks to.
 func TestClearMatchIsReachableThroughTheRealRouter(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := NewServer(ServerDeps{
 		Config:   &config.AppConfig{OutputDir: t.TempDir()},

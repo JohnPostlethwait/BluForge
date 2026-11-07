@@ -16,6 +16,7 @@ import (
 
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/ddrescue"
+	"github.com/johnpostlethwait/bluforge/internal/drives"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
@@ -34,15 +35,6 @@ var ErrSalvageInProgress = errors.New("a salvage is already running")
 // files: they are where damage costs the user something, and the smaller files
 // around them can legitimately differ between a disc and a backup of it.
 const streamDir = "BDMV/STREAM"
-
-// DriveLocker claims a drive for work that does not run through the MakeMKV
-// executor. Optional: a backupper without it simply competes with the poller.
-//
-// It claims the one drive being read. Claiming every drive held up rips on the
-// others for the hours a rescue can take.
-type DriveLocker interface {
-	ClaimDrive(driveIndex int) (release func())
-}
 
 // SalvageRequest describes a disc to recover from physical damage.
 type SalvageRequest struct {
@@ -103,7 +95,7 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 
 	// A DVD is imaged whole rather than backed up and patched: MakeMKV's
 	// backup only handles Blu-ray, and a whole DVD is small enough to copy.
-	dvd := o.discIsDVD(req.DevicePath)
+	dvd := o.discIsDVD(ctx, req.DriveIndex)
 	source := makemkv.CopySource(dir)
 	if dvd {
 		source = makemkv.ISOSource(filepath.Join(dir, dvdImageName))
@@ -169,32 +161,37 @@ func (o *Orchestrator) Salvage(ctx context.Context, req SalvageRequest) (*Recove
 	}
 
 	// 2. Read the disc as a filesystem so the damaged streams can be compared
-	// against what the backup managed to take.
-	root, cleanup, err := o.openDiscRoot(req.DevicePath)
-	if err != nil {
-		return nil, fmt.Errorf("salvage: open disc: %w", err)
-	}
-	defer cleanup()
+	// against what the backup managed to take, and 3. fill what the backup
+	// could not take. Both hold the drive with its disc mounted, as one holder:
+	// nothing else touches the drive between the comparison and the rescue,
+	// and the mount comes down before the copy is scanned.
+	var short []shortStream
+	var unrecovered int64
+	err := o.withDiscRoot(ctx, req.DriveIndex, "salvage "+req.DiscLabel, func(ctx context.Context, root string, _ func()) error {
+		// A mountpoint that exists but holds no BDMV is not the disc. The
+		// container creates an empty /mnt/<dev> for every optical device it
+		// finds, and reading one of those produced "no such file or directory"
+		// two steps later, naming a path the user had never heard of.
+		if _, err := os.Stat(filepath.Join(root, streamDir)); err != nil {
+			return fmt.Errorf("salvage: %s does not look like a disc: no %s in it "+
+				"(is the disc in this drive?)", root, streamDir)
+		}
 
-	// A mountpoint that exists but holds no BDMV is not the disc. The container
-	// creates an empty /mnt/<dev> for every optical device it finds, and reading
-	// one of those produced "no such file or directory" two steps later, naming
-	// a path the user had never heard of.
-	if _, err := os.Stat(filepath.Join(root, streamDir)); err != nil {
-		return nil, fmt.Errorf("salvage: %s does not look like a disc: no %s in it "+
-			"(is the disc in this drive?)", root, streamDir)
+		var err error
+		short, err = incompleteFiles(root, dir)
+		if err != nil {
+			return err
+		}
+		if len(short) == 0 {
+			slog.Info("salvage: the backup is already complete; nothing to rescue", "dir", dir)
+		}
+		unrecovered, err = o.rescueStreams(ctx, req, root, dir, short, report)
+		return err
+	})
+	var mountErr *drives.MountError
+	if errors.As(err, &mountErr) {
+		return nil, fmt.Errorf("salvage: open disc: %w", mountErr.Err)
 	}
-
-	short, err := incompleteFiles(root, dir)
-	if err != nil {
-		return nil, err
-	}
-	if len(short) == 0 {
-		slog.Info("salvage: the backup is already complete; nothing to rescue", "dir", dir)
-	}
-
-	// 3. Fill what the backup could not take.
-	unrecovered, err := o.rescueStreams(ctx, req, root, dir, short, report)
 	if err != nil {
 		return nil, err
 	}
@@ -657,17 +654,14 @@ func (o *Orchestrator) rescueStreams(
 	if len(short) == 0 {
 		return 0, nil
 	}
-
-	// ddrescue is a separate process and does not go through the MakeMKV
-	// executor, so nothing otherwise stops the drive poller reading the same
-	// drive underneath it. That contention took a rescue from 14 MB/s to
-	// 2.4 MB/s.
-	if locker, ok := o.backupper.(DriveLocker); ok {
-		defer locker.ClaimDrive(req.DriveIndex)()
-		slog.Info("salvage: holding the drive for the rescue", "files", len(short))
-	} else {
-		slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
+	if o.holder == nil {
+		return 0, errNoHolder
 	}
+
+	// ctx is the caller's hold on the drive, with its disc mounted at root, so
+	// the rescue runs as that same holder: nothing else reads the drive under
+	// it. An unheld poll once took a rescue from 14 MB/s to 2.4 MB/s.
+	slog.Info("salvage: rescuing from the held drive", "files", len(short))
 
 	var unrecovered int64
 	for _, s := range short {
@@ -675,7 +669,7 @@ func (o *Orchestrator) rescueStreams(
 		report("rescuing", 0, fmt.Sprintf("Patching %s", name))
 		lastRescuePct := -1
 
-		err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
+		err := o.holder.Rescue(ctx, req.DriveIndex, o.rescuer, ddrescue.Options{
 			Source: filepath.Join(root, s.name),
 			Dest:   filepath.Join(dir, s.name),
 			// Mirror the file's own path. Naming maps by basename collided:

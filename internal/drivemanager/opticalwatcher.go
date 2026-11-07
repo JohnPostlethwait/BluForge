@@ -1,29 +1,21 @@
 package drivemanager
 
-import "time"
+import (
+	"time"
 
-// DriveStatus is what a single, cheap probe of an optical device node reports.
-//
-// It is deliberately coarser than the truth the kernel could give: the watcher
-// only needs to tell "a disc is readable" from "the slot is empty or open" from
-// "ask again later". NotReady and Unknown are the last of those — a busy drive
-// mid-scan reports NotReady, and treating that as an eject is exactly the
-// false-positive that cancelled real work in past releases.
-type DriveStatus int
+	"github.com/johnpostlethwait/bluforge/internal/drives"
+)
+
+// DriveStatus is what one probe of a drive reports; see drives.Status.
+type DriveStatus = drives.Status
 
 const (
-	// StatusUnknown means the probe could not tell — no decision is made on it.
-	StatusUnknown DriveStatus = iota
-	// StatusDiscOK means a disc is loaded and readable.
-	StatusDiscOK
-	// StatusNoDisc means the tray is closed with no media.
-	StatusNoDisc
-	// StatusTrayOpen means the tray is open.
-	StatusTrayOpen
-	// StatusNotReady means the drive is present but busy or spinning up.
-	StatusNotReady
-	// StatusGone means the device node itself is absent (ENODEV/ENOENT).
-	StatusGone
+	StatusUnknown  = drives.StatusUnknown
+	StatusDiscOK   = drives.StatusDiscOK
+	StatusNoDisc   = drives.StatusNoDisc
+	StatusTrayOpen = drives.StatusTrayOpen
+	StatusNotReady = drives.StatusNotReady
+	StatusGone     = drives.StatusGone
 )
 
 // MediaTransition is a confirmed change in whether readable media is present.

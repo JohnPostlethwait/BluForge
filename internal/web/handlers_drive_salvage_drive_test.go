@@ -16,7 +16,7 @@ import (
 // and failed in four seconds with a confusing message about a path in /mnt.
 func TestSalvageFollowsTheDiscRatherThanTheRecordedDrive(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "RAMBO_DISC2"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.orchestrator = workflow.NewOrchestrator(workflow.OrchestratorDeps{})
@@ -35,7 +35,7 @@ func TestSalvageFollowsTheDiscRatherThanTheRecordedDrive(t *testing.T) {
 // running a two-hour operation against whatever happens to hold that number.
 func TestSalvageRefusesWhenTheDiscIsNotInAnyDrive(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "RAMBO_DISC2"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.orchestrator = workflow.NewOrchestrator(workflow.OrchestratorDeps{})
@@ -55,7 +55,7 @@ func TestSalvageRefusesWhenTheDiscIsNotInAnyDrive(t *testing.T) {
 // number is all there is.
 func TestSalvageWithoutADiscNameUsesTheGivenDrive(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "RAMBO_DISC2"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.orchestrator = workflow.NewOrchestrator(workflow.OrchestratorDeps{})
@@ -75,7 +75,7 @@ func TestSalvageWithoutADiscNameUsesTheGivenDrive(t *testing.T) {
 
 func TestDriveHoldingDiscIgnoresEmptyDrives(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: ""}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	if _, ok := srv.driveHoldingDisc(""); ok {

@@ -18,6 +18,7 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/aacs"
 	"github.com/johnpostlethwait/bluforge/internal/db"
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
+	"github.com/johnpostlethwait/bluforge/internal/drives"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 	"github.com/johnpostlethwait/bluforge/internal/mpls"
@@ -130,8 +131,17 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 
 	progress("detecting", 0)
 
-	root, cleanup, err := o.openDiscRoot(req.DevicePath)
-	if err != nil {
+	// The whole inspection runs holding the drive with its disc mounted: the
+	// mount, the stream sampling, the link tree's scan, and the backup are all
+	// this one holder's, and nothing else touches the drive meanwhile.
+	var rec *RecoveredDisc
+	err := o.withDiscRoot(ctx, req.DriveIndex, "inspect a disc that failed to open", func(ctx context.Context, root string, unmount func()) error {
+		var err error
+		rec, err = o.recoverSpuriousAACSFrom(ctx, req, root, unmount, progress)
+		return err
+	})
+	var mountErr *drives.MountError
+	if errors.As(err, &mountErr) {
 		// Without a readable disc tree there is no way to tell the two cases
 		// apart. Guessing here would mean a 100GB backup on a hunch.
 		o.recordDiagnostic(db.DiscDiagnostic{
@@ -140,21 +150,18 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 			ScrambleVerdict: string(aacs.VerdictUnknown),
 			RipPath:         "blocked",
 			Outcome:         "failed",
-			Detail:          fmt.Sprintf("disc could not be mounted for inspection: %v", err),
+			Detail:          fmt.Sprintf("disc could not be mounted for inspection: %v", mountErr.Err),
 			DumpPath:        req.DumpPath,
 		})
-		return nil, fmt.Errorf("%w: disc could not be mounted for inspection: %v", ErrInconclusive, err)
+		return nil, fmt.Errorf("%w: disc could not be mounted for inspection: %v", ErrInconclusive, mountErr.Err)
 	}
-	// The symlink path hands this mount to the recovered disc, which holds it
-	// until the last rip finishes — unmounting on return would break the links
-	// the rips read through.
-	keepMounted := false
-	defer func() {
-		if !keepMounted {
-			cleanup()
-		}
-	}()
+	return rec, err
+}
 
+// recoverSpuriousAACSFrom is RecoverSpuriousAACS once the disc is held and
+// mounted at root. unmount takes the mount down early, before the backup,
+// which must not read a disc that is mounted.
+func (o *Orchestrator) recoverSpuriousAACSFrom(ctx context.Context, req RecoveryRequest, root string, unmount func(), progress func(string, int)) (*RecoveredDisc, error) {
 	aacsPresent := aacs.HasAACSDir(root)
 	insp, err := aacs.InspectStreams(root)
 	if err != nil {
@@ -213,8 +220,7 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 	// Try the cheap path first: a tree of symlinks to the mounted disc with AACS
 	// left out. MakeMKV then reads the disc directly and only the selected
 	// titles, instead of copying ~100GB to read all of it twice.
-	if rec, err := o.recoverViaSymlinks(ctx, req, root, scratchRoot, diag, cleanup); err == nil {
-		keepMounted = true
+	if rec, err := o.recoverViaSymlinks(ctx, req, root, scratchRoot, diag); err == nil {
 		// No "done" here. The caller still has to register the copy and cache
 		// its scan before the disc is actually usable, and "done" is the phase
 		// the page acts on by starting a scan — which would then run before the
@@ -257,6 +263,10 @@ func (o *Orchestrator) RecoverSpuriousAACS(ctx context.Context, req RecoveryRequ
 		o.finishDiagnostic(diagID, "failed", fmt.Sprintf("create backup dir: %v", err), 0)
 		return nil, fmt.Errorf("recovery: create backup dir %s: %w", backupDir, err)
 	}
+
+	// makemkvcon reads the disc for the backup; it must not be mounted while it
+	// does. The size above was the last thing read through the mount.
+	unmount()
 
 	slog.Info("recovery: starting raw disc backup",
 		"disc", req.DiscLabel, "dest", backupDir, "estimated_bytes", needed)
@@ -1117,7 +1127,7 @@ func (o *Orchestrator) retireRecoveredForDrive(driveIndex int, reason string) {
 // "Reading a repaired copy of this disc" banner does not already disclose.
 func (o *Orchestrator) copyIsForAnotherDisc(ctx context.Context, driveIndex int) bool {
 	copyDir := o.RecoveredDir(driveIndex)
-	if copyDir == "" || o.openDiscRoot == nil {
+	if copyDir == "" || o.holder == nil {
 		return false
 	}
 
@@ -1126,20 +1136,16 @@ func (o *Orchestrator) copyIsForAnotherDisc(ctx context.Context, driveIndex int)
 		return false
 	}
 
-	var devicePath string
-	if loc, ok := o.scanner.(DeviceLocator); ok {
-		devicePath = loc.DevicePathForDrive(ctx, driveIndex)
-	}
-
-	root, cleanup, err := o.openDiscRoot(devicePath)
+	var discPrint string
+	err := o.withDiscRoot(ctx, driveIndex, "compare the disc with its copy", func(_ context.Context, root string, _ func()) error {
+		discPrint = mpls.PlaylistFingerprint(root)
+		return nil
+	})
 	if err != nil {
 		slog.Info("recovery: cannot read the disc to check it against the copy; leaving the copy bound",
 			"drive_index", driveIndex, "error", err)
 		return false
 	}
-	defer cleanup()
-
-	discPrint := mpls.PlaylistFingerprint(root)
 	if discPrint == "" {
 		slog.Info("recovery: the disc has no readable playlists to check against the copy; leaving the copy bound",
 			"drive_index", driveIndex)
@@ -1243,15 +1249,14 @@ func buildSymlinkTree(discRoot, linkDir string) error {
 
 // recoverViaSymlinks recovers a disc without copying it.
 //
-// The mount is handed to the caller's recovered-disc record rather than
-// released here: the links point at the mounted disc, so it has to stay mounted
-// for as long as anything might rip from them.
+// No mount outlives this call. The links point at the disc's mount point,
+// which does not move, and every later scan or rip of them holds the drive and
+// mounts the disc for its own length.
 func (o *Orchestrator) recoverViaSymlinks(
 	ctx context.Context,
 	req RecoveryRequest,
 	discRoot, scratchRoot string,
 	diag db.DiscDiagnostic,
-	unmount func(),
 ) (*RecoveredDisc, error) {
 	linkDir := filepath.Join(scratchRoot, scratchSlug(req.DiscLabel, req.DevicePath)+"-link")
 
@@ -1259,7 +1264,9 @@ func (o *Orchestrator) recoverViaSymlinks(
 		return nil, err
 	}
 
-	src := makemkv.FileSource(linkDir)
+	// The links point into the mount, so whatever reads them holds the drive
+	// and mounts the disc for as long as it reads; see drives.Broker.route.
+	src := makemkv.LinkedSource(req.DriveIndex, linkDir)
 	scan, err := o.backupper.ScanSource(ctx, src)
 	if err != nil {
 		removeBackupDir(linkDir)
@@ -1287,7 +1294,6 @@ func (o *Orchestrator) recoverViaSymlinks(
 		Dir:          linkDir,
 		Scan:         scan,
 		DiagnosticID: diagID,
-		unmount:      unmount,
 		// A link tree is meaningless once the mount is gone, so it is never
 		// restored after a restart — it is seconds to rebuild anyway.
 		Ephemeral: true,

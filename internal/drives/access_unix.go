@@ -1,6 +1,6 @@
 //go:build !windows
 
-package drivemanager
+package drives
 
 import (
 	"os"

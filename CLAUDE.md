@@ -109,7 +109,9 @@ become `-`, since neither is legal in a Docker tag.
 
 BluForge is a self-hosted web app for orchestrating Blu-ray/DVD ripping via MakeMKV CLI integration, with disc identification through TheDiscDB GraphQL API.
 
-**Pipeline flow:** Drive polling → Disc detection → Content identification → Ripping → File organization
+**Pipeline flow:** Drive discovery → Disc detection → Content identification → Ripping → File organization
+
+**Drive ownership:** `internal/drives` is the only code that touches a drive — makemkvcon on a disc, a mount, ddrescue, the status ioctl. Work on a drive runs inside `Broker.Do`, which holds that drive until the work returns; nothing else touches it meanwhile. `internal/drives/boundary_test.go` fails the build if code elsewhere names a device node or runs one of those programs. Do not add a way around it: every drive hang this project has had was code reaching into a drive outside its holder. See `docs/superpowers/specs/2026-11-06-drive-ownership-design.md`.
 
 **Entry point** (`main.go`): Wires all subsystems together, starts drive manager polling and web server in goroutines, handles graceful shutdown on SIGINT/SIGTERM.
 
@@ -117,8 +119,9 @@ BluForge is a self-hosted web app for orchestrating Blu-ray/DVD ripping via Make
 
 | Package | Role |
 |---------|------|
-| `internal/drivemanager` | Polls drives, maintains per-drive state (Empty→Detected); rip progress tracked separately by ripper.Job |
-| `internal/makemkv` | Wraps `makemkvcon` CLI; parses robot-mode output (DRV, CINFO, TINFO, SINFO, PRGV, MSG lines); enriches titles with MPLS language data |
+| `internal/drives` | The one owner of every drive: per-drive holds (`Broker.Do`), drive discovery from sysfs, the status ioctl, mounts and ddrescue through a held `*Drive` |
+| `internal/drivemanager` | Tracks per-drive state (Empty→Detected) from sysfs, the eject watcher, and per-drive identify; rip progress tracked separately by ripper.Job |
+| `internal/makemkv` | Wraps `makemkvcon` CLI (lock-free; called only by `internal/drives`); parses robot-mode output (DRV, CINFO, TINFO, SINFO, PRGV, MSG lines); enriches titles with MPLS language data |
 | `internal/mpls` | Parses Blu-ray MPLS (Movie PlayList) binary files to extract stream language codes and codec types |
 | `internal/discdb` | TheDiscDB GraphQL client with SQLite-backed response cache (24h TTL); includes title matching and release scoring |
 | `internal/ripper` | Concurrent rip engine (one active rip per drive); Job FSM: Pending→Ripping→Organizing→Completed/Failed |

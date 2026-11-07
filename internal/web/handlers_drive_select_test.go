@@ -13,7 +13,7 @@ import (
 
 func TestHandleDriveSelect_PersistsSession(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TestDisc"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.echo.POST("/drives/:id/select", srv.handleDriveSelectAlpine)

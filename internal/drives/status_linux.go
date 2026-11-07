@@ -1,6 +1,6 @@
 //go:build linux
 
-package drivemanager
+package drives
 
 import (
 	"errors"
@@ -15,13 +15,9 @@ const (
 	cdslCurrent      = 0x7fffffff // CDSL_CURRENT = (int)(~0 >> 1)
 )
 
-// sysProbe is the real opticalProbe. Each call opens the device node
-// non-blocking and asks the kernel for the drive status, then closes it.
-type sysProbe struct{}
-
-func newSysProbe() opticalProbe { return sysProbe{} }
-
-func (sysProbe) Probe(devicePath string) DriveStatus {
+// probeStatus opens the device node non-blocking, asks the kernel for the
+// drive status, and closes it.
+func probeStatus(devicePath string) Status {
 	// O_NONBLOCK is the whole point: a plain O_RDONLY open of /dev/srN blocks
 	// for tens of seconds while the kernel spins the disc up and probes for
 	// media (the stall opticalaccess.go warns about). Non-blocking returns at

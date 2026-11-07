@@ -90,9 +90,9 @@ func setupAsyncWithBroadcast(t *testing.T, broadcast func(string, string)) (*Orc
 		OnBroadcast: broadcast,
 		Scanner:     &failingScanner{devicePath: "/dev/sr0"},
 		Backupper:   backupper,
-		OpenDiscRoot: func(string) (string, func(), error) {
+		Holder: holderFor(func(string) (string, func(), error) {
 			return discRoot, func() {}, nil
-		},
+		}),
 	})
 	orch.SetOutputDir(output)
 

@@ -26,7 +26,7 @@ func postRip(t *testing.T, srv *Server, form url.Values) *httptest.ResponseRecor
 func ripServerWithDisc(t *testing.T, discName string) *Server {
 	t.Helper()
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: discName}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv, store := setupDashboardServer(t, mgr)
 	srv.orchestrator = workflow.NewOrchestrator(workflow.OrchestratorDeps{

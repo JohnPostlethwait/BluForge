@@ -16,7 +16,7 @@ import (
 // preferences have to reach the page whether or not a scan exists yet.
 func TestDriveStoreCarriesPreferredLanguagesWithoutCachedScan(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.cfg = &config.AppConfig{
@@ -44,7 +44,7 @@ func TestDriveStoreCarriesPreferredLanguagesWithoutCachedScan(t *testing.T) {
 // everything, the second would select nothing.
 func TestDriveStorePreferredLanguagesEmptyWhenUnset(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 

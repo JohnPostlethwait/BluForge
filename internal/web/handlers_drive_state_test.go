@@ -15,7 +15,7 @@ import (
 func newDriveStateServer(t *testing.T, discName string) *Server {
 	t.Helper()
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: discName}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.echo.GET("/drives/:id/state", srv.handleDriveState)

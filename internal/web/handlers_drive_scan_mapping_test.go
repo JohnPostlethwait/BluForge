@@ -17,7 +17,7 @@ func newScanResultServer(t *testing.T) (*Server, *db.Store, string) {
 	t.Helper()
 
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv, store := setupDashboardServer(t, mgr)
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{Store: store})

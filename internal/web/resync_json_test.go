@@ -21,7 +21,7 @@ import (
 // when asked for JSON is the same pattern the drive page uses.
 func TestDashboardServesItsStoreAsJSON(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TEST_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv, _ := setupDashboardServer(t, mgr)
 	srv.echo.GET("/", srv.handleDashboard)

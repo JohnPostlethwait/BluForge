@@ -114,7 +114,7 @@ func salvageOrchestrator(t *testing.T, root string, b *salvageBackupper, r ddres
 	b.discRoot = root
 	orch.backupper = b
 	orch.rescuer = r
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	return orch, outputDir
 }
 

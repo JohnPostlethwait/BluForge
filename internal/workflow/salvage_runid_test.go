@@ -38,7 +38,7 @@ func TestACancelledRunStopsReportingProgress(t *testing.T) {
 	b := &reportingBackupper{started: make(chan struct{})}
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if err := orch.StartSalvage(0); err != nil {
@@ -81,7 +81,7 @@ func TestSalvageEventsCarryARunNumber(t *testing.T) {
 	close(b.release)
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	if err := orch.StartSalvage(0); err != nil {
@@ -104,7 +104,7 @@ func TestEachSalvageRunGetsAHigherNumber(t *testing.T) {
 	root := discFixture(t, 16)
 	orch, _, outputDir := setupOrchestratorWithScannerAndBroadcast(t, &mockDriveExecutor{}, rec.fn)
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 
 	first := &blockingBackupper{release: make(chan struct{}), started: make(chan struct{})}

@@ -1,16 +1,16 @@
-package drivemanager
+package drives
 
 import "testing"
 
 // statusFromCDS maps the kernel's CDROM_DRIVE_STATUS return codes to our
-// coarser DriveStatus. The mapping is the whole contract of the probe that a
+// coarser Status. The mapping is the whole contract of the probe that a
 // test can pin without hardware; the open/ioctl plumbing around it is verified
 // on a real drive.
 func TestStatusFromCDS(t *testing.T) {
 	cases := []struct {
 		name string
 		cds  int
-		want DriveStatus
+		want Status
 	}{
 		{"disc ok", cdsDiscOK, StatusDiscOK},
 		{"no disc", cdsNoDisc, StatusNoDisc},

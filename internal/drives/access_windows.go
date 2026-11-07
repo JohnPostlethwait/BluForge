@@ -1,6 +1,6 @@
 //go:build windows
 
-package drivemanager
+package drives
 
 // fileGroup has no meaning on Windows, which does not use POSIX group
 // ownership for device access. The /dev/sg* diagnosis this supports is

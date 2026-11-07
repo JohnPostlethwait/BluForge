@@ -36,10 +36,6 @@ type realRunner struct{}
 // completion when run by hand without a ceiling.
 const scanTimeout = 60 * time.Minute
 
-// driveListTimeout is the maximum time a drive listing may run. This is a
-// lightweight operation that should complete quickly.
-const driveListTimeout = 30 * time.Second
-
 // The runner records its invocations at DEBUG, not INFO.
 //
 // It is plumbing shared by every caller, so it cannot tell a disc scan from the
@@ -115,14 +111,6 @@ var ErrNoOpticalDrives = errors.New(
 	"makemkvcon reports no usable optical drives: the process must belong to the group owning /dev/sg* " +
 		"(commonly 'disk', GID 6) — add `group_add: [6]` to the container, or check the entrypoint's group detection")
 
-// ErrDriveListTimeout reports that a drive listing did not complete within
-// driveListTimeout and was interrupted. It is a distinct signal from a
-// makemkvcon command failure: the listing did not fail, it never finished,
-// which is what a drive that has stopped responding looks like. Callers match
-// it with errors.Is to say what happened rather than surface the raw
-// "signal: interrupt" the interrupt leaves behind.
-var ErrDriveListTimeout = errors.New("makemkv: drive listing did not complete in time")
-
 // Option is a functional option for configuring an Executor.
 type Option func(*Executor)
 
@@ -153,11 +141,10 @@ func WithUnmountBefore(fn func(devicePath string) error) Option {
 
 // Executor wraps makemkvcon and exposes high-level operations.
 //
-// Commands on different drives run concurrently; commands on the same drive,
-// drive listings, and folder sources do not. See driveLocks.
+// It holds no locks: internal/drives, the one owner of every drive, decides
+// which commands run and when. See resolve.
 type Executor struct {
 	runner CmdRunner
-	locks  driveLocks
 	// isolate is true when each makemkvcon command on a disc can be confined
 	// to its own drive. Only then do commands on different drives run at once.
 	// See WithDriveIsolation and claim.
@@ -204,69 +191,45 @@ type DiscScan struct {
 	RawOutput  string // Full makemkvcon robot-mode output, preserved for TheDiscDB contributions.
 }
 
-// ListDrives runs `makemkvcon -r --cache=1 info disc:9999` and returns the
-// list of drives reported via DRV lines.
+// Identify reports the drive at src and the disc in it, as makemkvcon names
+// them: `makemkvcon -r --cache=1 info disc:9999`.
 //
-// --cache=1 minimizes memory allocation for this lightweight operation.
-func (e *Executor) ListDrives(ctx context.Context) ([]DriveInfo, error) {
-	defer e.locks.every()()
-	return e.listDrives(ctx)
-}
-
-// TryListDrives lists drives only if nothing else is using them, reporting
-// false when it declined.
-//
-// The poller must not talk to a drive that a rip or a ddrescue rescue is
-// reading — an unlocked poll every five seconds took a rescue from 14 MB/s to
-// 2.4 MB/s, which is why every makemkvcon call shares one mutex.
-//
-// But waiting on that mutex is not the same as staying out of the way. A poll
-// queued behind a three-hour rip learns nothing that a skipped poll would not,
-// and it is worse in two ways: the poller goroutine is parked for the duration,
-// and the moment the lock frees, the poll fires instantly and the next one
-// right behind it — the burst the eject debounce was written to survive.
-//
-// Declining costs a stale drive list for the length of the operation, which is
-// what blocking produced anyway.
-func (e *Executor) TryListDrives(ctx context.Context) ([]DriveInfo, bool, error) {
-	if !e.locks.all.TryLock() {
-		return nil, false, nil
+// With isolation the listing runs with this drive alone in /dev, so it reads
+// this drive and no other, and its one DRV line is this drive. Without
+// isolation makemkvcon lists every drive, and the caller (internal/drives)
+// holds every drive while it does; the line for this device is picked out.
+func (e *Executor) Identify(ctx context.Context, src Source) (DriveInfo, error) {
+	if !src.IsDisc() || src.Device == "" {
+		return DriveInfo{}, ErrNoDevice
 	}
-	defer e.locks.all.Unlock()
-
-	drives, err := e.listDrives(ctx)
-	return drives, true, err
-}
-
-// listDrives is the body shared by ListDrives and TryListDrives. Callers must
-// already hold every drive. A listing that completes is remembered for
-// devicePathListing.
-func (e *Executor) listDrives(ctx context.Context) ([]DriveInfo, error) {
+	if e.isolate {
+		ctx = withIsolation(ctx, src.Device)
+	}
 	drives, err := e.runListDrives(ctx)
-	if err == nil {
-		e.locks.remember(drives)
+	if err != nil {
+		return DriveInfo{}, err
 	}
-	return drives, err
+	for _, d := range drives {
+		if !d.Present() {
+			continue
+		}
+		if e.isolate || d.DevicePath == src.Device {
+			d.Index = src.DriveIndex
+			d.DevicePath = src.Device
+			return d, nil
+		}
+	}
+	return DriveInfo{}, fmt.Errorf("makemkv: %s did not report the drive at %s", src.Arg(), src.Device)
 }
 
 func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
-	ctx, cancel := context.WithTimeout(ctx, driveListTimeout)
-	defer cancel()
-
+	// No time limit of its own. The limit existed because a listing ran on the
+	// poller and a hung one stopped every drive being observed. A listing now
+	// runs only for one drive, under that drive's hold, and the caller's ctx
+	// stops it on shutdown or when the disc leaves.
 	r, err := e.runner.Run(ctx, "-r", "--cache=1", "info", "disc:9999")
 	if err != nil {
-		// A listing we killed ourselves is not a listing. makemkvcon was still
-		// enumerating when the timeout fired, so the DRV lines it emitted are a
-		// prefix rather than a list, and the drives it had not reached yet are
-		// missing for want of time — which the poller would read as unplugged.
-		//
-		// Only makemkvcon's own non-zero exits are salvageable, and those are
-		// ordinary: an empty drive is one, and it still names every drive.
 		if ctx.Err() != nil {
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil, fmt.Errorf("%w after %s (the drive is not responding)",
-					ErrDriveListTimeout, driveListTimeout)
-			}
 			return nil, fmt.Errorf("makemkv: list drives: %w", err)
 		}
 
@@ -380,8 +343,8 @@ func drivesFromEvents(events []Event) []DriveInfo {
 	return drives
 }
 
-// ScanDisc runs `makemkvcon -r info disc:N` for the given driveIndex and
-// returns an aggregated DiscScan. CINFO attributes are merged into disc
+// ScanSource runs `makemkvcon -r info <source>` and returns an aggregated
+// DiscScan. CINFO attributes are merged into disc
 // metadata, TINFO attributes are merged per title index, and SINFO streams are
 // attached to their respective titles.
 //
@@ -394,17 +357,6 @@ func drivesFromEvents(events []Event) []DriveInfo {
 // enumerates titles (e.g. AACS warnings on Blu-ray discs). We always attempt
 // to parse the output regardless of exit code, returning an error only when no
 // useful disc data was produced.
-func (e *Executor) ScanDisc(ctx context.Context, driveIndex int) (*DiscScan, error) {
-	return e.ScanSource(ctx, DiscSource(driveIndex))
-}
-
-// ScanDiscWithProgress is ScanDisc with live reporting. A scan of a damaged
-// disc can run for the better part of an hour; onEvent is what lets the caller
-// say so rather than appear to hang.
-func (e *Executor) ScanDiscWithProgress(ctx context.Context, driveIndex int, onEvent func(Event)) (*DiscScan, error) {
-	return e.ScanSourceWithProgress(ctx, DiscSource(driveIndex), onEvent)
-}
-
 // ScanSource scans either a physical drive or a disc folder on disk, returning
 // the same aggregated DiscScan for both. A folder source is what allows a
 // backup with its AACS directory removed to stand in for a disc that MakeMKV
@@ -426,17 +378,12 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 	slog.Info("executor: starting scan", "source", src.Arg())
 
 	driveIndex := src.DriveIndex
+	devicePath := src.Device
 
-	// Pre-lookup: get the device path for MPLS enrichment. It may list drives,
-	// which needs every drive, so it must finish before this drive is claimed.
-	// Folder sources are read directly and need no device.
-	var devicePath string
-	if src.IsDisc() {
-		devicePath = e.DevicePathForDrive(ctx, driveIndex)
+	target, ctx, err := e.resolve(ctx, src)
+	if err != nil {
+		return nil, &ScanError{Source: src, Err: err}
 	}
-
-	release, target, ctx := e.claim(ctx, src, devicePath)
-	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
@@ -554,50 +501,6 @@ func (e *Executor) ScanSourceWithProgress(ctx context.Context, src Source, onEve
 		"subtitle_streams_with_lang", subLangs)
 
 	return scan, nil
-}
-
-// DevicePathForDrive returns the device path (e.g. "/dev/sr0") for driveIndex.
-// While another drive is busy it reads the last completed listing rather than
-// waiting to list; see devicePathListing. Returns "" on any error; callers
-// treat a missing path as a non-fatal condition.
-func (e *Executor) DevicePathForDrive(ctx context.Context, driveIndex int) string {
-	drives, err := e.devicePathListing(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, d := range drives {
-		if d.Index == driveIndex {
-			return d.DevicePath
-		}
-	}
-	return ""
-}
-
-// DiscLabelForDrive returns the disc label the drive is reporting.
-//
-// A disc that MakeMKV cannot open produces no disc name in its scan, but the
-// drive listing still carries the volume label. That label is what identifies
-// the disc in diagnostics and names its scratch directory, so it is worth
-// asking for separately.
-func (e *Executor) DiscLabelForDrive(ctx context.Context, driveIndex int) string {
-	info, ok := e.driveInfo(ctx, driveIndex)
-	if !ok {
-		return ""
-	}
-	return info.DiscName
-}
-
-func (e *Executor) driveInfo(ctx context.Context, driveIndex int) (DriveInfo, bool) {
-	drives, err := e.ListDrives(ctx)
-	if err != nil {
-		return DriveInfo{}, false
-	}
-	for _, d := range drives {
-		if d.Index == driveIndex {
-			return d, true
-		}
-	}
-	return DriveInfo{}, false
 }
 
 // enrichScanFromMPLS reads MPLS playlist files from the disc at devicePath and
@@ -880,12 +783,11 @@ const backupTimeout = 4 * time.Hour
 // unencrypted disc.
 //
 // onEvent receives parsed events (including PRGV progress) and may be nil.
-func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, onEvent func(Event)) error {
-	src := DiscSource(driveIndex)
-	// The lookup may list drives, which needs every drive, so it comes first.
-	devicePath := e.DevicePathForDrive(ctx, driveIndex)
-	release, target, ctx := e.claim(ctx, src, devicePath)
-	defer release()
+func (e *Executor) Backup(ctx context.Context, src Source, destDir string, onEvent func(Event)) error {
+	target, ctx, err := e.resolve(ctx, src)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, backupTimeout)
 	defer cancel()
@@ -916,7 +818,7 @@ func (e *Executor) Backup(ctx context.Context, driveIndex int, destDir string, o
 	}
 
 	// No --decrypt: see the doc comment above.
-	err := e.runEvents(ctx, collect, "-r", "--progress=-same", "backup", target, destDir)
+	err = e.runEvents(ctx, collect, "-r", "--progress=-same", "backup", target, destDir)
 	if err != nil {
 		// A backup that failed because the container cannot see the drive at all
 		// must say so. Left as a bare "backup failed" it sends the user looking
@@ -978,15 +880,11 @@ func (e *Executor) runEvents(ctx context.Context, onEvent func(Event), args ...s
 // additional timeout is applied because disc rips can take 30+ minutes
 // depending on title size and drive speed.
 func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expectSource string, outputDir string, onEvent func(Event), selection *SelectionOpts) error {
-	// The device-path lookup may list drives, which needs every drive, so it
-	// must happen before this drive is claimed — as it does for a scan.
-	var devicePath string
-	if src.IsDisc() {
-		devicePath = e.DevicePathForDrive(ctx, src.DriveIndex)
+	devicePath := src.Device
+	target, ctx, err := e.resolve(ctx, src)
+	if err != nil {
+		return err
 	}
-
-	release, target, ctx := e.claim(ctx, src, devicePath)
-	defer release()
 
 	// Release any mount BluForge holds on this device before driving makemkvcon
 	// against it — the same invariant a scan enforces. A recovery rip is a folder

@@ -29,7 +29,7 @@ func (b *blockingScanner) ScanDisc(ctx context.Context, driveIndex int) (*makemk
 func newScanServer(t *testing.T, scanner workflow.DiscScanner) (*Server, *workflow.Orchestrator) {
 	t.Helper()
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "SOME_DISC"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	orch := workflow.NewOrchestrator(workflow.OrchestratorDeps{Scanner: scanner})
 	srv := newTestServer(t, mgr)

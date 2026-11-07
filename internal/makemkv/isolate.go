@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // IsolateSubcommand is the hidden argument that makes the bluforge binary act
@@ -23,16 +22,17 @@ const devTargetPrefix = "dev:"
 // drive at all.
 const NoDrive = "none"
 
-type noDriveKey struct{}
+type isolateKey struct{}
 
-// withNoDrive marks ctx so the makemkvcon command built under it is isolated
-// with no drive in its /dev.
-func withNoDrive(ctx context.Context) context.Context {
-	return context.WithValue(ctx, noDriveKey{}, true)
+// withIsolation marks ctx so the makemkvcon command built under it runs in a
+// private /dev holding device and nothing else, or no drive at all when device
+// is NoDrive. The executor sets it when isolation works; see Executor.resolve.
+func withIsolation(ctx context.Context, device string) context.Context {
+	return context.WithValue(ctx, isolateKey{}, device)
 }
 
-func runsWithNoDrive(ctx context.Context) bool {
-	v, _ := ctx.Value(noDriveKey{}).(bool)
+func isolationFrom(ctx context.Context) string {
+	v, _ := ctx.Value(isolateKey{}).(string)
 	return v
 }
 
@@ -41,23 +41,17 @@ func runsWithNoDrive(ctx context.Context) bool {
 // makemkvcon opens every optical drive it can see on start, whatever source it
 // is given. A rip on one drive therefore sent commands to a drive another
 // makemkvcon was ripping, and that wedged the BU40N's USB bridge into a reset
-// storm on Jotunheim. A command addressed as dev:/dev/srN runs in a private
-// mount namespace whose /dev holds that drive and nothing else, so it cannot
-// touch any other drive. Every other command runs makemkvcon directly.
-//
-// A command on a detached source (see withNoDrive) runs in the same kind of
-// namespace with no drive at all, so it needs no drive's lock either.
+// storm on Jotunheim. A command whose ctx carries an isolation device (see
+// withIsolation) runs in a private mount namespace whose /dev holds that drive
+// and nothing else, or no drive at all for NoDrive. Every other command runs
+// makemkvcon directly. Which commands run at all is internal/drives' decision.
 func makemkvconCommand(ctx context.Context, args ...string) *exec.Cmd {
-	device := isolatedDevice(args)
-	if device == "" && runsWithNoDrive(ctx) {
-		device = NoDrive
+	if device := isolationFrom(ctx); device != "" {
+		return isolatedCommand(ctx, device, args)
 	}
-	if device == "" {
-		cmd := exec.CommandContext(ctx, "makemkvcon", args...)
-		configureTeardown(cmd)
-		return cmd
-	}
-	return isolatedCommand(ctx, device, args)
+	cmd := exec.CommandContext(ctx, "makemkvcon", args...)
+	configureTeardown(cmd)
+	return cmd
 }
 
 // isolatedCommand builds a command that runs makemkvcon confined to device. A
@@ -114,14 +108,4 @@ func helperCommand(ctx context.Context, device string, args []string) *exec.Cmd 
 	cmd := exec.CommandContext(ctx, self, helperArgs...)
 	configureTeardown(cmd)
 	return cmd
-}
-
-// isolatedDevice returns the device a dev: source names, or "".
-func isolatedDevice(args []string) string {
-	for _, a := range args {
-		if strings.HasPrefix(a, devTargetPrefix) {
-			return strings.TrimPrefix(a, devTargetPrefix)
-		}
-	}
-	return ""
 }

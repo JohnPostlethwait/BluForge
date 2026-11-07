@@ -53,9 +53,9 @@ func TestScanUsesRestoredBackupInsteadOfRebackingUp(t *testing.T) {
 		OnBroadcast: func(string, string) {},
 		Scanner:     &failingScanner{devicePath: "/dev/sr1"},
 		Backupper:   backupper,
-		OpenDiscRoot: func(string) (string, func(), error) {
+		Holder: holderFor(func(string) (string, func(), error) {
 			return discRoot, func() {}, nil
-		},
+		}),
 	})
 	orch.SetOutputDir(output)
 

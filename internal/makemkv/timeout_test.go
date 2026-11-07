@@ -19,7 +19,7 @@ func TestScanSourceReportsTimeoutRatherThanTheSignal(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 
-	_, err := ex.ScanSource(ctx, DiscSource(0))
+	_, err := ex.ScanSource(ctx, discSrc(0))
 	if err == nil {
 		t.Fatal("ScanSource succeeded, want an error")
 	}
@@ -38,7 +38,7 @@ func TestScanSourceOrdinaryFailureIsNotCalledATimeout(t *testing.T) {
 	runner := &recordingRunner{err: errors.New("exit status 1")}
 	ex := NewExecutor(WithRunner(runner))
 
-	_, err := ex.ScanSource(context.Background(), DiscSource(0))
+	_, err := ex.ScanSource(context.Background(), discSrc(0))
 	if err == nil {
 		t.Fatal("ScanSource succeeded, want an error")
 	}

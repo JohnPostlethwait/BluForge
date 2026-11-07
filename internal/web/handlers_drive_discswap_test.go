@@ -25,7 +25,7 @@ import (
 // session can be checked against it directly on every render.
 func TestASelectionDoesNotFollowTheDiscThatReplacedIt(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "DISCLOSURE_DAY"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 
@@ -65,7 +65,7 @@ func TestASelectionDoesNotFollowTheDiscThatReplacedIt(t *testing.T) {
 // as match or rip — pick the old release back up.
 func TestAStaleSessionIsDroppedNotJustHidden(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "DISCLOSURE_DAY"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.driveSessions.Set(0, &DriveSession{
@@ -89,7 +89,7 @@ func TestAStaleSessionIsDroppedNotJustHidden(t *testing.T) {
 // in the drive is not stale and must survive a refresh.
 func TestASelectionSurvivesForTheDiscItWasMadeFor(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "DISCLOSURE_DAY"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.driveSessions.Set(0, &DriveSession{
@@ -119,7 +119,7 @@ func TestASelectionSurvivesForTheDiscItWasMadeFor(t *testing.T) {
 // anyone mid-flow across an upgrade or a restart. Keep it.
 func TestASessionWithNoRecordedDiscIsKept(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "DISCLOSURE_DAY"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.driveSessions.Set(0, &DriveSession{

@@ -126,9 +126,9 @@ func setupPipeline(t *testing.T) (*Orchestrator, *selectionRecordingExecutor, st
 		OnBroadcast: func(string, string) {},
 		Scanner:     &failingScanner{devicePath: "/dev/sr0"},
 		Backupper:   &fakeBackupper{discRoot: discRoot},
-		OpenDiscRoot: func(string) (string, func(), error) {
+		Holder: holderFor(func(string) (string, func(), error) {
 			return discRoot, func() {}, nil
-		},
+		}),
 	})
 
 	return orch, exec, output

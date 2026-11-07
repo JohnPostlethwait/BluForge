@@ -48,6 +48,7 @@ func TestEachRescuedFileGetsItsOwnMap(t *testing.T) {
 	r := &mapRecordingRescuer{}
 	orch.rescuer = r
 	orch.outputDir = outputDir
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 
 	short, err := incompleteFiles(root, t.TempDir())
 	if err != nil {

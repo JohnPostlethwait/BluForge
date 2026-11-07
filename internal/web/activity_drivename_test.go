@@ -19,7 +19,7 @@ import (
 // the drive. The store carries the drive's name, as the dashboard shows it.
 func TestActivityStoreNamesTheDriveOfAnActiveRip(t *testing.T) {
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "TEST_DISC"}, nil)
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	blocker := &blockingRipExecutor{block: make(chan struct{})}
 	engine := ripper.NewEngine(blocker)

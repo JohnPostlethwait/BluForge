@@ -17,7 +17,7 @@ func driveStoreFor(t *testing.T, discName, copyOf string) DriveStoreJSON {
 	t.Helper()
 
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: discName}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	store, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

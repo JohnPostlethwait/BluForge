@@ -45,7 +45,7 @@ PRGV:100,100,100
 	ex := NewExecutor(WithRunner(runner))
 
 	out := captureLogs(t, func() {
-		if err := ex.Backup(context.Background(), 0, "/scratch/slug", nil); err != nil {
+		if err := ex.Backup(context.Background(), discSrc(0), "/scratch/slug", nil); err != nil {
 			t.Fatalf("Backup: %v", err)
 		}
 	})

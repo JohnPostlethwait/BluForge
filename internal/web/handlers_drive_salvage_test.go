@@ -14,7 +14,7 @@ import (
 func newSalvageServer(t *testing.T) *Server {
 	t.Helper()
 	mgr := drivemanager.NewManager(&driveWithDiscExecutor{discName: "RAMBO_DISC2"}, func(drivemanager.DriveEvent) {})
-	mgr.PollOnce(context.Background())
+	mgr.Refresh(context.Background())
 
 	srv := newTestServer(t, mgr)
 	srv.orchestrator = workflow.NewOrchestrator(workflow.OrchestratorDeps{})

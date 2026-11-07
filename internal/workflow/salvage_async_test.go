@@ -37,7 +37,7 @@ func asyncSalvageOrchestrator(t *testing.T, b *blockingBackupper, rec *broadcast
 	orch, _, outputDir := setupOrchestratorWithScannerAndBroadcast(t, &mockDriveExecutor{}, rec.fn)
 	orch.backupper = b
 	orch.rescuer = &fakeRescuer{size: 16}
-	orch.openDiscRoot = func(string) (string, func(), error) { return root, func() {}, nil }
+	orch.holder = holderFor(func(string) (string, func(), error) { return root, func() {}, nil })
 	orch.outputDir = outputDir
 	return orch
 }
@@ -122,9 +122,9 @@ func TestSalvageBroadcastsFailure(t *testing.T) {
 	close(b.release)
 	orch := asyncSalvageOrchestrator(t, b, rec)
 	// A disc root that cannot be opened stops the salvage after the backup.
-	orch.openDiscRoot = func(string) (string, func(), error) {
+	orch.holder = holderFor(func(string) (string, func(), error) {
 		return "", func() {}, errors.New("disc not readable")
-	}
+	})
 
 	if err := orch.StartSalvage(0); err != nil {
 		t.Fatalf("StartSalvage: %v", err)

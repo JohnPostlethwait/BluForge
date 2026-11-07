@@ -18,7 +18,6 @@ import (
 	"github.com/johnpostlethwait/bluforge/internal/discdb"
 	"github.com/johnpostlethwait/bluforge/internal/fsutil"
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
-	"github.com/johnpostlethwait/bluforge/internal/mpls"
 	"github.com/johnpostlethwait/bluforge/internal/organizer"
 	"github.com/johnpostlethwait/bluforge/internal/ripper"
 )
@@ -41,9 +40,10 @@ type OrchestratorDeps struct {
 	// a disc whose AACS directory is spurious. Optional: when nil, a disc that
 	// trips the signature is reported rather than recovered.
 	Backupper DiscBackupper
-	// OpenDiscRoot makes a disc readable as a directory tree for inspection.
-	// Defaults to mounting via the mpls package.
-	OpenDiscRoot DiscRootOpener
+	// Holder holds a drive while its disc is read as a filesystem or rescued
+	// with ddrescue: the drives broker. Optional: without it, nothing reads a
+	// disc's filesystem.
+	Holder DriveHolder
 	// OnDriveState reports a drive state the poller cannot infer on its own,
 	// so a drive spending 40 minutes in recovery does not look idle. Optional.
 	OnDriveState func(driveIndex int, state string)
@@ -65,7 +65,7 @@ type Orchestrator struct {
 	cache       *discdb.Cache
 
 	backupper    DiscBackupper
-	openDiscRoot DiscRootOpener
+	holder       DriveHolder
 	onDriveState func(driveIndex int, state string)
 	// checkSpace verifies the scratch volume can hold a disc backup. Injected
 	// so the early-failure path can be tested without filling a disk.
@@ -184,10 +184,6 @@ type recoveredDisc struct {
 
 // NewOrchestrator creates a new Orchestrator from the provided dependencies.
 func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
-	openRoot := deps.OpenDiscRoot
-	if openRoot == nil {
-		openRoot = mpls.OpenDiscRoot
-	}
 	return &Orchestrator{
 		store:        deps.Store,
 		engine:       deps.Engine,
@@ -197,11 +193,10 @@ func NewOrchestrator(deps OrchestratorDeps) *Orchestrator {
 		discDB:       deps.DiscDB,
 		cache:        deps.Cache,
 		backupper:    deps.Backupper,
-		openDiscRoot: openRoot,
+		holder:       deps.Holder,
 		onDriveState: deps.OnDriveState,
 
 		checkSpace: ripper.CheckDiskSpace,
-		rescuer:    ddrescue.ExecRunner{},
 		scanCache:  make(map[string]*cachedScan),
 		driveDisc:  make(map[int]string),
 		recovered:  make(map[int]*recoveredDisc),

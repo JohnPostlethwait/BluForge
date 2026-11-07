@@ -36,6 +36,7 @@ func TestSalvageImagesADVDWhole(t *testing.T) {
 	b := &salvageBackupper{titles: 8}
 	r := &fakeRescuer{size: 4096, badBytes: 168000}
 	orch, outputDir := salvageOrchestrator(t, root, b, r)
+	orch.holder.(*rootHolder).device = device
 
 	rec, err := orch.Salvage(context.Background(), SalvageRequest{
 		DriveIndex: 1, DevicePath: device, DiscLabel: "FRISKY_DINGO_SEASON_1", OutputDir: outputDir,
@@ -80,8 +81,8 @@ func TestDiscIsDVD(t *testing.T) {
 		root string
 		want bool
 	}{"blu-ray": {bd, false}, "hybrid": {hybrid, false}, "dvd": {dvd, true}} {
-		orch.openDiscRoot = func(string) (string, func(), error) { return tc.root, func() {}, nil }
-		if got := orch.discIsDVD("/dev/sr0"); got != tc.want {
+		orch.holder = holderFor(func(string) (string, func(), error) { return tc.root, func() {}, nil })
+		if got := orch.discIsDVD(context.Background(), 0); got != tc.want {
 			t.Errorf("%s: discIsDVD = %v, want %v", name, got, tc.want)
 		}
 	}

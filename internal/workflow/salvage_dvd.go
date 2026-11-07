@@ -3,7 +3,6 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,20 +20,17 @@ const dvdImageName = "disc.iso"
 //
 // A DVD carries VIDEO_TS and no BDMV. Anything that cannot be read, or reads as
 // neither, is left to the Blu-ray path, which reports what it finds.
-func (o *Orchestrator) discIsDVD(devicePath string) bool {
-	if o.openDiscRoot == nil {
-		return false
-	}
-	root, cleanup, err := o.openDiscRoot(devicePath)
-	if err != nil {
-		return false
-	}
-	defer cleanup()
-	if _, err := os.Stat(filepath.Join(root, "BDMV")); err == nil {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(root, "VIDEO_TS"))
-	return err == nil
+func (o *Orchestrator) discIsDVD(ctx context.Context, driveIndex int) bool {
+	dvd := false
+	_ = o.withDiscRoot(ctx, driveIndex, "check the disc type", func(_ context.Context, root string, _ func()) error {
+		if _, err := os.Stat(filepath.Join(root, "BDMV")); err == nil {
+			return nil
+		}
+		_, err := os.Stat(filepath.Join(root, "VIDEO_TS"))
+		dvd = err == nil
+		return nil
+	})
+	return dvd
 }
 
 // copySource returns the source a scratch copy is read from: the disc image a
@@ -63,12 +59,12 @@ func (o *Orchestrator) salvageDVD(
 	source makemkv.Source,
 	report func(phase string, percent int, message string),
 ) (*RecoveredDisc, error) {
-	if req.DevicePath == "" {
-		return nil, fmt.Errorf("salvage: no device path for drive %d", req.DriveIndex)
+	if o.holder == nil {
+		return nil, errNoHolder
 	}
-	size, err := deviceSize(req.DevicePath)
+	size, err := o.holder.DiscSize(ctx, req.DriveIndex)
 	if err != nil {
-		return nil, fmt.Errorf("salvage: read the size of %s: %w", req.DevicePath, err)
+		return nil, fmt.Errorf("salvage: read the size of the disc in drive %d: %w", req.DriveIndex, err)
 	}
 
 	unrecovered, err := o.imageDisc(ctx, req, dir, size, report)
@@ -106,8 +102,7 @@ func (o *Orchestrator) salvageDVD(
 }
 
 // imageDisc runs ddrescue from the drive into the image, holding the drive for
-// the duration. The lock is released before the scan that follows, which takes
-// the same executor mutex.
+// the duration. The hold ends before the image is scanned.
 func (o *Orchestrator) imageDisc(
 	ctx context.Context,
 	req SalvageRequest,
@@ -115,17 +110,12 @@ func (o *Orchestrator) imageDisc(
 	size int64,
 	report func(phase string, percent int, message string),
 ) (int64, error) {
-	if locker, ok := o.backupper.(DriveLocker); ok {
-		defer locker.ClaimDrive(req.DriveIndex)()
-	} else {
-		slog.Warn("salvage: cannot claim the drive; the poller will slow the rescue")
-	}
-
 	report("rescuing", 0, "Copying the disc")
 	var unrecovered int64
 	lastPct := -1
-	err := ddrescue.Rescue(ctx, o.rescuer, ddrescue.Options{
-		Source:  req.DevicePath,
+	// The rescue holds the drive for its whole length; Source left empty is
+	// the device itself.
+	err := o.holder.Rescue(ctx, req.DriveIndex, o.rescuer, ddrescue.Options{
 		Dest:    filepath.Join(dir, dvdImageName),
 		MapFile: filepath.Join(dir, salvageMapDir, dvdImageName+".map"),
 		Retries: req.Retries,
@@ -149,15 +139,4 @@ func (o *Orchestrator) imageDisc(
 		return unrecovered, fmt.Errorf("salvage: %w", err)
 	}
 	return unrecovered, nil
-}
-
-// deviceSize returns the size of a block device, or of a regular file standing
-// in for one.
-func deviceSize(path string) (int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	return f.Seek(0, io.SeekEnd)
 }
