@@ -78,7 +78,15 @@ type Manager struct {
 
 	watcher *opticalWatcher
 	now     func() time.Time
+	// identifyRetry is the rest before asking makemkvcon again about a disc it
+	// reported as still loading.
+	identifyRetry time.Duration
 }
+
+// identifyRetryInterval is how often makemkvcon is asked again about a disc it
+// reported as loading. The watcher's own cadence: the question is the same one
+// the watcher just answered, asked of the program that names the disc.
+const identifyRetryInterval = watchInterval
 
 // physicalConfirmDuration is how long a physical status change must persist
 // before the watcher acts on it. Short, because CDROM_DRIVE_STATUS is a
@@ -92,15 +100,16 @@ const watchInterval = 1 * time.Second
 // NewManager creates a Manager learning drives from src.
 func NewManager(src DriveSource, onEvent func(DriveEvent)) *Manager {
 	m := &Manager{
-		src:         src,
-		onEvent:     onEvent,
-		drives:      make(map[int]*DriveStateMachine),
-		known:       make(map[int]string),
-		ignored:     make(map[string]bool),
-		names:       make(map[int]makemkv.DriveInfo),
-		ignoredIdx:  make(map[int]bool),
-		identifying: make(map[int]context.CancelFunc),
-		now:         time.Now,
+		src:           src,
+		onEvent:       onEvent,
+		drives:        make(map[int]*DriveStateMachine),
+		known:         make(map[int]string),
+		ignored:       make(map[string]bool),
+		names:         make(map[int]makemkv.DriveInfo),
+		ignoredIdx:    make(map[int]bool),
+		identifying:   make(map[int]context.CancelFunc),
+		now:           time.Now,
+		identifyRetry: identifyRetryInterval,
 	}
 	m.watcher = newOpticalWatcher(func() time.Time { return m.now() }, physicalConfirmDuration)
 	return m
@@ -304,14 +313,56 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 		m.mu.Unlock()
 	}()
 
-	info, err := m.src.Identify(ctx, idx)
-	if err != nil {
-		if ctx.Err() == nil {
-			slog.Error("could not identify the drive", "drive_index", idx, "error", err)
+	// makemkvcon answers "loading" while a disc spins up, and the status ioctl
+	// that started this identify can report the disc before makemkvcon is done
+	// with it. Loading is makemkvcon saying it has no answer yet, so ask again.
+	// Recording it as an empty drive lost the disc for good: the watcher had
+	// already confirmed the arrival and would not ask a second time. The loop
+	// ends when makemkvcon answers, or when the disc leaves and ctx is cancelled.
+	saidLoading := false
+	for {
+		info, err := m.src.Identify(ctx, idx)
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("could not identify the drive", "drive_index", idx, "error", err)
+			}
+			return
 		}
+		if info.State != makemkv.DriveStateLoading {
+			m.logIdentity(info)
+			m.applyIdentity(info)
+			return
+		}
+		if !saidLoading {
+			slog.Info("drive: the disc is still loading; asking again",
+				"drive_index", idx, "device", info.DevicePath)
+			saidLoading = true
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(m.identifyRetry):
+		}
+	}
+}
+
+// logIdentity records what makemkvcon said a drive holds. When it reports no
+// disc while the drive itself says one is loaded, the two disagree, and BluForge
+// will show an empty drive with a disc in it: that is a warning, with both
+// readings.
+func (m *Manager) logIdentity(info makemkv.DriveInfo) {
+	if info.HasDisc() {
+		slog.Info("drive identified", "drive_index", info.Index, "device", info.DevicePath,
+			"makemkv_state", info.State, "disc_name", info.DiscName)
 		return
 	}
-	m.applyIdentity(info)
+	if info.DevicePath != "" && m.src.ProbeStatus(info.DevicePath) == StatusDiscOK {
+		slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded",
+			"drive_index", info.Index, "device", info.DevicePath, "makemkv_state", info.State)
+		return
+	}
+	slog.Info("drive identified with no disc", "drive_index", info.Index, "device", info.DevicePath,
+		"makemkv_state", info.State)
 }
 
 // applyIdentity records what makemkvcon said drive info.Index and its disc

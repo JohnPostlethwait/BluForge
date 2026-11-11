@@ -17,6 +17,8 @@ type fakeSource struct {
 	infos      map[int]makemkv.DriveInfo
 	status     map[string]drives.Status
 	identified []int
+	// loading counts identifies still to answer "loading", per drive.
+	loading map[int]int
 }
 
 func newFakeSource() *fakeSource {
@@ -33,6 +35,12 @@ func (f *fakeSource) Identify(_ context.Context, idx int) (makemkv.DriveInfo, er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.identified = append(f.identified, idx)
+	if f.loading[idx] > 0 {
+		f.loading[idx]--
+		info := f.infos[idx]
+		info.DiscName, info.State = "", makemkv.DriveStateLoading
+		return info, nil
+	}
 	return f.infos[idx], nil
 }
 
@@ -64,6 +72,18 @@ func (f *fakeSource) setDisc(idx int, disc string) {
 		info.State = makemkv.DriveStateInserted
 	}
 	f.infos[idx] = info
+}
+
+// loadingFor puts disc in drive idx, answering "loading" to the next n
+// identifies, as makemkvcon does while the disc spins up.
+func (f *fakeSource) loadingFor(idx int, disc string, n int) {
+	f.setDisc(idx, disc)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.loading == nil {
+		f.loading = map[int]int{}
+	}
+	f.loading[idx] = n
 }
 
 func (f *fakeSource) setStatus(device string, s drives.Status) {
@@ -230,6 +250,37 @@ func TestTheWatcherSeesADiscSwap(t *testing.T) {
 	now = now.Add(3 * time.Second)
 	m.watchOnce(context.Background())
 	eventually(t, func() bool { return rec.count(EventDiscInserted) == 2 }, "the second disc to be announced")
+}
+
+// makemkvcon reports a disc that is still spinning up as loading. That is not
+// an empty drive: the disc is asked about again until makemkvcon says what it
+// is. Taking it for empty left a disc in the drive that BluForge never saw,
+// because the watcher had already confirmed the arrival and would not ask again.
+func TestADiscStillLoadingIsAskedAboutAgain(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
+	src.setStatus("/dev/sr1", drives.StatusNoDisc)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	m.identifyRetry = 0
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background()) // baseline: empty
+
+	src.loadingFor(1, "IP_MAN", 3)
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+
+	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced once loaded")
+	if ev, _ := rec.last(EventDiscInserted); ev.DiscName != "IP_MAN" {
+		t.Errorf("disc = %q, want IP_MAN", ev.DiscName)
+	}
+	if got := m.GetDrive(1).State(); got != StateDetected {
+		t.Errorf("state = %q, want %q", got, StateDetected)
+	}
 }
 
 // A busy drive reports not-ready; that is not an eject.
