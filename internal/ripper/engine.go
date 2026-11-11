@@ -386,7 +386,14 @@ func (e *Engine) run(job *Job) {
 	//
 	// Only when the rip itself failed. A rip that copied cleanly and then could
 	// not be moved is not explained by its enumeration.
-	if err != nil {
+	//
+	// A rip stopped from outside — cancelled, or its disc ejected — did not
+	// fail, and what MakeMKV said before it was stopped explains nothing.
+	if errors.Is(err, makemkv.ErrRipStopped) {
+		slog.Info("rip stopped",
+			"job_id", job.ID, "drive", job.DriveIndex, "disc", job.DiscName,
+			"title_index", job.TitleIndex, "playlist", job.SourceFile)
+	} else if err != nil {
 		messages, dropped := capture.Result(), capture.Dropped()
 		job.SetFailureOutput(messages, dropped)
 		e.recordFailure(job.ID, messages, dropped)

@@ -968,6 +968,10 @@ func (e *Executor) StartRip(ctx context.Context, src Source, titleID int, expect
 	guardErr, copyFailed, debugLogPath := streamRip(stdout, titleID, expectSource, expectedDuplicatesFromContext(ctx), skippedPlaylistsFromContext(ctx), kill, onEvent, target)
 
 	waitErr := cmd.Wait()
+	if err := ripStopped(ctx, guardErr, target, titleID); err != nil {
+		slog.Info("makemkvcon: rip stopped", "source", target, "title", titleID, "exit", waitErr)
+		return err
+	}
 	if err := ripOutcome(guardErr, waitErr, copyFailed, target, titleID); err != nil {
 		// A makemkv-level failure — a nonzero exit, or a copy that saved nothing —
 		// has its reason in the debug log makemkvcon just wrote. (A guard kill is
@@ -1123,6 +1127,38 @@ func streamRip(out io.Reader, titleID int, expectSource string, duplicates, skip
 // A killed process reports "signal: killed", which describes what the kernel
 // did rather than why. Twice in this project that sent an investigation after
 // cancellation bugs when the real answer was elsewhere.
+// ErrRipStopped matches a rip stopped from outside before it finished: the user
+// cancelled it, or its disc was ejected.
+var ErrRipStopped = errors.New("rip stopped")
+
+// ripStoppedError is a rip stopped from outside. It reads as a stop, and
+// matches both ErrRipStopped and the context error that stopped it.
+type ripStoppedError struct {
+	target  string
+	titleID int
+	cause   error
+}
+
+func (e *ripStoppedError) Error() string {
+	return fmt.Sprintf("makemkv: rip %s title %d: stopped before it finished", e.target, e.titleID)
+}
+
+func (e *ripStoppedError) Is(target error) bool { return target == ErrRipStopped }
+func (e *ripStoppedError) Unwrap() error        { return e.cause }
+
+// ripStopped reports a rip whose caller stopped it: ctx was cancelled from
+// outside. That is not a makemkv failure. makemkvcon died to the signal that
+// stopped it, so its exit status and debug log say nothing about the disc.
+//
+// A guard kill is not a stop. It cancels only the rip's own child context, and
+// its own error says why; so a guard error here means no stop is reported.
+func ripStopped(ctx context.Context, guardErr error, target string, titleID int) error {
+	if guardErr != nil || ctx.Err() == nil {
+		return nil
+	}
+	return &ripStoppedError{target: target, titleID: titleID, cause: ctx.Err()}
+}
+
 func ripOutcome(guardErr, waitErr error, copyFailed bool, target string, titleID int) error {
 	// The guard outranks the wait error: the process was killed on purpose.
 	if guardErr != nil {

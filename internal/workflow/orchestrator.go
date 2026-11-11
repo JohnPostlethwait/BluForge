@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -425,8 +426,15 @@ func (o *Orchestrator) processTitle(params ManualRipParams, sel TitleSelection, 
 			// into a rip or a salvage -- so it still goes, but the fact is
 			// recorded rather than destroyed unseen.
 			if partial, size := largestFile(job.OutputDir); partial != "" {
-				slog.Warn("rip failed after writing a partial file; discarding it",
-					"job_id", job.ID, "path", partial, "bytes", size)
+				// A stopped rip leaving a partial file is the expected outcome
+				// of stopping it; a failed one is worth a warning.
+				if errors.Is(ripErr, makemkv.ErrRipStopped) {
+					slog.Info("rip stopped after writing a partial file; discarding it",
+						"job_id", job.ID, "path", partial, "bytes", size)
+				} else {
+					slog.Warn("rip failed after writing a partial file; discarding it",
+						"job_id", job.ID, "path", partial, "bytes", size)
+				}
 			}
 			if job.OutputDir != "" {
 				if err := os.RemoveAll(job.OutputDir); err != nil {

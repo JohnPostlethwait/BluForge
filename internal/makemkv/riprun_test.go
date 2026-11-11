@@ -1,6 +1,7 @@
 package makemkv
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -275,6 +276,38 @@ func TestRipOutcomeExplainsANonzeroExit(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(msg), "no reason") {
 		t.Errorf("the message still claims makemkvcon gave no reason: %q", msg)
+	}
+}
+
+// A rip the user cancelled, or that an eject stopped, is a stop: not a fatal
+// makemkv error, and not something whose debug log explains anything. It says
+// it was stopped, and still matches the context's error.
+func TestRipStoppedReportsACancelAsAStop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := ripStopped(ctx, nil, "dev:/dev/sr1", 0)
+	if !errors.Is(err, ErrRipStopped) {
+		t.Fatalf("got %v, want ErrRipStopped", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("the stop no longer matches context.Canceled: %v", err)
+	}
+	if strings.Contains(err.Error(), "fatal") || strings.Contains(err.Error(), "signal") {
+		t.Errorf("a stop reads as a failure: %q", err)
+	}
+}
+
+// The guard stopping a rip is its own outcome, and a rip still running is not
+// stopped at all.
+func TestRipStoppedIgnoresTheGuardAndALiveContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := ripStopped(ctx, nil, "dev:/dev/sr1", 0); err != nil {
+		t.Errorf("a live rip reported stopped: %v", err)
+	}
+	cancel()
+	if err := ripStopped(ctx, errors.New("title moved"), "dev:/dev/sr1", 0); err != nil {
+		t.Errorf("a guard kill reported as a user stop: %v", err)
 	}
 }
 

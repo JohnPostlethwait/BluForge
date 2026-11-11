@@ -16,6 +16,20 @@ func writeDebug(t *testing.T, lines ...string) string {
 	return p
 }
 
+// The debug log interleaves "tp=" lines: obfuscated trace data for MakeMKV's
+// own support, unreadable to anyone else. A tail of them is a blob that buries
+// the reason, so they are left out and the readable lines kept.
+func TestTailLinesDropsObfuscatedTraceLines(t *testing.T) {
+	p := writeDebug(t, "Error 'Scsi error' occurred", "tp=PS0w/YA8poDlD3k4Sq++S7xr=", "Operation aborted", "tp=PnbBYQD2/TEGdocm=")
+
+	got := tailLines(p, 40)
+
+	want := []string{"Error 'Scsi error' occurred", "Operation aborted"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // makemkvcon writes the reason for a fatal exit to its debug log, not the robot
 // stream. On a failure we show the tail of that log — the last lines, where the
 // error is — so the failure finally says why.

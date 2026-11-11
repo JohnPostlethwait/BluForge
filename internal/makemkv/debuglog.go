@@ -86,6 +86,11 @@ func tailLines(path string, maxLines int) []string {
 
 	var lines []string
 	for _, l := range raw {
+		// "tp=" lines are obfuscated trace data for MakeMKV's own support.
+		// Nobody else can read them, and a tail of them buries the reason.
+		if strings.HasPrefix(l, "tp=") {
+			continue
+		}
 		if strings.TrimSpace(l) != "" {
 			lines = append(lines, l)
 		}
