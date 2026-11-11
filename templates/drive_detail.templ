@@ -776,8 +776,13 @@ function cachedScanAge() {
 			<p class="text-muted" style="text-align: center; padding: 1rem 0;">Insert a disc to begin.</p>
 		</div>
 
+		<!-- Disc being read: makemkvcon is finding out what it is -->
+		<div x-data x-show="$store.drive.state === 'reading'" x-cloak class="card">
+			<p class="text-muted" style="text-align: center; padding: 1rem 0;">Reading the disc…</p>
+		</div>
+
 		<!-- Workflow (only shown when a disc is present) -->
-		<div x-data x-show="$store.drive.state !== 'empty'" x-cloak>
+		<div x-data x-show="$store.drive.state !== 'empty' && $store.drive.state !== 'reading'" x-cloak>
 
 		<!-- ═══════════ Spurious-AACS recovery ═══════════ -->
 		<!--

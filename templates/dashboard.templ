@@ -192,7 +192,10 @@ function stepLabel(n) { return stepLabels[n] || '' }
 						<template x-if="drive.discName">
 							<p class="text-secondary" x-text="drive.discName"></p>
 						</template>
-						<template x-if="!drive.discName">
+						<template x-if="!drive.discName && drive.state === 'reading'">
+							<p class="text-muted">Reading the disc…</p>
+						</template>
+						<template x-if="!drive.discName && drive.state !== 'reading'">
 							<p class="text-muted">No disc</p>
 						</template>
 

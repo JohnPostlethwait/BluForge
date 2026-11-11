@@ -10,6 +10,10 @@ type DriveState string
 const (
 	StateEmpty    DriveState = "empty"
 	StateDetected DriveState = "detected"
+	// StateReading means the drive reports a disc and makemkvcon is reading
+	// what it is. On a UHD that takes most of a minute, which is why it is a
+	// visible state rather than an empty drive with a disc in it.
+	StateReading DriveState = "reading"
 	// StateRecovering means the disc carries a spurious AACS directory and is
 	// being backed up so its AACS directory can be stripped. This can take
 	// tens of minutes, which is why it is a visible state rather than an

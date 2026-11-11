@@ -2,6 +2,7 @@ package drivemanager
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,11 @@ type fakeSource struct {
 	identified []int
 	// loading counts identifies still to answer "loading", per drive.
 	loading map[int]int
+	// failing makes identify fail, per drive.
+	failing map[int]error
+	// stall, when set, holds the next identify until it is closed, whatever
+	// its context says: makemkvcon winding down after being cancelled.
+	stall chan struct{}
 }
 
 func newFakeSource() *fakeSource {
@@ -33,8 +39,19 @@ func (f *fakeSource) Slots() ([]drives.Slot, error) {
 
 func (f *fakeSource) Identify(_ context.Context, idx int) (makemkv.DriveInfo, error) {
 	f.mu.Lock()
+	if stall := f.stall; stall != nil {
+		f.stall = nil
+		f.identified = append(f.identified, idx)
+		info := f.infos[idx]
+		f.mu.Unlock()
+		<-stall
+		return info, nil
+	}
 	defer f.mu.Unlock()
 	f.identified = append(f.identified, idx)
+	if err := f.failing[idx]; err != nil {
+		return makemkv.DriveInfo{}, err
+	}
 	if f.loading[idx] > 0 {
 		f.loading[idx]--
 		info := f.infos[idx]
@@ -278,6 +295,106 @@ func TestADiscStillLoadingIsAskedAboutAgain(t *testing.T) {
 	if ev, _ := rec.last(EventDiscInserted); ev.DiscName != "IP_MAN" {
 		t.Errorf("disc = %q, want IP_MAN", ev.DiscName)
 	}
+	if got := m.GetDrive(1).State(); got != StateDetected {
+		t.Errorf("state = %q, want %q", got, StateDetected)
+	}
+}
+
+// arriveOn starts drive 1 empty, runs insert to put a disc in it, and has the
+// watcher confirm the arrival.
+func arriveOn(t *testing.T, src *fakeSource, insert func()) (*Manager, *recorder) {
+	t.Helper()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
+	src.setStatus("/dev/sr1", drives.StatusNoDisc)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	m.identifyRetry = 0
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background()) // baseline: empty
+
+	insert()
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+	return m, rec
+}
+
+// Identifying a UHD takes most of a minute. The drive says it is reading the
+// disc for all of it, rather than looking empty with a disc in it.
+func TestADiscBeingIdentifiedShowsAsReading(t *testing.T) {
+	src := newFakeSource()
+	m, rec := arriveOn(t, src, func() { src.loadingFor(1, "IP_MAN_3", 2) })
+
+	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced")
+	rec.mu.Lock()
+	sawReading := false
+	for _, ev := range rec.events {
+		if ev.Type == EventStateChange && ev.DriveIndex == 1 && ev.State == StateReading {
+			sawReading = true
+		}
+	}
+	rec.mu.Unlock()
+	if !sawReading {
+		t.Error("the drive never reported it was reading the disc")
+	}
+	if got := m.GetDrive(1).State(); got != StateDetected {
+		t.Errorf("state = %q, want %q", got, StateDetected)
+	}
+}
+
+// An identify that fails leaves the drive empty, never stuck reading.
+func TestAFailedIdentifyDoesNotLeaveTheDriveReading(t *testing.T) {
+	src := newFakeSource()
+	m, rec := arriveOn(t, src, func() {
+		src.mu.Lock()
+		src.failing = map[int]error{1: errors.New("makemkvcon: exit status 1")}
+		src.mu.Unlock()
+	})
+
+	eventually(t, func() bool { return m.GetDrive(1).State() == StateEmpty && rec.count(EventStateChange) >= 2 },
+		"the drive to go back to empty")
+}
+
+// A disc swapped in while the last disc's identify is still winding down from
+// its cancel is identified anyway. Refusing it because an identify was
+// "running" left the new disc unseen for good.
+func TestASwapDuringAnIdentifyIsStillIdentified(t *testing.T) {
+	src := newFakeSource()
+	stall := make(chan struct{})
+	defer close(stall)
+	m, rec := arriveOn(t, src, func() {
+		src.setDisc(1, "IP_MAN")
+		src.mu.Lock()
+		src.stall = stall
+		src.mu.Unlock()
+	})
+	now := time.Unix(3, 0)
+	m.now = func() time.Time { return now }
+	eventually(t, func() bool {
+		src.mu.Lock()
+		defer src.mu.Unlock()
+		return src.stall == nil
+	}, "the first identify to stall")
+
+	// The first identify is stalled. The disc leaves, and another goes in.
+	src.setStatus("/dev/sr1", drives.StatusTrayOpen)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+
+	src.setDisc(1, "IP_MAN_2")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	m.watchOnce(context.Background())
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background())
+
+	eventually(t, func() bool {
+		ev, ok := rec.last(EventDiscInserted)
+		return ok && ev.DiscName == "IP_MAN_2"
+	}, "the swapped-in disc to be announced")
 	if got := m.GetDrive(1).State(); got != StateDetected {
 		t.Errorf("state = %q, want %q", got, StateDetected)
 	}

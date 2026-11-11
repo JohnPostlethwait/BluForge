@@ -152,6 +152,11 @@ nav {
   color: var(--text-muted);
 }
 
+.badge-reading {
+  background-color: #0c2a4a;
+  color: #93c5fd;
+}
+
 .badge-identified {
   background-color: #1e4620;
   color: #86efac;

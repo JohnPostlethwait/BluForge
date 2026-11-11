@@ -73,8 +73,10 @@ type Manager struct {
 	names map[int]makemkv.DriveInfo
 	// ignoredIdx marks attached drives that are ignored.
 	ignoredIdx map[int]bool
-	// identifying holds a cancel for each drive with an identify running.
-	identifying map[int]context.CancelFunc
+	// identifying holds the identify running on each drive. An identify the
+	// eject watcher cancels is removed at once, so the next disc's identify is
+	// not refused while the cancelled one winds down.
+	identifying map[int]*identifyRun
 
 	watcher *opticalWatcher
 	now     func() time.Time
@@ -107,7 +109,7 @@ func NewManager(src DriveSource, onEvent func(DriveEvent)) *Manager {
 		ignored:       make(map[string]bool),
 		names:         make(map[int]makemkv.DriveInfo),
 		ignoredIdx:    make(map[int]bool),
-		identifying:   make(map[int]context.CancelFunc),
+		identifying:   make(map[int]*identifyRun),
 		now:           time.Now,
 		identifyRetry: identifyRetryInterval,
 	}
@@ -281,10 +283,7 @@ func (m *Manager) refreshSlots(ctx context.Context, wait bool) {
 }
 
 func (m *Manager) forgetLocked(idx int) {
-	if cancel, ok := m.identifying[idx]; ok {
-		cancel()
-		delete(m.identifying, idx)
-	}
+	m.cancelIdentifyLocked(idx)
 	if dsm, ok := m.drives[idx]; ok {
 		m.watcher.forget(dsm.DevicePath())
 	}
@@ -303,14 +302,23 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	m.identifying[idx] = cancel
+	run := &identifyRun{cancel: cancel}
+	m.identifying[idx] = run
 	m.mu.Unlock()
 
 	defer func() {
 		cancel()
 		m.mu.Lock()
-		delete(m.identifying, idx)
+		current := m.identifying[idx] == run
+		if current {
+			delete(m.identifying, idx)
+		}
 		m.mu.Unlock()
+		// A cancelled identify was already replaced, or its disc already
+		// left; the drive's state is no longer its to settle.
+		if current {
+			m.endReading(idx)
+		}
 	}()
 
 	// makemkvcon answers "loading" while a disc spins up, and the status ioctl
@@ -328,6 +336,10 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 			}
 			return
 		}
+		// Cancelled while makemkvcon answered: the disc it described has left.
+		if ctx.Err() != nil {
+			return
+		}
 		if info.State != makemkv.DriveStateLoading {
 			m.logIdentity(info)
 			m.applyIdentity(info)
@@ -343,6 +355,32 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 			return
 		case <-time.After(m.identifyRetry):
 		}
+	}
+}
+
+// identifyRun is one identify on one drive.
+type identifyRun struct {
+	cancel context.CancelFunc
+}
+
+// cancelIdentifyLocked stops drive idx's identify and forgets it at once, so a
+// new identify can start while the cancelled one winds down. m.mu must be held.
+func (m *Manager) cancelIdentifyLocked(idx int) {
+	if run, ok := m.identifying[idx]; ok {
+		run.cancel()
+		delete(m.identifying, idx)
+	}
+}
+
+// endReading takes a drive out of StateReading when its identify ends without
+// an answer: it failed, or was cancelled. The drive is then empty as far as
+// BluForge knows, and says so rather than reading forever.
+func (m *Manager) endReading(idx int) {
+	m.mu.RLock()
+	dsm, ok := m.drives[idx]
+	m.mu.RUnlock()
+	if ok && dsm.State() == StateReading {
+		m.SetDriveState(idx, StateEmpty)
 	}
 }
 
@@ -401,8 +439,20 @@ func (m *Manager) applyIdentity(info makemkv.DriveInfo) {
 			Type: EventDiscInserted, DriveIndex: idx, DiscName: info.DiscName,
 			State: dsm.State(), DevicePath: dsm.DevicePath(),
 		})
+	case info.HasDisc() && dsm.State() == StateReading:
+		// The disc already known, read again: back to what it was.
+		dsm.SetState(StateDetected)
+		pending = append(pending, DriveEvent{
+			Type: EventStateChange, DriveIndex: idx, DiscName: dsm.DiscName(),
+			State: StateDetected, DevicePath: dsm.DevicePath(),
+		})
 	case !info.HasDisc() && !hadDisc:
-		dsm.SetState(StateEmpty)
+		if dsm.State() != StateEmpty {
+			dsm.SetState(StateEmpty)
+			pending = append(pending, DriveEvent{
+				Type: EventStateChange, DriveIndex: idx, State: StateEmpty, DevicePath: dsm.DevicePath(),
+			})
+		}
 	}
 	m.mu.Unlock()
 
@@ -435,6 +485,8 @@ func (m *Manager) watchOnce(ctx context.Context) {
 		case MediaGone:
 			m.notePhysicalGone(t.device, reading == StatusGone)
 		case MediaPresent:
+			slog.Info("drive: disc detected, reading it", "drive_index", t.idx, "device", t.device)
+			m.SetDriveState(t.idx, StateReading)
 			go m.identify(ctx, t.idx)
 		}
 	}
@@ -479,9 +531,7 @@ func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
 		m.mu.Unlock()
 		return
 	}
-	if cancel, ok := m.identifying[idx]; ok {
-		cancel()
-	}
+	m.cancelIdentifyLocked(idx)
 	dsm.ForceReset()
 	delete(m.known, idx)
 	if disconnected {
