@@ -58,6 +58,37 @@ PRGV:100,100,100
 	}
 }
 
+// Identifying a disc can take minutes while the drive's bridge resets. What
+// makemkvcon said during it, timed as it said it, is what lines a reset up with
+// the read that hung; parsing the listing and dropping the rest left nothing.
+func TestIdentifyLogsMakeMKVMessages(t *testing.T) {
+	runner := &streamingRunner{lines: []string{
+		`MSG:1005,0,1,"MakeMKV started","%1","MakeMKV"`,
+		`MSG:2003,0,1,"Error 'Scsi error - MEDIUM ERROR' occurred while reading '/VIDEO_TS/VTS_01_1.VOB'","%1","x"`,
+		`DRV:0,2,999,1,"DVD+R-DL HL-DT-ST BD-RE BU40N","THE_WIRE_S2_D2","/dev/sr1"`,
+	}}
+	ex := NewExecutor(WithRunner(runner))
+
+	var info DriveInfo
+	out := captureLogs(t, func() {
+		var err error
+		info, err = ex.Identify(context.Background(), DeviceSource(1, "/dev/sr1"))
+		if err != nil {
+			t.Fatalf("Identify: %v", err)
+		}
+	})
+
+	if info.DiscName != "THE_WIRE_S2_D2" || !info.HasDisc() {
+		t.Errorf("identify = %+v, want THE_WIRE_S2_D2 inserted", info)
+	}
+	if !strings.Contains(out, "MEDIUM ERROR") || !strings.Contains(out, "phase=identify") {
+		t.Errorf("identify did not log makemkvcon's error:\n%s", out)
+	}
+	if strings.Contains(out, "level=INFO msg=\"makemkvcon message\" phase=identify code=1005") {
+		t.Errorf("routine start notice logged at INFO:\n%s", out)
+	}
+}
+
 // A rip from a stripped backup folder is the least-verified part of recovery.
 // If MakeMKV objects to the folder source, its complaint has to be in the log.
 func TestRipLogsMakeMKVMessages(t *testing.T) {

@@ -227,7 +227,7 @@ func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
 	// poller and a hung one stopped every drive being observed. A listing now
 	// runs only for one drive, under that drive's hold, and the caller's ctx
 	// stops it on shutdown or when the disc leaves.
-	r, err := e.runner.Run(ctx, "-r", "--cache=1", "info", "disc:9999")
+	r, err := e.runListing(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("makemkv: list drives: %w", err)
@@ -257,6 +257,29 @@ func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
 		}
 	}
 	return drives, nil
+}
+
+// runListing runs the drive listing and returns its whole output.
+//
+// Streamed when the runner can, so each of makemkvcon's messages is logged when
+// it is said. Identifying a disc can take minutes while the drive's USB bridge
+// resets; a timed error from makemkvcon is what lines a reset up with the read
+// that hung, and a buffered listing logged nothing at all.
+func (e *Executor) runListing(ctx context.Context) (*strings.Reader, error) {
+	args := []string{"-r", "--cache=1", "info", "disc:9999"}
+	sr, ok := e.runner.(StreamRunner)
+	if !ok {
+		return e.runner.Run(ctx, args...)
+	}
+	var raw strings.Builder
+	err := sr.RunStream(ctx, func(line string) {
+		raw.WriteString(line)
+		raw.WriteByte('\n')
+		if ev, parseErr := ParseLine(line); parseErr == nil {
+			logMakeMKVEvent(ev, "identify")
+		}
+	}, args...)
+	return strings.NewReader(raw.String()), err
 }
 
 // runScan executes an info scan, returning the raw output, the parsed events,
