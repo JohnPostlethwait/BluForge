@@ -436,30 +436,8 @@ function sortedTitles() {
 		// then sort by duration descending within each group.
 		const rankDiff = fileTypeRank(a.sourceFile) - fileTypeRank(b.sourceFile)
 		if (rankDiff !== 0) return rankDiff
-		const durDiff = durationToSeconds(b.duration) - durationToSeconds(a.duration)
-		if (durDiff !== 0) return durDiff
-		// Among same-length titles, the ones that play their clips in order
-		// come first: on a disc hiding its movie, that is the one to try.
-		return clipOrderRank(a) - clipOrderRank(b)
+		return durationToSeconds(b.duration) - durationToSeconds(a.duration)
 	})
-}
-
-function clipOrderRank(t) {
-	if (t.clipOrder === 'in-order') return 0
-	if (t.clipOrder === 'shuffled') return 2
-	return 1
-}
-
-// A title that plays its clips out of order is what a disc hiding its movie
-// among decoy playlists looks like. Only then is clip order worth a column.
-function hasShuffledTitles() {
-	return Alpine.store('drive').titles.some(t => t.clipOrder === 'shuffled')
-}
-
-function clipOrderLabel(t) {
-	if (t.clipOrder === 'in-order') return 'In order'
-	if (t.clipOrder === 'shuffled') return 'Shuffled'
-	return '—'
 }
 
 function contentTypeBadgeClass(t) {
@@ -1308,17 +1286,13 @@ function cachedScanAge() {
 						<!-- Selection count -->
 						<p class="text-muted text-sm mt-3">
 							<span x-text="selectedTitleCount()"></span> of <span x-text="$store.drive.titles.length"></span> titles selected
-						</p>
-						@templ.Raw(`<template x-if="hasShuffledTitles()"><p class="text-sm mt-2">Some playlists on this disc play the same clips out of order. Discs do this to hide the movie among copies. Try a playlist whose clips are in order first, and watch the rip to check it.</p></template>`)
-						<div class="overflow-x-auto mt-2">
+						</p>						<div class="overflow-x-auto mt-2">
 							<table>
 								<thead>
 									<tr>
 										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" class="w-auto" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
 										<th scope="col">Track</th>
-										<th scope="col">Playlist</th>
-										@templ.Raw(`<template x-if="hasShuffledTitles()"><th scope="col">Clip order</th></template>`)
-										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
+										<th scope="col">Playlist</th>										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Type</th></template>`)
 										<th scope="col">Output Filename</th>
 										<th scope="col">Duration</th>
@@ -1330,8 +1304,7 @@ function cachedScanAge() {
 										<tr>
 											<td class="flex items-center gap-1"><input type="checkbox" class="w-auto" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
 											<td class="text-muted" x-text="t.index"></td>
-											<td class="text-muted" x-text="t.sourceFile"></td>
-											@templ.Raw(`<template x-if="hasShuffledTitles()"><td class="text-secondary" x-text="clipOrderLabel(t)" x-bind:title="t.clips ? 'Clips: ' + t.clips : ''"></td></template>`)
+											@templ.Raw(`<td class="text-muted" x-text="t.sourceFile" x-bind:title="t.clips ? 'Clips: ' + t.clips : ''"></td>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`)
 											@templ.Raw(`<td class="text-secondary" x-text="t.outputName"></td>`)

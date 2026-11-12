@@ -74,7 +74,6 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			SizeBytes:  sizeBytes,
 			SourceFile: t.SourceFile(),
 			Clips:      t.Clips(),
-			ClipOrder:  makemkv.ClipOrderOf(t.Clips()),
 			Streams:    streams,
 		}
 		if m, ok := matchByIndex[t.Index]; ok && m.Matched {
@@ -218,19 +217,18 @@ type TitleJSON struct {
 	Size       string `json:"size"`
 	SizeBytes  int64  `json:"sizeBytes,omitempty"`
 	SourceFile string `json:"sourceFile"`
-	// Clips is the clip list the title plays, as MakeMKV reports it, and
-	// ClipOrder whether it plays them in ascending order. On a disc that hides
-	// the movie among same-length playlists, these say which to try first.
-	Clips        string            `json:"clips,omitempty"`
-	ClipOrder    makemkv.ClipOrder `json:"clipOrder,omitempty"`
-	OutputName   string            `json:"outputName,omitempty"`
-	Selected     bool              `json:"selected"`
-	Matched      bool              `json:"matched"`
-	ContentTitle string            `json:"contentTitle,omitempty"`
-	ContentType  string            `json:"contentType,omitempty"`
-	Season       string            `json:"season,omitempty"`
-	Episode      string            `json:"episode,omitempty"`
-	Streams      []StreamJSON      `json:"streams,omitempty"`
+	// Clips is the clip list the title plays, as MakeMKV reports it. On a disc
+	// that hides the movie among same-length playlists, it is what tells them
+	// apart.
+	Clips        string       `json:"clips,omitempty"`
+	OutputName   string       `json:"outputName,omitempty"`
+	Selected     bool         `json:"selected"`
+	Matched      bool         `json:"matched"`
+	ContentTitle string       `json:"contentTitle,omitempty"`
+	ContentType  string       `json:"contentType,omitempty"`
+	Season       string       `json:"season,omitempty"`
+	Episode      string       `json:"episode,omitempty"`
+	Streams      []StreamJSON `json:"streams,omitempty"`
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.
