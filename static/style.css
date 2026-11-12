@@ -635,6 +635,15 @@ button.stepper-step {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* A title's clip list: long, so it wraps; selectable, for searching. */
+.clip-list {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  min-width: 12rem;
+  max-width: 20rem;
+  overflow-wrap: anywhere;
+}
+
 /* Match indicator icon */
 .match-icon {
   display: inline-flex;

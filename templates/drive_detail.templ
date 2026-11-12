@@ -1286,17 +1286,20 @@ function cachedScanAge() {
 						<!-- Selection count -->
 						<p class="text-muted text-sm mt-3">
 							<span x-text="selectedTitleCount()"></span> of <span x-text="$store.drive.titles.length"></span> titles selected
-						</p>						<div class="overflow-x-auto mt-2">
+						</p>
+						<div class="overflow-x-auto mt-2">
 							<table>
 								<thead>
 									<tr>
 										@templ.Raw(`<th scope="col" style="width:2rem;"><input type="checkbox" class="w-auto" aria-label="Select all titles" x-on:change="$event.target.checked ? selectAllTitles() : deselectAllTitles()" x-bind:checked="$store.drive.titles.length > 0 && $store.drive.titles.every(t => t.selected)" x-effect="$el.indeterminate = $store.drive.titles.some(t => t.selected) && !$store.drive.titles.every(t => t.selected)"/></th>`)
 										<th scope="col">Track</th>
-										<th scope="col">Playlist</th>										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
+										<th scope="col">Playlist</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">TheDiscDB Track Name</th></template>`)
 										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><th scope="col">Type</th></template>`)
 										<th scope="col">Output Filename</th>
 										<th scope="col">Duration</th>
 										<th scope="col">Size</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.clips)"><th scope="col">Clips</th></template>`)
 									</tr>
 								</thead>
 								<tbody>
@@ -1304,12 +1307,13 @@ function cachedScanAge() {
 										<tr>
 											<td class="flex items-center gap-1"><input type="checkbox" class="w-auto" :checked="t.selected" x-on:change="t.selected = $el.checked"/><span x-show="t.matched" class="match-icon" title="Matched to TheDiscDB">&#x2714;</span></td>
 											<td class="text-muted" x-text="t.index"></td>
-											@templ.Raw(`<td class="text-muted" x-text="t.sourceFile" x-bind:title="t.clips ? 'Clips: ' + t.clips : ''"></td>`)
+											<td class="text-muted" x-text="t.sourceFile"></td>
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched" x-text="matchDisplay(t)"></span><span x-show="!t.matched" class="text-muted">Unmatched</span></td></template>`)
 											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.matched)"><td><span x-show="t.matched && t.contentType" :class="contentTypeBadgeClass(t)" x-text="t.contentType"></span><span x-show="!t.matched || !t.contentType" class="text-muted">—</span></td></template>`)
 											@templ.Raw(`<td class="text-secondary" x-text="t.outputName"></td>`)
 											<td class="text-secondary" x-text="t.duration"></td>
 											<td class="text-secondary" x-text="t.size"></td>
+											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.clips)"><td class="clip-list text-muted" x-text="t.clips || '—'"></td></template>`)
 										</tr>
 									</template>
 								</tbody>
