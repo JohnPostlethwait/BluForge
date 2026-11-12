@@ -274,7 +274,7 @@ func (m *Manager) refreshSlots(ctx context.Context, wait bool) {
 		wg.Add(1)
 		go func(s drives.Slot) {
 			defer wg.Done()
-			m.identify(ctx, s.Index)
+			m.identify(ctx, s.Index, false)
 		}(s)
 	}
 	if wait {
@@ -295,7 +295,12 @@ func (m *Manager) forgetLocked(idx int) {
 
 // identify asks drive idx what it and its disc are called, under its hold,
 // and records the answer. One identify per drive at a time.
-func (m *Manager) identify(ctx context.Context, idx int) {
+//
+// arrived is set when the watcher started it on seeing a disc arrive. Only then
+// does a makemkvcon "empty" that the drive contradicts mean ask again: startup
+// waits for its identifies, and a disc makemkvcon cannot see must not hold up
+// every drive's watcher.
+func (m *Manager) identify(ctx context.Context, idx int, arrived bool) {
 	m.mu.Lock()
 	if _, running := m.identifying[idx]; running {
 		m.mu.Unlock()
@@ -327,7 +332,12 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 	// Recording it as an empty drive lost the disc for good: the watcher had
 	// already confirmed the arrival and would not ask a second time. The loop
 	// ends when makemkvcon answers, or when the disc leaves and ctx is cancelled.
-	saidLoading := false
+	//
+	// makemkvcon can also answer "empty" for a disc the drive already reports
+	// loaded: the Pioneer reported a disc, and makemkvcon said empty six seconds
+	// later. The drive is the witness to whether a disc is there, so that too is
+	// asked again, until makemkvcon sees the disc or the drive stops reporting one.
+	saidLoading, saidConflict := false, false
 	for {
 		info, err := m.src.Identify(ctx, idx)
 		if err != nil {
@@ -340,15 +350,29 @@ func (m *Manager) identify(ctx context.Context, idx int) {
 		if ctx.Err() != nil {
 			return
 		}
-		if info.State != makemkv.DriveStateLoading {
+		switch {
+		case info.State == makemkv.DriveStateLoading:
+			if !saidLoading {
+				slog.Info("drive: the disc is still loading; asking again",
+					"drive_index", idx, "device", info.DevicePath)
+				saidLoading = true
+			}
+		case !info.HasDisc() && m.driveReportsDisc(info):
+			if !arrived {
+				slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded",
+					"drive_index", idx, "device", info.DevicePath, "makemkv_state", info.State)
+				m.applyIdentity(info)
+				return
+			}
+			if !saidConflict {
+				slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded; asking again",
+					"drive_index", idx, "device", info.DevicePath, "makemkv_state", info.State)
+				saidConflict = true
+			}
+		default:
 			m.logIdentity(info)
 			m.applyIdentity(info)
 			return
-		}
-		if !saidLoading {
-			slog.Info("drive: the disc is still loading; asking again",
-				"drive_index", idx, "device", info.DevicePath)
-			saidLoading = true
 		}
 		select {
 		case <-ctx.Done():
@@ -384,19 +408,17 @@ func (m *Manager) endReading(idx int) {
 	}
 }
 
-// logIdentity records what makemkvcon said a drive holds. When it reports no
-// disc while the drive itself says one is loaded, the two disagree, and BluForge
-// will show an empty drive with a disc in it: that is a warning, with both
-// readings.
+// driveReportsDisc reports whether the drive itself, through its status ioctl,
+// says a disc is loaded.
+func (m *Manager) driveReportsDisc(info makemkv.DriveInfo) bool {
+	return info.DevicePath != "" && m.src.ProbeStatus(info.DevicePath) == StatusDiscOK
+}
+
+// logIdentity records what makemkvcon said a drive holds.
 func (m *Manager) logIdentity(info makemkv.DriveInfo) {
 	if info.HasDisc() {
 		slog.Info("drive identified", "drive_index", info.Index, "device", info.DevicePath,
 			"makemkv_state", info.State, "disc_name", info.DiscName)
-		return
-	}
-	if info.DevicePath != "" && m.src.ProbeStatus(info.DevicePath) == StatusDiscOK {
-		slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded",
-			"drive_index", info.Index, "device", info.DevicePath, "makemkv_state", info.State)
 		return
 	}
 	slog.Info("drive identified with no disc", "drive_index", info.Index, "device", info.DevicePath,
@@ -487,7 +509,7 @@ func (m *Manager) watchOnce(ctx context.Context) {
 		case MediaPresent:
 			slog.Info("drive: disc detected, reading it", "drive_index", t.idx, "device", t.device)
 			m.SetDriveState(t.idx, StateReading)
-			go m.identify(ctx, t.idx)
+			go m.identify(ctx, t.idx, true)
 		}
 	}
 }

@@ -29,7 +29,7 @@ func TestExecutorListDrives(t *testing.T) {
 	mock := &mockCmdRunner{output: twoDriverOutput}
 	ex := NewExecutor(WithRunner(mock))
 
-	drives, err := ex.runListDrives(context.Background())
+	drives, err := ex.runListDrives(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ListDrives returned unexpected error: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestExecutorListDrives_Args(t *testing.T) {
 	mock := &argCapturingRunner{output: twoDriverOutput}
 	ex := NewExecutor(WithRunner(mock))
 
-	_, err := ex.runListDrives(context.Background())
+	_, err := ex.runListDrives(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ListDrives returned unexpected error: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestExecutorListDrives_ErrorWithPartialOutput(t *testing.T) {
 	}
 	ex := NewExecutor(WithRunner(mock))
 
-	drives, err := ex.runListDrives(context.Background())
+	drives, err := ex.runListDrives(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ListDrives should return drives despite non-zero exit: %v", err)
 	}
@@ -638,7 +638,7 @@ func TestExecutorListDrives_ErrorNoOutput(t *testing.T) {
 	}
 	ex := NewExecutor(WithRunner(mock))
 
-	_, err := ex.runListDrives(context.Background())
+	_, err := ex.runListDrives(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error when makemkvcon fails with no output")
 	}

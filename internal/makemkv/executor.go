@@ -205,7 +205,7 @@ func (e *Executor) Identify(ctx context.Context, src Source) (DriveInfo, error) 
 	if e.isolate {
 		ctx = withIsolation(ctx, src.Device)
 	}
-	drives, err := e.runListDrives(ctx)
+	drives, err := e.runListDrives(ctx, src.Device)
 	if err != nil {
 		return DriveInfo{}, err
 	}
@@ -222,12 +222,12 @@ func (e *Executor) Identify(ctx context.Context, src Source) (DriveInfo, error) 
 	return DriveInfo{}, fmt.Errorf("makemkv: %s did not report the drive at %s", src.Arg(), src.Device)
 }
 
-func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
+func (e *Executor) runListDrives(ctx context.Context, device string) ([]DriveInfo, error) {
 	// No time limit of its own. The limit existed because a listing ran on the
 	// poller and a hung one stopped every drive being observed. A listing now
 	// runs only for one drive, under that drive's hold, and the caller's ctx
 	// stops it on shutdown or when the disc leaves.
-	r, err := e.runListing(ctx)
+	r, err := e.runListing(ctx, device)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("makemkv: list drives: %w", err)
@@ -264,8 +264,9 @@ func (e *Executor) runListDrives(ctx context.Context) ([]DriveInfo, error) {
 // Streamed when the runner can, so each of makemkvcon's messages is logged when
 // it is said. Identifying a disc can take minutes while the drive's USB bridge
 // resets; a timed error from makemkvcon is what lines a reset up with the read
-// that hung, and a buffered listing logged nothing at all.
-func (e *Executor) runListing(ctx context.Context) (*strings.Reader, error) {
+// that hung, and a buffered listing logged nothing at all. Each message names
+// device, because two drives identify at once.
+func (e *Executor) runListing(ctx context.Context, device string) (*strings.Reader, error) {
 	args := []string{"-r", "--cache=1", "info", "disc:9999"}
 	sr, ok := e.runner.(StreamRunner)
 	if !ok {
@@ -276,7 +277,7 @@ func (e *Executor) runListing(ctx context.Context) (*strings.Reader, error) {
 		raw.WriteString(line)
 		raw.WriteByte('\n')
 		if ev, parseErr := ParseLine(line); parseErr == nil {
-			logMakeMKVEvent(ev, "identify")
+			logMakeMKVEvent(ev, "identify", "device", device)
 		}
 	}, args...)
 	return strings.NewReader(raw.String()), err

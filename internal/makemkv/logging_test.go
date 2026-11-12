@@ -87,6 +87,27 @@ func TestIdentifyLogsMakeMKVMessages(t *testing.T) {
 	if strings.Contains(out, "level=INFO msg=\"makemkvcon message\" phase=identify code=1005") {
 		t.Errorf("routine start notice logged at INFO:\n%s", out)
 	}
+	// Two drives identify at once; a message that does not say whose it is
+	// was read as the wrong drive's.
+	if !strings.Contains(out, "device=/dev/sr1") {
+		t.Errorf("identify messages do not name the drive:\n%s", out)
+	}
+}
+
+// Every listing asks for disc 9999, which does not exist, and makemkvcon says
+// "Failed to open disc" about it each time. During identify that is routine;
+// during a rip it is the failure.
+func TestFailedToOpenDiscIsRoutineOnlyDuringIdentify(t *testing.T) {
+	out := captureLogs(t, func() {
+		logMakeMKVEvent(makeMsgEvent(5010, "Failed to open disc"), "identify")
+		logMakeMKVEvent(makeMsgEvent(5010, "Failed to open disc"), "rip")
+	})
+	if !strings.Contains(out, "level=DEBUG msg=\"makemkvcon message\" phase=identify code=5010") {
+		t.Errorf("5010 during identify is not DEBUG:\n%s", out)
+	}
+	if !strings.Contains(out, "level=INFO msg=\"makemkvcon message\" phase=rip code=5010") {
+		t.Errorf("5010 during a rip is not INFO:\n%s", out)
+	}
 }
 
 // A rip from a stripped backup folder is the least-verified part of recovery.

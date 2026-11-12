@@ -20,6 +20,8 @@ type fakeSource struct {
 	identified []int
 	// loading counts identifies still to answer "loading", per drive.
 	loading map[int]int
+	// empty counts identifies still to answer "empty", per drive.
+	empty map[int]int
 	// failing makes identify fail, per drive.
 	failing map[int]error
 	// stall, when set, holds the next identify until it is closed, whatever
@@ -58,6 +60,12 @@ func (f *fakeSource) Identify(_ context.Context, idx int) (makemkv.DriveInfo, er
 		info.DiscName, info.State = "", makemkv.DriveStateLoading
 		return info, nil
 	}
+	if f.empty[idx] > 0 {
+		f.empty[idx]--
+		info := f.infos[idx]
+		info.DiscName, info.State = "", makemkv.DriveStateEmptyClosed
+		return info, nil
+	}
 	return f.infos[idx], nil
 }
 
@@ -89,6 +97,19 @@ func (f *fakeSource) setDisc(idx int, disc string) {
 		info.State = makemkv.DriveStateInserted
 	}
 	f.infos[idx] = info
+}
+
+// emptyFor puts disc in drive idx, answering "empty" to the next n identifies,
+// as makemkvcon does for a Pioneer still spinning a disc up that the drive
+// already reports loaded.
+func (f *fakeSource) emptyFor(idx int, disc string, n int) {
+	f.loadingFor(idx, disc, 0)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.empty == nil {
+		f.empty = map[int]int{}
+	}
+	f.empty[idx] = n
 }
 
 // loadingFor puts disc in drive idx, answering "loading" to the next n
@@ -397,6 +418,40 @@ func TestASwapDuringAnIdentifyIsStillIdentified(t *testing.T) {
 	}, "the swapped-in disc to be announced")
 	if got := m.GetDrive(1).State(); got != StateDetected {
 		t.Errorf("state = %q, want %q", got, StateDetected)
+	}
+}
+
+// The Pioneer reported a disc loaded while makemkvcon, six seconds later, said
+// the drive was empty. The drive is the witness to whether a disc is there, so
+// makemkvcon is asked again until it sees the disc too.
+func TestMakeMKVSayingEmptyWhileTheDriveHasADiscIsAskedAgain(t *testing.T) {
+	src := newFakeSource()
+	m, rec := arriveOn(t, src, func() { src.emptyFor(1, "THE_WIRE_S4_D1", 3) })
+
+	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced")
+	if got := m.GetDrive(1).State(); got != StateDetected {
+		t.Errorf("state = %q, want %q", got, StateDetected)
+	}
+}
+
+// An empty drive that makemkvcon also calls empty is empty. Nothing is asked
+// twice.
+func TestAnEmptyDriveIsAskedOnce(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
+	src.setStatus("/dev/sr1", drives.StatusNoDisc)
+	m := NewManager(src, (&recorder{}).on)
+	m.identifyRetry = 0
+	m.refreshSlots(context.Background(), true)
+
+	src.mu.Lock()
+	n := len(src.identified)
+	src.mu.Unlock()
+	if n != 1 {
+		t.Errorf("identified %d times, want 1", n)
+	}
+	if got := m.GetDrive(1).State(); got != StateEmpty {
+		t.Errorf("state = %q, want %q", got, StateEmpty)
 	}
 }
 

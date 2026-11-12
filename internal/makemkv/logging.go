@@ -15,7 +15,7 @@ import (
 //
 // phase names the operation ("backup", "rip") so the two are separable when a
 // rip follows a recovery in the same log.
-func logMakeMKVEvent(ev Event, phase string) {
+func logMakeMKVEvent(ev Event, phase string, attrs ...any) {
 	if ev.Type != "MSG" || ev.Message == nil {
 		return
 	}
@@ -26,10 +26,18 @@ func logMakeMKVEvent(ev Event, phase string) {
 	// meaning. Anything not catalogued as routine (an error, a warning, a code
 	// nobody has classified) stays at INFO, where a default-level log shows it.
 	level := slog.LevelInfo
-	if routineScanMessages[m.Code] {
+	if routineScanMessages[m.Code] || (phase == "identify" && routineIdentifyMessages[m.Code]) {
 		level = slog.LevelDebug
 	}
-	slog.Log(context.Background(), level, "makemkvcon message", "phase", phase, "code", m.Code, "text", m.Text)
+	args := append([]any{"phase", phase, "code", m.Code, "text", m.Text}, attrs...)
+	slog.Log(context.Background(), level, "makemkvcon message", args...)
+}
+
+// routineIdentifyMessages are routine only while identifying. A listing asks
+// for disc 9999, which never exists, so makemkvcon reports failing to open it
+// every time; in a rip, the same message is the failure.
+var routineIdentifyMessages = map[int]bool{
+	5010: true, // Failed to open disc
 }
 
 // progressHeartbeat is the longest a long-running operation may go without a
