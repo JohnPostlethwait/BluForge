@@ -73,6 +73,8 @@ func enrichTitlesWithMatches(scan *makemkv.DiscScan, disc discdb.Disc) []TitleJS
 			Size:       t.SizeHuman(),
 			SizeBytes:  sizeBytes,
 			SourceFile: t.SourceFile(),
+			Clips:      t.Clips(),
+			ClipOrder:  makemkv.ClipOrderOf(t.Clips()),
 			Streams:    streams,
 		}
 		if m, ok := matchByIndex[t.Index]; ok && m.Matched {
@@ -210,20 +212,25 @@ type LangOptionJSON struct {
 
 // TitleJSON is the JSON representation of a disc title for Alpine.js stores.
 type TitleJSON struct {
-	Index        int          `json:"index"`
-	Name         string       `json:"name"`
-	Duration     string       `json:"duration"`
-	Size         string       `json:"size"`
-	SizeBytes    int64        `json:"sizeBytes,omitempty"`
-	SourceFile   string       `json:"sourceFile"`
-	OutputName   string       `json:"outputName,omitempty"`
-	Selected     bool         `json:"selected"`
-	Matched      bool         `json:"matched"`
-	ContentTitle string       `json:"contentTitle,omitempty"`
-	ContentType  string       `json:"contentType,omitempty"`
-	Season       string       `json:"season,omitempty"`
-	Episode      string       `json:"episode,omitempty"`
-	Streams      []StreamJSON `json:"streams,omitempty"`
+	Index      int    `json:"index"`
+	Name       string `json:"name"`
+	Duration   string `json:"duration"`
+	Size       string `json:"size"`
+	SizeBytes  int64  `json:"sizeBytes,omitempty"`
+	SourceFile string `json:"sourceFile"`
+	// Clips is the clip list the title plays, as MakeMKV reports it, and
+	// ClipOrder whether it plays them in ascending order. On a disc that hides
+	// the movie among same-length playlists, these say which to try first.
+	Clips        string            `json:"clips,omitempty"`
+	ClipOrder    makemkv.ClipOrder `json:"clipOrder,omitempty"`
+	OutputName   string            `json:"outputName,omitempty"`
+	Selected     bool              `json:"selected"`
+	Matched      bool              `json:"matched"`
+	ContentTitle string            `json:"contentTitle,omitempty"`
+	ContentType  string            `json:"contentType,omitempty"`
+	Season       string            `json:"season,omitempty"`
+	Episode      string            `json:"episode,omitempty"`
+	Streams      []StreamJSON      `json:"streams,omitempty"`
 }
 
 // SelectedReleaseJSON is the JSON representation of a user-selected release.
@@ -289,7 +296,7 @@ type DriveStoreJSON struct {
 	// "no preference", which selects all — distinct from never being told.
 	PreferredAudioLangs    []string `json:"preferredAudioLangs"`
 	PreferredSubtitleLangs []string `json:"preferredSubtitleLangs"`
-	HasLosslessAudio  bool                 `json:"hasLosslessAudio"`
+	HasLosslessAudio       bool     `json:"hasLosslessAudio"`
 	// RecoveryActive reports whether a spurious-AACS recovery is running for
 	// this drive. The client cannot infer this from the event stream alone: a
 	// dropped connection loses the "done" phase and leaves the banner up

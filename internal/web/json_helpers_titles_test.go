@@ -28,6 +28,30 @@ func makeWebScan(discName string, sourceFiles ...string) *makemkv.DiscScan {
 	}
 }
 
+// A disc that hides its movie among same-length playlists is told apart by the
+// order each playlist plays its clips, so every title carries its clip list.
+func TestTitlesForScanCarryClipOrder(t *testing.T) {
+	scan := makeWebScan("HIGH_LIFE", "00401.mpls", "00717.mpls", "02799.m2ts")
+	scan.Titles[0].Attributes[26] = "1-40,41,42"
+	scan.Titles[1].Attributes[26] = "14,3,27,9"
+
+	titles := titlesForScan(scan, nil, "", "")
+
+	byFile := make(map[string]TitleJSON, len(titles))
+	for _, tj := range titles {
+		byFile[tj.SourceFile] = tj
+	}
+	if got := byFile["00401.mpls"]; got.Clips != "1-40,41,42" || got.ClipOrder != makemkv.ClipOrderInOrder {
+		t.Errorf("00401.mpls: clips %q order %q, want in order", got.Clips, got.ClipOrder)
+	}
+	if got := byFile["00717.mpls"].ClipOrder; got != makemkv.ClipOrderShuffled {
+		t.Errorf("00717.mpls: order %q, want shuffled", got)
+	}
+	if got := byFile["02799.m2ts"].ClipOrder; got != makemkv.ClipOrderUnknown {
+		t.Errorf("02799.m2ts: order %q, want unknown", got)
+	}
+}
+
 func TestEnrichTitlesWithMatches(t *testing.T) {
 	scan := makeWebScan("TestDisc", "00001.mpls", "00002.mpls", "99999.mpls")
 
