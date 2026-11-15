@@ -1299,6 +1299,7 @@ function cachedScanAge() {
 										<th scope="col">Output Filename</th>
 										<th scope="col">Duration</th>
 										<th scope="col">Size</th>
+										@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.clips)"><th scope="col">Clips</th></template>`)
 									</tr>
 								</thead>
 								<tbody>
@@ -1312,6 +1313,7 @@ function cachedScanAge() {
 											@templ.Raw(`<td class="text-secondary" x-text="t.outputName"></td>`)
 											<td class="text-secondary" x-text="t.duration"></td>
 											<td class="text-secondary" x-text="t.size"></td>
+											@templ.Raw(`<template x-if="$store.drive.titles.some(t => t.clips)"><td class="clip-list text-muted" x-text="t.clips || '—'"></td></template>`)
 										</tr>
 									</template>
 								</tbody>
