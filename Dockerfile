@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-jre-headless \
     libssl3 libexpat1 \
     libcurl4t64 zlib1g lsscsi \
-    gosu libcap2-bin \
+    gosu libcap2-bin tini \
     build-essential pkg-config wget \
     libc6-dev libssl-dev libexpat1-dev zlib1g-dev \
     libavcodec-dev libavutil-dev libavformat-dev \
@@ -62,4 +62,7 @@ EXPOSE 9160
 
 VOLUME ["/config", "/output"]
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+# tini runs as PID 1 and reaps orphans. makemkvcon and mount leave helper
+# processes behind, and the kernel hands orphans to PID 1. Go reaps only its
+# own children, so with BluForge as PID 1 each orphan became a zombie.
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
