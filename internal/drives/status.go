@@ -1,5 +1,7 @@
 package drives
 
+import "fmt"
+
 // Status is what one cheap probe of a drive reports.
 //
 // It is deliberately coarser than the truth the kernel could give: the watcher
@@ -32,6 +34,102 @@ const (
 // the kernel answers with TEST UNIT READY; nothing else. If a hang is ever
 // traced to one of these landing mid-command, it moves under the hold too.
 func (b *Broker) ProbeStatus(device string) Status { return probeStatus(device) }
+
+// String names a Status for the log.
+func (s Status) String() string {
+	switch s {
+	case StatusDiscOK:
+		return "disc ok"
+	case StatusNoDisc:
+		return "no disc"
+	case StatusTrayOpen:
+		return "tray open"
+	case StatusNotReady:
+		return "not ready"
+	case StatusGone:
+		return "gone"
+	default:
+		return "unknown"
+	}
+}
+
+// Readiness is a drive's answer to TEST UNIT READY: whether it will take
+// commands about its disc now, and if not, why.
+//
+// It is a finer question than Status. CDROM_DRIVE_STATUS reports a disc as OK
+// both when the drive is ready and when it merely says a disc is in the tray
+// while it is still spinning up and reading the disc's structure. Only the
+// first is a drive makemkvcon may be pointed at.
+type Readiness struct {
+	// Ready is true when the drive answered TEST UNIT READY with good status.
+	Ready bool
+	// Reason says why a drive is not ready: the sense it answered with
+	// ("NOT READY 04/01"), or what kept the question from being asked. Empty
+	// when Ready.
+	Reason string
+}
+
+// ProbeReady asks drive device TEST UNIT READY.
+//
+// Like ProbeStatus it runs beside the drive's holder, and it sends the drive
+// nothing the status probe does not: CDROM_DRIVE_STATUS starts with TEST UNIT
+// READY too. It is asked only while a disc that has just arrived waits to be
+// read, so a drive still spinning a disc up is not handed makemkvcon.
+func (b *Broker) ProbeReady(device string) Readiness { return probeReady(device) }
+
+// senseKeys names the SCSI sense keys.
+var senseKeys = [16]string{
+	"NO SENSE", "RECOVERED ERROR", "NOT READY", "MEDIUM ERROR",
+	"HARDWARE ERROR", "ILLEGAL REQUEST", "UNIT ATTENTION", "DATA PROTECT",
+	"BLANK CHECK", "VENDOR SPECIFIC", "COPY ABORTED", "ABORTED COMMAND",
+	"KEY 0C", "VOLUME OVERFLOW", "MISCOMPARE", "KEY 0F",
+}
+
+// scsiCheckCondition is the SCSI status a drive answers with when it has sense
+// data to give.
+const scsiCheckCondition = 0x02
+
+// readinessFrom turns the outcome of a TEST UNIT READY into a Readiness.
+// status is the SCSI status byte, transport is set when the host or driver
+// reported a problem getting the command to the drive, and sense is the sense
+// data the drive returned.
+func readinessFrom(status byte, transport bool, sense []byte) Readiness {
+	if transport {
+		return Readiness{Reason: "the command did not reach the drive"}
+	}
+	if status == 0 {
+		return Readiness{Ready: true}
+	}
+	if status != scsiCheckCondition {
+		return Readiness{Reason: fmt.Sprintf("SCSI status %#02x", status)}
+	}
+	key, asc, ascq, ok := parseSense(sense)
+	if !ok {
+		return Readiness{Reason: "CHECK CONDITION without sense data"}
+	}
+	return Readiness{Reason: fmt.Sprintf("%s %02X/%02X", senseKeys[key], asc, ascq)}
+}
+
+// parseSense reads the sense key, ASC and ASCQ from fixed (0x70/0x71) or
+// descriptor (0x72/0x73) format sense data.
+func parseSense(sense []byte) (key, asc, ascq byte, ok bool) {
+	if len(sense) == 0 {
+		return 0, 0, 0, false
+	}
+	switch sense[0] & 0x7f {
+	case 0x70, 0x71:
+		if len(sense) < 14 {
+			return 0, 0, 0, false
+		}
+		return sense[2] & 0x0f, sense[12], sense[13], true
+	case 0x72, 0x73:
+		if len(sense) < 4 {
+			return 0, 0, 0, false
+		}
+		return sense[1] & 0x0f, sense[2], sense[3], true
+	}
+	return 0, 0, 0, false
+}
 
 // CDROM_DRIVE_STATUS return codes, from <linux/cdrom.h>. They are not exported
 // by golang.org/x/sys/unix, so they are defined here against the kernel header.

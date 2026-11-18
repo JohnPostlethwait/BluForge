@@ -40,11 +40,13 @@ type DriveEvent struct {
 //
 // None of it touches a drive outside that drive's hold. Slots reads sysfs.
 // Identify runs makemkvcon on one drive under its hold. ProbeStatus is the
-// eject watcher's status ioctl, the one sanctioned exception.
+// eject watcher's status ioctl, the one sanctioned exception, and ProbeReady
+// sends the TEST UNIT READY that the status ioctl already starts with.
 type DriveSource interface {
 	Slots() ([]drives.Slot, error)
 	Identify(ctx context.Context, idx int) (makemkv.DriveInfo, error)
 	ProbeStatus(device string) drives.Status
+	ProbeReady(device string) drives.Readiness
 }
 
 // Manager tracks drives and emits events when their state changes.
@@ -77,18 +79,24 @@ type Manager struct {
 	// eject watcher cancels is removed at once, so the next disc's identify is
 	// not refused while the cancelled one winds down.
 	identifying map[int]*identifyRun
+	// awaiting holds each drive whose disc has arrived and that has not yet
+	// said it is ready. See awaitReady.
+	awaiting map[int]*readyWait
+	// probing marks the devices whose watcher probe is still running. A probe
+	// of a hung drive blocks in the kernel; it must not hold up the others, and
+	// a second one must not pile onto it.
+	probing map[string]bool
 
 	watcher *opticalWatcher
 	now     func() time.Time
-	// identifyRetry is the rest before asking makemkvcon again about a disc it
-	// reported as still loading.
-	identifyRetry time.Duration
 }
 
-// identifyRetryInterval is how often makemkvcon is asked again about a disc it
-// reported as loading. The watcher's own cadence: the question is the same one
-// the watcher just answered, asked of the program that names the disc.
-const identifyRetryInterval = watchInterval
+// readyWait is one arrived disc waiting for its drive to be ready.
+type readyWait struct {
+	since time.Time
+	// reason is the drive's last not-ready answer, logged when it changes.
+	reason string
+}
 
 // physicalConfirmDuration is how long a physical status change must persist
 // before the watcher acts on it. Short, because CDROM_DRIVE_STATUS is a
@@ -102,16 +110,17 @@ const watchInterval = 1 * time.Second
 // NewManager creates a Manager learning drives from src.
 func NewManager(src DriveSource, onEvent func(DriveEvent)) *Manager {
 	m := &Manager{
-		src:           src,
-		onEvent:       onEvent,
-		drives:        make(map[int]*DriveStateMachine),
-		known:         make(map[int]string),
-		ignored:       make(map[string]bool),
-		names:         make(map[int]makemkv.DriveInfo),
-		ignoredIdx:    make(map[int]bool),
-		identifying:   make(map[int]*identifyRun),
-		now:           time.Now,
-		identifyRetry: identifyRetryInterval,
+		src:         src,
+		onEvent:     onEvent,
+		drives:      make(map[int]*DriveStateMachine),
+		known:       make(map[int]string),
+		ignored:     make(map[string]bool),
+		names:       make(map[int]makemkv.DriveInfo),
+		ignoredIdx:  make(map[int]bool),
+		identifying: make(map[int]*identifyRun),
+		awaiting:    make(map[int]*readyWait),
+		probing:     make(map[string]bool),
+		now:         time.Now,
 	}
 	m.watcher = newOpticalWatcher(func() time.Time { return m.now() }, physicalConfirmDuration)
 	return m
@@ -274,7 +283,7 @@ func (m *Manager) refreshSlots(ctx context.Context, wait bool) {
 		wg.Add(1)
 		go func(s drives.Slot) {
 			defer wg.Done()
-			m.identify(ctx, s.Index, false)
+			m.identify(ctx, s.Index)
 		}(s)
 	}
 	if wait {
@@ -284,6 +293,7 @@ func (m *Manager) refreshSlots(ctx context.Context, wait bool) {
 
 func (m *Manager) forgetLocked(idx int) {
 	m.cancelIdentifyLocked(idx)
+	delete(m.awaiting, idx)
 	if dsm, ok := m.drives[idx]; ok {
 		m.watcher.forget(dsm.DevicePath())
 	}
@@ -296,11 +306,12 @@ func (m *Manager) forgetLocked(idx int) {
 // identify asks drive idx what it and its disc are called, under its hold,
 // and records the answer. One identify per drive at a time.
 //
-// arrived is set when the watcher started it on seeing a disc arrive. Only then
-// does a makemkvcon "empty" that the drive contradicts mean ask again: startup
-// waits for its identifies, and a disc makemkvcon cannot see must not hold up
-// every drive's watcher.
-func (m *Manager) identify(ctx context.Context, idx int, arrived bool) {
+// makemkvcon is asked once. A disc that arrived is identified only after its
+// drive answered TEST UNIT READY (see awaitReady), so makemkvcon is never
+// pointed at a drive still loading a disc. Asking again was how BluForge used
+// to cope with asking too early: it ran makemkvcon over and over against a
+// drive spinning a disc up, and a drive that dies under that stays dead.
+func (m *Manager) identify(ctx context.Context, idx int) {
 	m.mu.Lock()
 	if _, running := m.identifying[idx]; running {
 		m.mu.Unlock()
@@ -326,60 +337,29 @@ func (m *Manager) identify(ctx context.Context, idx int, arrived bool) {
 		}
 	}()
 
-	// makemkvcon answers "loading" while a disc spins up, and the status ioctl
-	// that started this identify can report the disc before makemkvcon is done
-	// with it. Loading is makemkvcon saying it has no answer yet, so ask again.
-	// Recording it as an empty drive lost the disc for good: the watcher had
-	// already confirmed the arrival and would not ask a second time. The loop
-	// ends when makemkvcon answers, or when the disc leaves and ctx is cancelled.
-	//
-	// makemkvcon can also answer "empty" for a disc the drive already reports
-	// loaded: the Pioneer reported a disc, and makemkvcon said empty six seconds
-	// later. The drive is the witness to whether a disc is there, so that too is
-	// asked again, until makemkvcon sees the disc or the drive stops reporting one.
-	saidLoading, saidConflict := false, false
-	for {
-		info, err := m.src.Identify(ctx, idx)
-		if err != nil {
-			if ctx.Err() == nil {
-				slog.Error("could not identify the drive", "drive_index", idx, "error", err)
-			}
-			return
+	info, err := m.src.Identify(ctx, idx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Error("could not identify the drive", "drive_index", idx, "error", err)
 		}
-		// Cancelled while makemkvcon answered: the disc it described has left.
-		if ctx.Err() != nil {
-			return
-		}
-		switch {
-		case info.State == makemkv.DriveStateLoading:
-			if !saidLoading {
-				slog.Info("drive: the disc is still loading; asking again",
-					"drive_index", idx, "device", info.DevicePath)
-				saidLoading = true
-			}
-		case !info.HasDisc() && m.driveReportsDisc(info):
-			if !arrived {
-				slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded",
-					"drive_index", idx, "device", info.DevicePath, "makemkv_state", info.State)
-				m.applyIdentity(info)
-				return
-			}
-			if !saidConflict {
-				slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded; asking again",
-					"drive_index", idx, "device", info.DevicePath, "makemkv_state", info.State)
-				saidConflict = true
-			}
-		default:
-			m.logIdentity(info)
-			m.applyIdentity(info)
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(m.identifyRetry):
-		}
+		return
 	}
+	// Cancelled while makemkvcon answered: the disc it described has left.
+	if ctx.Err() != nil {
+		return
+	}
+	switch {
+	case info.State == makemkv.DriveStateLoading:
+		slog.Warn("drive: makemkvcon says the disc is still loading; not reading it",
+			"drive_index", idx, "device", info.DevicePath)
+		return
+	case !info.HasDisc() && m.driveReportsDisc(info):
+		slog.Warn("drive: makemkvcon reports no disc, but the drive reports one loaded",
+			"drive_index", idx, "device", info.DevicePath, "makemkv_state", info.State)
+	default:
+		m.logIdentity(info)
+	}
+	m.applyIdentity(info)
 }
 
 // identifyRun is one identify on one drive.
@@ -478,7 +458,7 @@ func (m *Manager) applyIdentity(info makemkv.DriveInfo) {
 	}
 	m.mu.Unlock()
 
-	if len(pending) > 0 {
+	if slices.ContainsFunc(pending, func(ev DriveEvent) bool { return ev.Type == EventDiscInserted }) {
 		slog.Info("disc arrived", "drive_index", idx, "device", info.DevicePath, "disc_name", info.DiscName)
 	}
 	m.dispatch(pending)
@@ -487,31 +467,94 @@ func (m *Manager) applyIdentity(info makemkv.DriveInfo) {
 // watchOnce probes every tracked drive once and acts on a confirmed change.
 // It runs beside whatever holds a drive, which is the point: a disc pulled
 // mid-rip is seen, and the rip stopped. Ignored drives are not probed.
-func (m *Manager) watchOnce(ctx context.Context) {
-	m.mu.RLock()
-	type target struct {
-		idx    int
-		device string
-	}
-	targets := make([]target, 0, len(m.drives))
+//
+// Each drive is probed on its own goroutine. A probe of a hung drive blocks in
+// the kernel until the drive is reset, and one drive's hang must not stop the
+// watcher seeing an eject on another. A drive whose last probe has not
+// returned is skipped. The returned WaitGroup covers the probes started.
+func (m *Manager) watchOnce(ctx context.Context) *sync.WaitGroup {
+	var wg sync.WaitGroup
+	m.mu.Lock()
 	for idx, d := range m.drives {
-		if p := d.DevicePath(); p != "" {
-			targets = append(targets, target{idx, p})
+		device := d.DevicePath()
+		if device == "" || m.probing[device] {
+			continue
 		}
+		m.probing[device] = true
+		wg.Add(1)
+		go func(idx int, device string) {
+			defer wg.Done()
+			defer func() {
+				m.mu.Lock()
+				delete(m.probing, device)
+				m.mu.Unlock()
+			}()
+			m.watchDrive(ctx, idx, device)
+		}(idx, device)
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
+	return &wg
+}
 
-	for _, t := range targets {
-		reading := m.src.ProbeStatus(t.device)
-		switch m.watcher.observe(t.device, reading) {
-		case MediaGone:
-			m.notePhysicalGone(t.device, reading == StatusGone)
-		case MediaPresent:
-			slog.Info("drive: disc detected, reading it", "drive_index", t.idx, "device", t.device)
-			m.SetDriveState(t.idx, StateReading)
-			go m.identify(ctx, t.idx, true)
-		}
+// watchDrive probes one drive and acts on what it says.
+func (m *Manager) watchDrive(ctx context.Context, idx int, device string) {
+	reading := m.src.ProbeStatus(device)
+	switch m.watcher.observe(device, reading) {
+	case MediaGone:
+		m.notePhysicalGone(device, reading)
+		return
+	case MediaPresent:
+		slog.Info("drive: disc detected; waiting for the drive to be ready", "drive_index", idx, "device", device)
+		m.mu.Lock()
+		m.awaiting[idx] = &readyWait{since: m.now()}
+		m.mu.Unlock()
+		m.SetDriveState(idx, StateReading)
 	}
+	if reading == StatusDiscOK {
+		m.awaitReady(ctx, idx, device)
+	}
+}
+
+// awaitReady identifies an arrived disc once its drive is ready for it.
+//
+// CDROM_DRIVE_STATUS reports a disc as soon as the drive says one is in the
+// tray, while it is still spinning it up and reading its structure. A drive
+// on Jotunheim stopped answering for good when makemkvcon was started on a
+// reinserted disc a second after the status said it was there. So an arrived
+// disc waits, shown as reading, until the drive answers TEST UNIT READY, asked
+// once per watcher tick. There is no deadline: the drive's own answer is the
+// signal, and the wait ends early only when the disc leaves.
+func (m *Manager) awaitReady(ctx context.Context, idx int, device string) {
+	m.mu.RLock()
+	w := m.awaiting[idx]
+	m.mu.RUnlock()
+	if w == nil {
+		return
+	}
+
+	r := m.src.ProbeReady(device)
+
+	m.mu.Lock()
+	if m.awaiting[idx] != w {
+		// The disc left, or another arrived, while the drive was asked.
+		m.mu.Unlock()
+		return
+	}
+	if !r.Ready {
+		changed := r.Reason != w.reason
+		w.reason = r.Reason
+		m.mu.Unlock()
+		if changed {
+			slog.Info("drive: not ready yet", "drive_index", idx, "device", device, "reason", r.Reason)
+		}
+		return
+	}
+	delete(m.awaiting, idx)
+	m.mu.Unlock()
+
+	slog.Info("drive: ready; identifying the disc", "drive_index", idx, "device", device,
+		"after", m.now().Sub(w.since).Round(time.Second).String())
+	go m.identify(ctx, idx)
 }
 
 // SetDriveState overrides a drive's state and emits a state_change event.
@@ -534,8 +577,9 @@ func (m *Manager) SetDriveState(index int, state DriveState) {
 
 // notePhysicalGone records a removal the watcher confirmed: the disc left, or
 // the drive's node vanished. It resets the drive and fires the event that
-// releases mounts and cancels work on it.
-func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
+// releases mounts and cancels work on it. reading is what confirmed it.
+func (m *Manager) notePhysicalGone(devicePath string, reading DriveStatus) {
+	disconnected := reading == StatusGone
 	m.mu.Lock()
 	var (
 		idx   int
@@ -554,6 +598,7 @@ func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
 		return
 	}
 	m.cancelIdentifyLocked(idx)
+	delete(m.awaiting, idx)
 	dsm.ForceReset()
 	delete(m.known, idx)
 	if disconnected {
@@ -564,6 +609,10 @@ func (m *Manager) notePhysicalGone(devicePath string, disconnected bool) {
 	evType := EventDiscEjected
 	if disconnected {
 		evType = EventDriveDisconnect
+		slog.Info("drive: disconnected", "drive_index", idx, "device", devicePath)
+	} else {
+		slog.Info("drive: disc removed; stopping work on it", "drive_index", idx, "device", devicePath,
+			"disc_name", prev, "status", reading.String())
 	}
 	m.dispatch([]DriveEvent{{
 		Type: evType, DriveIndex: idx, DiscName: prev, State: dsm.State(), DevicePath: devicePath,

@@ -27,6 +27,12 @@ type fakeSource struct {
 	// stall, when set, holds the next identify until it is closed, whatever
 	// its context says: makemkvcon winding down after being cancelled.
 	stall chan struct{}
+	// notReady is the reason a drive gives for not being ready, per device.
+	// A device not in it answers TEST UNIT READY as ready.
+	notReady map[string]string
+	// hang holds every status probe of a device until it is closed: a drive
+	// that has stopped answering.
+	hang map[string]chan struct{}
 }
 
 func newFakeSource() *fakeSource {
@@ -71,8 +77,44 @@ func (f *fakeSource) Identify(_ context.Context, idx int) (makemkv.DriveInfo, er
 
 func (f *fakeSource) ProbeStatus(device string) drives.Status {
 	f.mu.Lock()
+	hang := f.hang[device]
+	f.mu.Unlock()
+	if hang != nil {
+		<-hang
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.status[device]
+}
+
+func (f *fakeSource) ProbeReady(device string) drives.Readiness {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if reason, ok := f.notReady[device]; ok {
+		return drives.Readiness{Reason: reason}
+	}
+	return drives.Readiness{Ready: true}
+}
+
+func (f *fakeSource) setNotReady(device, reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notReady == nil {
+		f.notReady = map[string]string{}
+	}
+	f.notReady[device] = reason
+}
+
+func (f *fakeSource) setReady(device string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.notReady, device)
+}
+
+func (f *fakeSource) identifies() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.identified)
 }
 
 func (f *fakeSource) attach(idx int, name, disc string) {
@@ -272,53 +314,142 @@ func TestTheWatcherSeesADiscSwap(t *testing.T) {
 	now := time.Unix(0, 0)
 	m.now = func() time.Time { return now }
 	m.refreshSlots(context.Background(), true)
-	m.watchOnce(context.Background()) // baseline
+	m.watchOnce(context.Background()).Wait() // baseline
 
 	src.setStatus("/dev/sr1", drives.StatusTrayOpen)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	if rec.count(EventDiscEjected) != 1 {
 		t.Fatalf("ejects = %d, want 1", rec.count(EventDiscEjected))
 	}
 
 	src.setDisc(1, "PERFECT_BLUE")
 	src.setStatus("/dev/sr1", drives.StatusDiscOK)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	eventually(t, func() bool { return rec.count(EventDiscInserted) == 2 }, "the second disc to be announced")
 }
 
-// makemkvcon reports a disc that is still spinning up as loading. That is not
-// an empty drive: the disc is asked about again until makemkvcon says what it
-// is. Taking it for empty left a disc in the drive that BluForge never saw,
-// because the watcher had already confirmed the arrival and would not ask again.
-func TestADiscStillLoadingIsAskedAboutAgain(t *testing.T) {
+// The status ioctl reports a disc while the drive is still spinning it up. A
+// drive on Jotunheim stopped answering for good when makemkvcon was started on
+// a reinserted disc a second later. An arrived disc is read only once the
+// drive answers TEST UNIT READY, and makemkvcon is asked once.
+func TestAnArrivedDiscWaitsForTheDriveToBeReady(t *testing.T) {
 	src := newFakeSource()
 	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
 	src.setStatus("/dev/sr1", drives.StatusNoDisc)
 	rec := &recorder{}
 	m := NewManager(src, rec.on)
-	m.identifyRetry = 0
 	now := time.Unix(0, 0)
 	m.now = func() time.Time { return now }
 	m.refreshSlots(context.Background(), true)
-	m.watchOnce(context.Background()) // baseline: empty
+	m.watchOnce(context.Background()).Wait() // baseline: empty
+	before := src.identifies()
 
-	src.loadingFor(1, "IP_MAN", 3)
+	src.setDisc(1, "IP_MAN")
 	src.setStatus("/dev/sr1", drives.StatusDiscOK)
-	m.watchOnce(context.Background())
-	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	src.setNotReady("/dev/sr1", "NOT READY 04/01")
+	m.watchOnce(context.Background()).Wait()
+	for i := 0; i < 10; i++ {
+		now = now.Add(3 * time.Second)
+		m.watchOnce(context.Background()).Wait()
+	}
+	if n := src.identifies(); n != before {
+		t.Fatalf("makemkvcon was started %d times on a drive that was not ready", n-before)
+	}
+	if got := m.GetDrive(1).State(); got != StateReading {
+		t.Errorf("state while waiting = %q, want %q", got, StateReading)
+	}
 
-	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced once loaded")
+	src.setReady("/dev/sr1")
+	m.watchOnce(context.Background()).Wait()
+	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced once ready")
 	if ev, _ := rec.last(EventDiscInserted); ev.DiscName != "IP_MAN" {
 		t.Errorf("disc = %q, want IP_MAN", ev.DiscName)
 	}
-	if got := m.GetDrive(1).State(); got != StateDetected {
-		t.Errorf("state = %q, want %q", got, StateDetected)
+	for i := 0; i < 3; i++ {
+		m.watchOnce(context.Background()).Wait()
 	}
+	if n := src.identifies(); n != before+1 {
+		t.Errorf("identified %d times after the disc arrived, want 1", n-before)
+	}
+}
+
+// A disc taken out while its drive is still getting ready is never read.
+func TestADiscPulledBeforeTheDriveIsReadyIsNotRead(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
+	src.setStatus("/dev/sr1", drives.StatusNoDisc)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background()).Wait()
+	before := src.identifies()
+
+	src.setDisc(1, "IP_MAN")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	src.setNotReady("/dev/sr1", "NOT READY 04/01")
+	m.watchOnce(context.Background()).Wait()
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background()).Wait()
+
+	src.setStatus("/dev/sr1", drives.StatusTrayOpen)
+	src.setReady("/dev/sr1")
+	m.watchOnce(context.Background()).Wait()
+	now = now.Add(3 * time.Second)
+	m.watchOnce(context.Background()).Wait()
+	m.watchOnce(context.Background()).Wait()
+
+	if n := src.identifies(); n != before {
+		t.Errorf("identified %d times, want 0", n-before)
+	}
+	if got := m.GetDrive(1).State(); got != StateEmpty {
+		t.Errorf("state = %q, want %q", got, StateEmpty)
+	}
+}
+
+// A drive that has stopped answering blocks its status probe in the kernel.
+// The other drives are still watched: a disc pulled from one of them is seen.
+func TestAHungDriveDoesNotBlindTheWatcher(t *testing.T) {
+	src := newFakeSource()
+	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "IP_MAN")
+	src.attach(2, "BD-RE PIONEER BD-RW BDR-XD08U 1.00 SER2", "THE_WIRE_S4_D1")
+	src.setStatus("/dev/sr1", drives.StatusDiscOK)
+	src.setStatus("/dev/sr2", drives.StatusDiscOK)
+	rec := &recorder{}
+	m := NewManager(src, rec.on)
+	now := time.Unix(0, 0)
+	m.now = func() time.Time { return now }
+	m.refreshSlots(context.Background(), true)
+	m.watchOnce(context.Background()).Wait() // baseline
+
+	hang := make(chan struct{})
+	src.mu.Lock()
+	src.hang = map[string]chan struct{}{"/dev/sr1": hang}
+	src.mu.Unlock()
+	hung := m.watchOnce(context.Background())
+	eventually(t, func() bool {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return m.probing["/dev/sr1"] && !m.probing["/dev/sr2"]
+	}, "sr1's probe to hang and sr2's to return")
+
+	src.setStatus("/dev/sr2", drives.StatusTrayOpen)
+	for i := 0; i < 3; i++ {
+		now = now.Add(3 * time.Second)
+		// sr1's probe is still blocked, so this waits on sr2's alone.
+		m.watchOnce(context.Background()).Wait()
+	}
+	if ev, ok := rec.last(EventDiscEjected); !ok || ev.DriveIndex != 2 {
+		t.Error("the eject on the other drive was not seen while one drive hung")
+	}
+
+	close(hang)
+	hung.Wait()
 }
 
 // arriveOn starts drive 1 empty, runs insert to put a disc in it, and has the
@@ -329,17 +460,16 @@ func arriveOn(t *testing.T, src *fakeSource, insert func()) (*Manager, *recorder
 	src.setStatus("/dev/sr1", drives.StatusNoDisc)
 	rec := &recorder{}
 	m := NewManager(src, rec.on)
-	m.identifyRetry = 0
 	now := time.Unix(0, 0)
 	m.now = func() time.Time { return now }
 	m.refreshSlots(context.Background(), true)
-	m.watchOnce(context.Background()) // baseline: empty
+	m.watchOnce(context.Background()).Wait() // baseline: empty
 
 	insert()
 	src.setStatus("/dev/sr1", drives.StatusDiscOK)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	return m, rec
 }
 
@@ -347,7 +477,7 @@ func arriveOn(t *testing.T, src *fakeSource, insert func()) (*Manager, *recorder
 // disc for all of it, rather than looking empty with a disc in it.
 func TestADiscBeingIdentifiedShowsAsReading(t *testing.T) {
 	src := newFakeSource()
-	m, rec := arriveOn(t, src, func() { src.loadingFor(1, "IP_MAN_3", 2) })
+	m, rec := arriveOn(t, src, func() { src.setDisc(1, "IP_MAN_3") })
 
 	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced")
 	rec.mu.Lock()
@@ -402,15 +532,15 @@ func TestASwapDuringAnIdentifyIsStillIdentified(t *testing.T) {
 
 	// The first identify is stalled. The disc leaves, and another goes in.
 	src.setStatus("/dev/sr1", drives.StatusTrayOpen)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 
 	src.setDisc(1, "IP_MAN_2")
 	src.setStatus("/dev/sr1", drives.StatusDiscOK)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 	now = now.Add(3 * time.Second)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 
 	eventually(t, func() bool {
 		ev, ok := rec.last(EventDiscInserted)
@@ -421,16 +551,28 @@ func TestASwapDuringAnIdentifyIsStillIdentified(t *testing.T) {
 	}
 }
 
-// The Pioneer reported a disc loaded while makemkvcon, six seconds later, said
-// the drive was empty. The drive is the witness to whether a disc is there, so
-// makemkvcon is asked again until it sees the disc too.
-func TestMakeMKVSayingEmptyWhileTheDriveHasADiscIsAskedAgain(t *testing.T) {
-	src := newFakeSource()
-	m, rec := arriveOn(t, src, func() { src.emptyFor(1, "THE_WIRE_S4_D1", 3) })
-
-	eventually(t, func() bool { return rec.count(EventDiscInserted) == 1 }, "the disc to be announced")
-	if got := m.GetDrive(1).State(); got != StateDetected {
-		t.Errorf("state = %q, want %q", got, StateDetected)
+// makemkvcon is never run again against a drive that answered it oddly. Doing
+// so, over and over against a drive spinning a disc up, is what this design
+// replaced with waiting for the drive to be ready.
+func TestAnArrivedDiscIsNeverAskedAboutTwice(t *testing.T) {
+	for name, insert := range map[string]func(*fakeSource){
+		"loading": func(src *fakeSource) { src.loadingFor(1, "IP_MAN", 3) },
+		"empty":   func(src *fakeSource) { src.emptyFor(1, "THE_WIRE_S4_D1", 3) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := newFakeSource()
+			m, _ := arriveOn(t, src, func() { insert(src) })
+			// One identify at startup, one for the disc.
+			eventually(t, func() bool {
+				return src.identifies() == 2 && m.GetDrive(1).State() == StateEmpty
+			}, "the identify to end")
+			for i := 0; i < 3; i++ {
+				m.watchOnce(context.Background()).Wait()
+			}
+			if n := src.identifies(); n != 2 {
+				t.Errorf("makemkvcon was asked about the disc %d times, want 1", n-1)
+			}
+		})
 	}
 }
 
@@ -441,7 +583,6 @@ func TestAnEmptyDriveIsAskedOnce(t *testing.T) {
 	src.attach(1, "BD-RE HL-DT-ST BD-RE BU40N 1.03 SER1", "")
 	src.setStatus("/dev/sr1", drives.StatusNoDisc)
 	m := NewManager(src, (&recorder{}).on)
-	m.identifyRetry = 0
 	m.refreshSlots(context.Background(), true)
 
 	src.mu.Lock()
@@ -465,12 +606,12 @@ func TestABusyDriveIsNotAnEject(t *testing.T) {
 	now := time.Unix(0, 0)
 	m.now = func() time.Time { return now }
 	m.refreshSlots(context.Background(), true)
-	m.watchOnce(context.Background())
+	m.watchOnce(context.Background()).Wait()
 
 	src.setStatus("/dev/sr1", drives.StatusNotReady)
 	for i := 0; i < 5; i++ {
 		now = now.Add(10 * time.Second)
-		m.watchOnce(context.Background())
+		m.watchOnce(context.Background()).Wait()
 	}
 	if rec.count(EventDiscEjected) != 0 {
 		t.Error("a busy drive was taken for an eject")

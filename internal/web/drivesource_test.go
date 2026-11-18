@@ -40,6 +40,8 @@ func (s *stubExecutor) Identify(ctx context.Context, idx int) (makemkv.DriveInfo
 
 func (s *stubExecutor) ProbeStatus(string) drives.Status { return drives.StatusUnknown }
 
+func (s *stubExecutor) ProbeReady(string) drives.Readiness { return drives.Readiness{Ready: true} }
+
 func (e *driveWithDiscExecutor) Slots() ([]drives.Slot, error) {
 	list, _ := e.ListDrives(context.Background())
 	return slotsOf(list), nil
@@ -51,3 +53,7 @@ func (e *driveWithDiscExecutor) Identify(ctx context.Context, idx int) (makemkv.
 }
 
 func (e *driveWithDiscExecutor) ProbeStatus(string) drives.Status { return drives.StatusUnknown }
+
+func (e *driveWithDiscExecutor) ProbeReady(string) drives.Readiness {
+	return drives.Readiness{Ready: true}
+}
