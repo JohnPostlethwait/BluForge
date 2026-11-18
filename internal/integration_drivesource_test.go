@@ -30,3 +30,5 @@ func (m *fullMockExecutor) Identify(ctx context.Context, idx int) (makemkv.Drive
 }
 
 func (m *fullMockExecutor) ProbeStatus(string) drives.Status { return drives.StatusUnknown }
+
+func (m *fullMockExecutor) ProbeReady(string) drives.Readiness { return drives.Readiness{Ready: true} }

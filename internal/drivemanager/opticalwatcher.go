@@ -1,6 +1,7 @@
 package drivemanager
 
 import (
+	"sync"
 	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/drives"
@@ -32,6 +33,7 @@ const (
 // blips. It is pure state plus an injectable clock — no I/O, no goroutine — so
 // the transition logic is tested without hardware.
 type opticalWatcher struct {
+	mu         sync.Mutex
 	now        func() time.Time
 	confirmFor time.Duration
 	states     map[string]*watchState
@@ -73,14 +75,19 @@ func decisive(s DriveStatus) bool {
 // forget drops everything recorded for a device, so its next decisive reading
 // is a fresh baseline.
 func (w *opticalWatcher) forget(devicePath string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	delete(w.states, devicePath)
 }
 
 // observe records one reading for a device and returns any confirmed transition.
+// Drives are probed in parallel, so it is safe for concurrent use.
 func (w *opticalWatcher) observe(devicePath string, reading DriveStatus) MediaTransition {
 	if !decisive(reading) {
 		return MediaNoChange
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	st, ok := w.states[devicePath]
 	if !ok {

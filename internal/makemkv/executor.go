@@ -304,7 +304,7 @@ func (e *Executor) runScan(ctx context.Context, target string, onEvent func(Even
 				return
 			}
 			events = append(events, ev)
-			logMakeMKVEvent(ev, "scan")
+			logMakeMKVEvent(ev, "scan", "source", target)
 			if onEvent != nil {
 				onEvent(ev)
 			}
@@ -328,7 +328,7 @@ func (e *Executor) runScan(ctx context.Context, target string, onEvent func(Even
 		cmdErr = parseErr
 	}
 	for _, ev := range events {
-		logMakeMKVEvent(ev, "scan")
+		logMakeMKVEvent(ev, "scan", "source", target)
 		if onEvent != nil {
 			onEvent(ev)
 		}

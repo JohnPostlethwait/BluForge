@@ -4,6 +4,8 @@ package drives
 
 import (
 	"errors"
+	"runtime"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -41,4 +43,77 @@ func probeStatus(devicePath string) Status {
 		return StatusUnknown
 	}
 	return statusFromCDS(int(ret))
+}
+
+// SG_IO and its header, from <scsi/sg.h>. Not exported by x/sys/unix.
+const (
+	sgIO         = 0x2285
+	sgDxferNone  = -1
+	sgInterface  = 'S'
+	senseBufSize = 32
+	// turTimeoutMs is the kernel's own timeout for the TEST UNIT READY that
+	// CDROM_DRIVE_STATUS sends (SR_TIMEOUT), so this probe can hold a drive no
+	// longer than the status probe already does.
+	turTimeoutMs = 30_000
+)
+
+// sgIOHdr is struct sg_io_hdr. Go lays it out as C does on every Linux
+// architecture BluForge builds for: natural alignment, pointers word-sized.
+type sgIOHdr struct {
+	interfaceID    int32
+	dxferDirection int32
+	cmdLen         uint8
+	mxSbLen        uint8
+	iovecCount     uint16
+	dxferLen       uint32
+	dxferp         unsafe.Pointer
+	cmdp           unsafe.Pointer
+	sbp            unsafe.Pointer
+	timeout        uint32
+	flags          uint32
+	packID         int32
+	usrPtr         unsafe.Pointer
+	status         uint8
+	maskedStatus   uint8
+	msgStatus      uint8
+	sbLenWr        uint8
+	hostStatus     uint16
+	driverStatus   uint16
+	resid          int32
+	duration       uint32
+	info           uint32
+}
+
+// driverSense is the driver_status bit that only says sense data came back,
+// which is not a transport problem.
+const driverSense = 0x08
+
+// probeReady sends TEST UNIT READY to the drive through SG_IO on its node,
+// opened non-blocking as probeStatus opens it.
+func probeReady(devicePath string) Readiness {
+	fd, err := unix.Open(devicePath, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return Readiness{Reason: "open: " + err.Error()}
+	}
+	defer unix.Close(fd)
+
+	cdb := new([6]byte) // TEST UNIT READY is opcode 0 with no fields.
+	sense := new([senseBufSize]byte)
+	hdr := &sgIOHdr{
+		interfaceID:    sgInterface,
+		dxferDirection: sgDxferNone,
+		cmdLen:         uint8(len(cdb)),
+		mxSbLen:        senseBufSize,
+		cmdp:           unsafe.Pointer(cdb),
+		sbp:            unsafe.Pointer(sense),
+		timeout:        turTimeoutMs,
+	}
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(sgIO), uintptr(unsafe.Pointer(hdr)))
+	runtime.KeepAlive(cdb)
+	runtime.KeepAlive(sense)
+	if errno != 0 {
+		return Readiness{Reason: "SG_IO: " + errno.Error()}
+	}
+	transport := hdr.hostStatus != 0 || hdr.driverStatus&^driverSense != 0
+	return readinessFrom(hdr.status, transport, sense[:hdr.sbLenWr])
 }
