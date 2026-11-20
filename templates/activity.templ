@@ -674,8 +674,16 @@ function formatDuration(secs) {
 									// from the same bytes copied. Absent until enough has moved.
 									const rate = j.phase === 'copying' && j.copyRate > 0 ? ' \u00b7 ' + formatRate(j.copyRate) : ''
 									if (enough && j.progress > 0) {
-										const total = elapsed / (j.progress / 100)
-										const remaining = Math.max(0, total - elapsed)
+										// Project from the copy rate. Scaling the job's whole
+										// elapsed time counts the disc-structure read as if it
+										// were copying: 95 minutes of it put ~4h on a copy
+										// that had 43 minutes left.
+										let remaining
+										if (j.phase === 'copying' && j.copyRate > 0 && j.sizeBytes) {
+											remaining = Math.max(0, (j.sizeBytes - copied) / j.copyRate)
+										} else {
+											remaining = Math.max(0, elapsed / (j.progress / 100) - elapsed)
+										}
 										return elapsedStr + ' elapsed \u00b7 ~' + formatDuration(remaining) + ' remaining' + rate
 									}
 									// Before that an estimate would swing wildly, but a blank
