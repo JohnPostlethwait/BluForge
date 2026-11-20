@@ -168,7 +168,13 @@ func (o *Orchestrator) scanProgressFn(driveIndex int) func(makemkv.Event) {
 			o.scanMu.Unlock()
 			return
 		}
-		due := st.operation != operation || time.Since(st.lastBroadcast) >= scanNarrationInterval
+		// A new step (PRGT/PRGC) goes out at once; there are a handful per scan.
+		// Message text changes on nearly every line, and makemkvcon prints
+		// dozens at once at the end of a scan: sent each time, that burst
+		// overflowed a page's event buffer and cost it the stream. Messages
+		// share the interval.
+		newStep := ev.Operation != "" && ev.Operation != st.operation
+		due := newStep || time.Since(st.lastBroadcast) >= scanNarrationInterval
 		st.operation = operation
 		if due {
 			st.lastBroadcast = time.Now()

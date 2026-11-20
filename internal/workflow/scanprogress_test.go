@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -239,6 +240,29 @@ func TestScanBroadcastsFailure(t *testing.T) {
 	if orch.ScanStatus(0).Active {
 		t.Error("a failed scan left the status active")
 	}
+}
+
+// makemkvcon prints dozens of messages at once at the end of a scan. Sent one
+// event each, they overflowed the page's buffer and the hub closed its stream.
+func TestScanMessagesDoNotFloodThePage(t *testing.T) {
+	rec := &broadcastRecorder{}
+	var events []makemkv.Event
+	for i := 0; i < 100; i++ {
+		events = append(events, makemkv.Event{Type: "MSG",
+			Message: &makemkv.Message{Code: 3307, Text: fmt.Sprintf("message %d", i)}})
+	}
+	scanner := newProgressScanner(events...)
+	orch, _, _ := setupOrchestratorWithScannerAndBroadcast(t, scanner, rec.fn)
+
+	if err := orch.StartScan(0); err != nil {
+		t.Fatalf("StartScan: %v", err)
+	}
+	<-scanner.started
+	if n := len(rec.named("disc_scan")); n > 3 {
+		t.Errorf("100 messages in a burst sent %d events, want a few", n)
+	}
+	close(scanner.release)
+	waitFor(t, "the scan to finish", func() bool { return !orch.ScanStatus(0).Active })
 }
 
 // A page that missed the terminal event has to be able to ask how the scan
