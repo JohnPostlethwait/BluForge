@@ -485,8 +485,9 @@ func (m *Manager) applyIdentity(info makemkv.DriveInfo) {
 }
 
 // watchOnce probes every tracked drive once and acts on a confirmed change.
-// It runs beside whatever holds a drive, which is the point: a disc pulled
-// mid-rip is seen, and the rip stopped. Ignored drives are not probed.
+// Ignored drives are not probed. A held drive is not probed either: the broker
+// answers StatusUnknown for it, so a disc pulled mid-rip shows up as the rip
+// failing, and the watcher sees the drive again when the hold ends.
 func (m *Manager) watchOnce(ctx context.Context) {
 	m.mu.RLock()
 	type target struct {

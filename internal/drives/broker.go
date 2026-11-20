@@ -65,8 +65,15 @@ type Broker struct {
 	// slots lists the drives attached; see Slots.
 	slots func() ([]Slot, error)
 
+	// probe reads a drive's status; see ProbeStatus.
+	probe func(device string) Status
+
 	mu    sync.Mutex
 	lanes map[int]chan struct{}
+	// inUse counts holds per device; allInUse counts holds that occupy every
+	// drive, which is any hold when commands are not isolated. Guarded by mu.
+	inUse    map[string]int
+	allInUse int
 	// global is held by every holder when commands are not isolated: then each
 	// makemkvcon opens every drive, so only one may run at a time.
 	global chan struct{}
@@ -108,6 +115,8 @@ func New(isolate bool, execOpts []makemkv.Option, opts ...Option) *Broker {
 		slots:        sysfsSlots,
 		lanes:        make(map[int]chan struct{}),
 		global:       make(chan struct{}, 1),
+		probe:        probeStatus,
+		inUse:        make(map[string]int),
 	}
 	for _, o := range opts {
 		o(b)
@@ -161,6 +170,27 @@ func holdFrom(ctx context.Context) *hold {
 	return h
 }
 
+// occupy records that device is in use until the returned release runs. An
+// empty device, or any hold when commands are not isolated, occupies every
+// drive: an unisolated makemkvcon opens them all.
+func (b *Broker) occupy(device string) (release func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if device == "" || !b.isolated {
+		b.allInUse++
+		return func() { b.mu.Lock(); b.allInUse--; b.mu.Unlock() }
+	}
+	b.inUse[device]++
+	return func() { b.mu.Lock(); b.inUse[device]--; b.mu.Unlock() }
+}
+
+// occupied reports whether a holder is using device.
+func (b *Broker) occupied(device string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.allInUse > 0 || b.inUse[device] > 0
+}
+
 func acquire(ctx context.Context, ch chan struct{}) error {
 	select {
 	case ch <- struct{}{}:
@@ -206,6 +236,7 @@ func (b *Broker) Do(ctx context.Context, idx int, purpose string, fn func(ctx co
 		return err
 	}
 	defer func() { <-token }()
+	defer b.occupy(device)()
 
 	d := &Drive{b: b, idx: idx, device: device}
 	held := time.Now()
@@ -237,6 +268,7 @@ func (b *Broker) detached(ctx context.Context, fn func(ctx context.Context) erro
 		return err
 	}
 	defer func() { <-b.global }()
+	defer b.occupy("")()
 	return fn(context.WithValue(ctx, holdKey{}, &hold{global: true}))
 }
 

@@ -26,12 +26,23 @@ const (
 
 // ProbeStatus reads a drive's status with CDROM_DRIVE_STATUS.
 //
-// This is the one read of a drive that runs beside its holder, on purpose: it
-// is how a disc pulled mid-rip is seen, so the rip can be stopped before
-// makemkvcon hammers media that is gone. It opens the node non-blocking and
-// the kernel answers with TEST UNIT READY; nothing else. If a hang is ever
-// traced to one of these landing mid-command, it moves under the hold too.
-func (b *Broker) ProbeStatus(device string) Status { return probeStatus(device) }
+// A drive in use by a holder is not probed, and reads StatusUnknown: no
+// information. The probe used to run beside the holder so a disc pulled
+// mid-rip was seen at once, but it is a command to the drive like any other.
+// On 2026-11-20 the BU40N reset twice under a rip, 35 seconds after makemkvcon
+// went quiet, while this probe reached it every second. A disc pulled during a
+// hold now shows up as the holder's work failing, and the probe resumes when
+// the hold ends.
+//
+// The check and the probe are not atomic: a hold that starts between them
+// can overlap one probe. Closing that would make Do wait on a probe, and a
+// probe of a hung drive blocks in the kernel.
+func (b *Broker) ProbeStatus(device string) Status {
+	if b.occupied(device) {
+		return StatusUnknown
+	}
+	return b.probe(device)
+}
 
 // CDROM_DRIVE_STATUS return codes, from <linux/cdrom.h>. They are not exported
 // by golang.org/x/sys/unix, so they are defined here against the kernel header.
