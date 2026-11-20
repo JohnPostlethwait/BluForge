@@ -41,3 +41,29 @@ func TestTheEstimateIsNotComputedFromZeroProgress(t *testing.T) {
 		t.Error("the estimate can be computed before any progress is reported")
 	}
 }
+
+// The rate is measured against the clock. A rate taken at the last progress
+// update stood still with progress: a rip stuck for two hours on a bad patch
+// still showed 23.7 MB/s.
+func TestTheRateFallsWhenTheCopyStalls(t *testing.T) {
+	html := renderActivity(t)
+
+	if !strings.Contains(html, "(now - new Date(j.copyStartedAt)) / 1000") {
+		t.Error("the rate is not measured against the clock from the copy's start")
+	}
+	if strings.Contains(html, "formatRate(j.copyRate)") {
+		t.Error("a running rip still shows the rate from its last progress update")
+	}
+}
+
+// makemkvcon's read errors are the only sign a rip is retrying a bad patch.
+func TestTheCardShowsTheLatestReadError(t *testing.T) {
+	html := renderActivity(t)
+
+	if !strings.Contains(html, `x-if="j.readError"`) {
+		t.Error("the card does not show read errors")
+	}
+	if !strings.Contains(html, "active.readError = job.ReadError") {
+		t.Error("job updates do not carry read errors to the card")
+	}
+}

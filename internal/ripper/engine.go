@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/johnpostlethwait/bluforge/internal/makemkv"
 )
@@ -17,6 +18,9 @@ import (
 type RipExecutor interface {
 	StartRip(ctx context.Context, src makemkv.Source, titleID int, expectSource string, outputDir string, onEvent func(makemkv.Event), selection *makemkv.SelectionOpts) error
 }
+
+// readErrorNotifyInterval bounds how often a rip's read errors reach the page.
+const readErrorNotifyInterval = time.Second
 
 // Engine manages concurrent rip jobs, enforcing one active rip per drive.
 // Additional jobs for the same drive are queued and processed sequentially.
@@ -340,8 +344,20 @@ func (e *Engine) run(job *Job) {
 	capture := makemkv.NewMessageCapture(makemkv.DefaultCaptureLimit)
 
 	var lastPct int
+	var lastReadErrorNotify time.Time
 	err := ripWithRetry(ctx, e.executor, job, func(ev makemkv.Event) {
 		capture.Observe(ev)
+
+		// A read error goes to the page. makemkvcon prints them in bursts of
+		// hundreds, and one event each would overflow the page's stream, so
+		// the job keeps the latest and the page hears at most once a second.
+		if ev.Type == "MSG" && ev.Message != nil && makemkv.IsReadError(ev.Message.Code) {
+			job.NoteReadError(ev.Message.Text)
+			if time.Since(lastReadErrorNotify) >= readErrorNotifyInterval {
+				lastReadErrorNotify = time.Now()
+				e.notify(job)
+			}
+		}
 
 		// "Saving N titles into directory" is the copy starting.
 		if ev.Type == "MSG" && ev.Message != nil && ev.Message.Code == makemkv.MsgSavingTitles {

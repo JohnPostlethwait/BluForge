@@ -76,6 +76,11 @@ type Job struct {
 	// over time since CopyStartedAt, taken when progress is recorded. Zero
 	// until enough has been copied for the mean to be worth showing.
 	CopyRate float64 `json:"CopyRate,omitempty"`
+	// ReadError is the latest read error makemkvcon reported during this rip,
+	// and ReadErrorAt when. makemkvcon retries a bad patch for hours without
+	// failing; without this the page showed a stalled rip as a running one.
+	ReadError   string    `json:"ReadError,omitempty"`
+	ReadErrorAt time.Time `json:"ReadErrorAt"`
 	// FailureOutput is what MakeMKV said during a rip that failed, repeats
 	// collapsed into counts. Empty on a rip that succeeded.
 	//
@@ -183,6 +188,14 @@ func (j *Job) SetPhase(phase string) {
 		j.CopyFinishedAt = time.Time{}
 		j.CopyRate = 0
 	}
+}
+
+// NoteReadError records a read error makemkvcon reported during the rip.
+func (j *Job) NoteReadError(text string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.ReadError = text
+	j.ReadErrorAt = time.Now()
 }
 
 // MarkCopyFinished records that MakeMKV finished writing. A rip that never
@@ -297,6 +310,8 @@ func (j *Job) Snapshot() Job {
 		CopyStartedAt:  j.CopyStartedAt,
 		CopyFinishedAt: j.CopyFinishedAt,
 		CopyRate:       j.CopyRate,
+		ReadError:      j.ReadError,
+		ReadErrorAt:    j.ReadErrorAt,
 
 		FailureOutput:        j.FailureOutput,
 		FailureOutputDropped: j.FailureOutputDropped,

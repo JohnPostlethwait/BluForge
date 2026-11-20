@@ -73,6 +73,14 @@ type activityJobJSON struct {
 	// rip, the copy so far; for a completed one, the delivered file over the
 	// recorded copy interval. Zero when it is not known, and then not shown.
 	CopyRate float64 `json:"copyRate,omitempty"`
+	// CopyStartedAt lets the page work out a running rip's rate against the
+	// clock. A rate taken at the last progress update stays put when
+	// progress stops, and showed a rip stalled for two hours at 23.7 MB/s.
+	CopyStartedAt string `json:"copyStartedAt,omitempty"`
+	// ReadError is the latest read error makemkvcon reported during a running
+	// rip, and ReadErrorAt when (RFC 3339).
+	ReadError   string `json:"readError,omitempty"`
+	ReadErrorAt string `json:"readErrorAt,omitempty"`
 }
 
 // activityStoreJSON is the Alpine.store('activity') shape.
@@ -156,9 +164,9 @@ func (s *Server) buildActivityStore(c echo.Context) (activityStoreJSON, error) {
 				// come from the engine or the byte counter starts out lying
 				// again until the next update arrives.
 				Phase: snap.Phase,
-				// Measured from when the copy started, so the analysis before
-				// it does not drag the mean down.
-				CopyRate: snap.CopyRate,
+				CopyStartedAt: rfc3339OrEmpty(snap.CopyStartedAt),
+				ReadError:     snap.ReadError,
+				ReadErrorAt:   rfc3339OrEmpty(snap.ReadErrorAt),
 				// A rip from a salvaged copy carries damage, and the card you
 				// watch for twenty minutes said nothing about it.
 				SalvageNote:       s.salvageNoteForJob(snap.ID),
@@ -480,6 +488,14 @@ func deliveredSize(outputBytes int64, estimate string) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(outputBytes)/float64(div), "kMGTPE"[exp])
+}
+
+// rfc3339OrEmpty formats a time for the page, or "" when it is unset.
+func rfc3339OrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // completedCopyRate is a finished job's mean copy throughput in bytes per

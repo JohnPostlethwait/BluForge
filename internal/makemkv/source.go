@@ -109,7 +109,29 @@ const (
 	// still exits zero, so this is the only signal that a rip which appeared to
 	// succeed produced nothing.
 	MsgCopyFailed = 5037
+
+	// Read errors during a copy. makemkvcon reports them and carries on
+	// retrying, for hours on a bad patch, while progress stands still.
+	//
+	// MsgSourceCorrupt — "The source file '%1' is corrupt or invalid at offset %2".
+	MsgSourceCorrupt = 4004
+	// MsgAVSyncIssues — "Too many AV synchronization issues in file '%1'".
+	MsgAVSyncIssues = 4009
+	// MsgHashCheckFailed — "Hash check failed for file %1 at offset %2, file is corrupt."
+	MsgHashCheckFailed = 5076
+	// MsgTooManyHashErrors — "Too many hash check errors in file %1."
+	MsgTooManyHashErrors = 5077
 )
+
+// IsReadError reports whether a message code is makemkvcon failing to read
+// the disc during a copy.
+func IsReadError(code int) bool {
+	switch code {
+	case MsgSourceCorrupt, MsgAVSyncIssues, MsgHashCheckFailed, MsgTooManyHashErrors:
+		return true
+	}
+	return false
+}
 
 // IsSpuriousAACSSignature reports whether a scan result carries the fingerprint
 // of a disc whose AACS directory is present but whose payload may be
