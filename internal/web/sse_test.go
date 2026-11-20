@@ -51,3 +51,38 @@ func TestSSEHubUnsubscribe(t *testing.T) {
 		// Also acceptable: channel is closed and drained — no panic is the main requirement.
 	}
 }
+
+// A client that cannot take an event must not silently miss it. The hub closes
+// its stream instead, so the browser reconnects and resyncs from the server.
+func TestSSEHubClosesClientThatFallsBehind(t *testing.T) {
+	hub := web.NewSSEHub()
+	slow := hub.Subscribe()
+	fast := hub.Subscribe()
+
+	for i := 0; i < web.SSEClientBuffer+1; i++ {
+		hub.Broadcast(web.SSEEvent{Event: "e", Data: `{}`})
+		<-fast // fast keeps up
+	}
+
+	drained := 0
+	for range slow {
+		drained++
+	}
+	if drained != web.SSEClientBuffer {
+		t.Errorf("slow client drained %d events before close, want %d", drained, web.SSEClientBuffer)
+	}
+
+	// The client that kept up is still subscribed.
+	hub.Broadcast(web.SSEEvent{Event: "after", Data: `{}`})
+	select {
+	case ev, ok := <-fast:
+		if !ok || ev.Event != "after" {
+			t.Errorf("fast client: got %+v ok=%v, want the next event", ev, ok)
+		}
+	case <-time.After(time.Second):
+		t.Error("fast client stopped receiving after the slow one was closed")
+	}
+
+	// The handler still unsubscribes a client the hub already closed.
+	hub.Unsubscribe(slow)
+}

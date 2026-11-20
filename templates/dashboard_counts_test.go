@@ -9,12 +9,12 @@ import (
 func ripUpdateBody(t *testing.T) string {
 	t.Helper()
 	html := renderDashboard(t)
-	start := strings.Index(html, "addEventListener('rip-update'")
+	start := strings.Index(html, "evtSource.on('rip-update'")
 	if start < 0 {
 		t.Fatal("no rip-update handler on the dashboard")
 	}
 	body := html[start:]
-	if end := strings.Index(body, "addEventListener('contribution_available'"); end > 0 {
+	if end := strings.Index(body, "evtSource.on('contribution_available'"); end > 0 {
 		body = body[:end]
 	}
 	return body

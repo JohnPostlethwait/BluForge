@@ -56,24 +56,12 @@ document.addEventListener('alpine:init', () => {
 		Alpine.store('activityTab', new URLSearchParams(window.location.search).get('tab') || 'active')
 	})
 
-	const evtSource = new EventSource('/events')
-
-	// The event stream is a live hint, not a record: no replay, dropped for slow
-	// clients, and killed outright by a sleeping laptop. Everything below builds
-	// on events, so without somewhere authoritative to ask, anything missed
-	// while this page was away stayed missing until a manual reload.
-	let _sseEverOpen = false
-	evtSource.addEventListener('open', () => {
-		if (_sseEverOpen) resyncActivity()
-		_sseEverOpen = true
-	})
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible') resyncActivity()
-	})
+	// The stream is a live hint; openEvents resyncs whenever it drops or stalls.
+	const evtSource = openEvents(resyncActivity)
 
 	// A salvage runs for hours and produces a file MakeMKV would refuse to make.
 	// Nothing here happens without the user reading what that means and agreeing.
-	evtSource.addEventListener('disc_salvage', (e) => {
+	evtSource.on('disc_salvage', (e) => {
 		const update = JSON.parse(e.data)
 		const store = Alpine.store('activity')
 
@@ -103,7 +91,7 @@ document.addEventListener('alpine:init', () => {
 		if (store.salvageActive && !store.salvageStartedAt) store.salvageStartedAt = Date.now()
 	})
 
-	evtSource.addEventListener('rip-update', (e) => {
+	evtSource.on('rip-update', (e) => {
 		const job = JSON.parse(e.data)
 		const store = Alpine.store('activity')
 
@@ -174,7 +162,7 @@ document.addEventListener('alpine:init', () => {
 		}
 	})
 
-	evtSource.addEventListener('contribution_available', (e) => {
+	evtSource.on('contribution_available', (e) => {
 		const d = JSON.parse(e.data)
 		const store = Alpine.store('activity')
 		store.contributionAvailable = true

@@ -259,10 +259,16 @@ func (s *Server) ClearDriveSession(driveIndex int) {
 	s.driveSessions.Clear(driveIndex)
 }
 
+// ssePingInterval is how often the stream sends a ping event. The page treats
+// several missed pings as a dead stream and reopens it.
+var ssePingInterval = 15 * time.Second
+
 // handleSSE streams Server-Sent Events to the connected client.
-// Clients that have received no events for 5 minutes receive a keepalive
-// comment to detect dead connections. If even the keepalive write fails the
-// connection is closed.
+//
+// A ping event goes out on a fixed schedule. The page reconnects when pings
+// stop, which is the only way it can tell a dead stream from a quiet one. The
+// stream ends when the hub closes the client for falling behind, so the
+// browser reconnects and resyncs.
 func (s *Server) handleSSE(c echo.Context) error {
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -275,8 +281,14 @@ func (s *Server) handleSSE(c echo.Context) error {
 	defer s.sseHub.Unsubscribe(ch)
 
 	ctx := c.Request().Context()
-	keepalive := time.NewTicker(5 * time.Minute)
-	defer keepalive.Stop()
+	ping := time.NewTicker(ssePingInterval)
+	defer ping.Stop()
+
+	// The first ping goes out at once, so the page knows the stream is live.
+	if _, err := fmt.Fprint(w, "event: ping\ndata: {}\n\n"); err != nil {
+		return nil
+	}
+	w.Flush()
 
 	for {
 		select {
@@ -286,12 +298,12 @@ func (s *Server) handleSSE(c echo.Context) error {
 			if !ok {
 				return nil
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, ev.Data)
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Event, ev.Data); err != nil {
+				return nil
+			}
 			w.Flush()
-			keepalive.Reset(5 * time.Minute)
-		case <-keepalive.C:
-			// Keepalive comment — detects dead connections.
-			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+		case <-ping.C:
+			if _, err := fmt.Fprint(w, "event: ping\ndata: {}\n\n"); err != nil {
 				return nil
 			}
 			w.Flush()

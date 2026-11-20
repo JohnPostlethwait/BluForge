@@ -189,10 +189,16 @@ func (s *Server) buildDriveStore(idx int, drv *drivemanager.DriveStateMachine) D
 	}
 
 	if s.orchestrator != nil {
-		if st := s.orchestrator.ScanStatus(idx); st.Active {
+		st := s.orchestrator.ScanStatus(idx)
+		if st.Active {
 			driveStore.ScanActive = true
 			driveStore.ScanOperation = st.Operation
 			driveStore.ScanStartedAt = st.StartedAt.Unix()
+		}
+		if st.LastPhase != "" {
+			driveStore.LastScanPhase = st.LastPhase
+			driveStore.LastScanMessage = st.LastMessage
+			driveStore.LastScanStartedAt = st.LastStartedAt.Unix()
 		}
 	}
 
@@ -544,9 +550,19 @@ func (s *Server) handleDriveScan(c echo.Context) error {
 	}
 
 	// Progress, completion and failure all arrive as disc_scan SSE events.
+	//
+	// started_at identifies this scan by the server's clock, so a page that
+	// missed the terminal event can tell this scan's outcome from an older one.
+	// A scan that already finished reports through the last outcome.
+	st := s.orchestrator.ScanStatus(idx)
+	startedAt := st.StartedAt
+	if !st.Active {
+		startedAt = st.LastStartedAt
+	}
 	return c.JSON(http.StatusAccepted, map[string]any{
-		"status":  "scanning",
-		"message": "Reading the disc. This can take a while on a damaged disc; progress is shown on this page.",
+		"status":     "scanning",
+		"message":    "Reading the disc. This can take a while on a damaged disc; progress is shown on this page.",
+		"started_at": startedAt.Unix(),
 	})
 }
 

@@ -19,29 +19,16 @@ document.addEventListener('alpine:init', () => {
 	Alpine.store('drives').contributionId = null
 	Alpine.store('drives').contributionDiscName = ''
 
-	const evtSource = new EventSource('/events')
+	// The stream is a live hint; openEvents resyncs whenever it drops or stalls.
+	const evtSource = openEvents(resyncDrives)
 
-	// The event stream is a live hint, not a record. It has no replay, the
-	// server drops events for slow clients, and a sleeping laptop kills the
-	// connection outright — so anything that happened while this page was away
-	// is lost unless it asks. The drive page has done this since it was showing
-	// "copying, 94 percent" hours after the copy finished; the dashboard could not.
-	let _sseEverOpen = false
-	evtSource.addEventListener('open', () => {
-		if (_sseEverOpen) resyncDrives()
-		_sseEverOpen = true
-	})
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible') resyncDrives()
-	})
-
-	evtSource.addEventListener('drive-update', (e) => {
+	evtSource.on('drive-update', (e) => {
 		const update = JSON.parse(e.data)
 		Alpine.store('drives').ready = update.ready
 		Alpine.store('drives').list = update.list
 	})
 
-	evtSource.addEventListener('rip-update', (e) => {
+	evtSource.on('rip-update', (e) => {
 		const job = JSON.parse(e.data)
 		const store = Alpine.store('drives')
 		const drive = store.list.find(d => d.index === job.DriveIndex)
@@ -69,7 +56,7 @@ document.addEventListener('alpine:init', () => {
 		}
 	})
 
-	evtSource.addEventListener('contribution_available', (e) => {
+	evtSource.on('contribution_available', (e) => {
 		const d = JSON.parse(e.data)
 		const store = Alpine.store('drives')
 		store.contributionAvailable = true

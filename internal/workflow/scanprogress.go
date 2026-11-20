@@ -26,6 +26,21 @@ type ScanStatus struct {
 	Active    bool      `json:"active"`
 	Operation string    `json:"operation"`
 	StartedAt time.Time `json:"startedAt"`
+
+	// How the drive's most recent finished scan ended: the phase its terminal
+	// event carried ("done", "failed" or "recovering"), the failure message, and
+	// when that scan started. Events are not replayed, so a page that missed the
+	// terminal event reads it here. Empty when no scan has finished.
+	LastPhase     string    `json:"lastPhase"`
+	LastMessage   string    `json:"lastMessage"`
+	LastStartedAt time.Time `json:"lastStartedAt"`
+}
+
+// scanOutcome is how one scan ended.
+type scanOutcome struct {
+	phase     string
+	message   string
+	startedAt time.Time
 }
 
 // scanState tracks one in-flight scan.
@@ -33,8 +48,8 @@ type scanState struct {
 	startedAt time.Time
 	operation string
 	// lastBroadcast throttles narration. A damaged disc emits a message per
-	// retry, and the SSE hub drops events once a client's buffer fills — which
-	// would cost the "done" event that takes the banner down.
+	// retry, and the SSE hub closes a client whose buffer fills, forcing it to
+	// reconnect and resync.
 	lastBroadcast time.Time
 }
 
@@ -86,28 +101,30 @@ func (o *Orchestrator) startScan(driveIndex int, force bool) error {
 func (o *Orchestrator) runScan(ctx context.Context, driveIndex int, force bool) (*makemkv.DiscScan, error) {
 	scan, err := o.scanDisc(ctx, driveIndex, force)
 
-	// Release the slot before saying how the scan ended.
+	var phase, message string
+	switch {
+	case errors.Is(err, ErrRecoveryInProgress):
+		// Recovery took over and broadcasts its own progress. Ending the scan
+		// banner here hands the page to the recovery banner.
+		phase = "recovering"
+	case err != nil:
+		slog.Error("scan: failed", "drive_index", driveIndex, "error", err)
+		phase, message = "failed", err.Error()
+	default:
+		slog.Info("scan: complete", "drive_index", driveIndex,
+			"disc", scan.DiscName, "titles", len(scan.Titles))
+		phase = "done"
+	}
+
+	// Release the slot, and record how the scan ended, before saying so.
 	//
 	// The page reacts to "done" by fetching the titles and resyncing the drive
 	// state, and that resync asks ScanStatus. Announcing first left a window
 	// where it answered "still scanning", which puts the banner back up over a
 	// scan that has finished — and nothing takes it down again, because the
 	// event that would have is the one already spent.
-	o.endScan(driveIndex)
-
-	switch {
-	case errors.Is(err, ErrRecoveryInProgress):
-		// Recovery took over and broadcasts its own progress. Ending the scan
-		// banner here hands the page to the recovery banner.
-		o.broadcastScan(driveIndex, "recovering", "")
-	case err != nil:
-		slog.Error("scan: failed", "drive_index", driveIndex, "error", err)
-		o.broadcastScan(driveIndex, "failed", err.Error())
-	default:
-		slog.Info("scan: complete", "drive_index", driveIndex,
-			"disc", scan.DiscName, "titles", len(scan.Titles))
-		o.broadcastScan(driveIndex, "done", "")
-	}
+	o.finishScan(driveIndex, phase, message)
+	o.broadcastScan(driveIndex, phase, message)
 	return scan, err
 }
 
@@ -194,6 +211,22 @@ func (o *Orchestrator) endScan(driveIndex int) {
 	o.scanMu.Unlock()
 }
 
+// finishScan clears the slot and records how the scan ended, in one step, so
+// ScanStatus never reports a scan that is neither running nor finished.
+func (o *Orchestrator) finishScan(driveIndex int, phase, message string) {
+	o.scanMu.Lock()
+	defer o.scanMu.Unlock()
+	var startedAt time.Time
+	if st := o.scanning[driveIndex]; st != nil {
+		startedAt = st.startedAt
+	}
+	delete(o.scanning, driveIndex)
+	if o.scanLast == nil {
+		o.scanLast = make(map[int]scanOutcome)
+	}
+	o.scanLast[driveIndex] = scanOutcome{phase: phase, message: message, startedAt: startedAt}
+}
+
 // registerScanCancel records the cancel for a drive's running scan. Scans
 // serialise per drive, so there is at most one at a time.
 func (o *Orchestrator) registerScanCancel(driveIndex int, cancel context.CancelFunc) {
@@ -232,11 +265,18 @@ func (o *Orchestrator) CancelScan(driveIndex int) {
 func (o *Orchestrator) ScanStatus(driveIndex int) ScanStatus {
 	o.scanMu.Lock()
 	defer o.scanMu.Unlock()
-	st := o.scanning[driveIndex]
-	if st == nil {
-		return ScanStatus{}
+	last := o.scanLast[driveIndex]
+	status := ScanStatus{
+		LastPhase:     last.phase,
+		LastMessage:   last.message,
+		LastStartedAt: last.startedAt,
 	}
-	return ScanStatus{Active: true, Operation: st.operation, StartedAt: st.startedAt}
+	if st := o.scanning[driveIndex]; st != nil {
+		status.Active = true
+		status.Operation = st.operation
+		status.StartedAt = st.startedAt
+	}
+	return status
 }
 
 // broadcastScan pushes a terminal scan phase to the page.

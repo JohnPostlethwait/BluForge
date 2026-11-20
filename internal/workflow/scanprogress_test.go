@@ -241,6 +241,44 @@ func TestScanBroadcastsFailure(t *testing.T) {
 	}
 }
 
+// A page that missed the terminal event has to be able to ask how the scan
+// ended. Events are not replayed, so without this a missed "done" left the
+// banner up and a missed "failed" could pass off old titles as a fresh read.
+func TestScanStatusRemembersHowTheLastScanEnded(t *testing.T) {
+	scanner := newProgressScanner()
+	scanner.err = errors.New("timed out")
+	orch, _, _ := setupOrchestratorWithScanner(t, scanner)
+
+	if err := orch.StartScan(0); err != nil {
+		t.Fatalf("StartScan: %v", err)
+	}
+	waitFor(t, "the scan to start", func() bool { return orch.ScanStatus(0).Active })
+	started := orch.ScanStatus(0).StartedAt
+	close(scanner.release)
+	waitFor(t, "the scan to finish", func() bool { return !orch.ScanStatus(0).Active })
+
+	st := orch.ScanStatus(0)
+	if st.LastPhase != "failed" || !strings.Contains(st.LastMessage, "timed out") {
+		t.Errorf("last outcome = %q %q, want failed with the error", st.LastPhase, st.LastMessage)
+	}
+	if !st.LastStartedAt.Equal(started) {
+		t.Errorf("LastStartedAt = %v, want the finished scan's start %v", st.LastStartedAt, started)
+	}
+
+	scanner.err = nil
+	scanner.release = make(chan struct{})
+	if err := orch.StartScan(0); err != nil {
+		t.Fatalf("second StartScan: %v", err)
+	}
+	waitFor(t, "the second scan to start", func() bool { return orch.ScanStatus(0).Active })
+	close(scanner.release)
+	waitFor(t, "the second scan to finish", func() bool { return !orch.ScanStatus(0).Active })
+
+	if st := orch.ScanStatus(0); st.LastPhase != "done" || st.LastMessage != "" {
+		t.Errorf("after a good scan, last outcome = %q %q, want done", st.LastPhase, st.LastMessage)
+	}
+}
+
 // The real scanner, the drives broker, has to satisfy ProgressScanner, or
 // scanOnce falls back to the silent path at runtime and the page goes quiet
 // again with nothing failing to say so. It must also be the holder and the

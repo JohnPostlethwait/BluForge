@@ -55,27 +55,16 @@ document.addEventListener('alpine:init', () => {
 	// Set while a scan this page asked for is in flight, so its result is not
 	// then labelled as cached.
 	store.scanRequested = false
+	// Set while the Scan request itself is in flight, when the server may not
+	// have started the scan yet.
+	store.scanPending = false
 	Alpine.store('drive', store)
 	if (store.scanning) startScanClock()
 
-	const evtSource = new EventSource('/events')
+	// The stream is a live hint; openEvents resyncs whenever it drops or stalls.
+	const evtSource = openEvents(resyncDriveState)
 
-	// The event stream is not a reliable record of what happened. It has no
-	// replay, the server drops events for slow clients, and a machine that
-	// sleeps kills the connection outright — which left this page reporting
-	// "copying, 94 percent" long after the work had finished. Treat it
-	// as a live hint and re-ask the server whenever the connection returns or
-	// the tab wakes.
-	let _sseEverOpen = false
-	evtSource.addEventListener('open', () => {
-		if (_sseEverOpen) resyncDriveState()
-		_sseEverOpen = true
-	})
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible') resyncDriveState()
-	})
-
-	evtSource.addEventListener('drive-event', (e) => {
+	evtSource.on('drive-event', (e) => {
 		const update = JSON.parse(e.data)
 		const store = Alpine.store('drive')
 		if (update.DriveIndex !== store.driveIndex) return
@@ -100,7 +89,7 @@ document.addEventListener('alpine:init', () => {
 	// Recovery for a disc with a spurious AACS directory runs automatically and
 	// can take tens of minutes. Surfacing the phase keeps the drive from looking
 	// idle while ~100GB is copied.
-	evtSource.addEventListener('disc_recovery', (e) => {
+	evtSource.on('disc_recovery', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.drive_index !== Alpine.store('drive').driveIndex) return
 		const store = Alpine.store('drive')
@@ -121,7 +110,7 @@ document.addEventListener('alpine:init', () => {
 	const _ripJobIDs = new Set()
 	// A scan of a damaged disc can run for the better part of an hour. These
 	// events are the only thing that distinguishes it from a hung one.
-	evtSource.addEventListener('disc_scan', (e) => {
+	evtSource.on('disc_scan', (e) => {
 		const update = JSON.parse(e.data)
 		const store = Alpine.store('drive')
 		if (update.drive_index !== store.driveIndex) return
@@ -135,25 +124,11 @@ document.addEventListener('alpine:init', () => {
 			return
 		}
 
-		stopScanClock()
-		store.scanning = false
-		store.scanOperation = ''
-
-		if (update.phase === 'done') {
-			// The titles are cached now; the same endpoint returns them.
-			loadScanResults(store.driveIndex)
-		} else if (update.phase === 'failed') {
-			store.scanRequested = false
-			store.scanError = update.message || 'Scan failed'
-			resyncDriveState()
-		} else if (update.phase === 'recovering') {
-			// Recovery took over; its own banner and events run from here.
-			store.recoveryActive = true
-			store.recoveryPhase = 'detecting'
-		}
+		finishScan(update.phase, update.message)
+		if (update.phase === 'failed') resyncDriveState()
 	})
 
-	evtSource.addEventListener('rip-update', (e) => {
+	evtSource.on('rip-update', (e) => {
 		const update = JSON.parse(e.data)
 		if (update.DriveIndex !== Alpine.store('drive').driveIndex) return
 		const store = Alpine.store('drive')
@@ -210,6 +185,29 @@ function resetForNewDisc(discName) {
 	resyncDriveState()
 }
 
+// finishScan ends a scan the way its terminal phase says. The disc_scan event
+// calls it, and so does a resync that finds the scan ended while the event
+// stream was down.
+function finishScan(phase, message) {
+	const store = Alpine.store('drive')
+	stopScanClock()
+	store.scanning = false
+	store.scanOperation = ''
+
+	if (phase === 'done') {
+		// The titles are cached now; the same endpoint returns them.
+		loadScanResults(store.driveIndex)
+	} else if (phase === 'failed') {
+		store.scanRequested = false
+		store.scanError = message || 'Scan failed'
+	} else if (phase === 'recovering') {
+		// Recovery took over; its own banner and events run from here.
+		store.scanRequested = false
+		store.recoveryActive = true
+		store.recoveryPhase = 'detecting'
+	}
+}
+
 // resyncDriveState replaces live state with the server's view.
 //
 // Only fields the server is authoritative about are overwritten; in-flight UI
@@ -234,14 +232,24 @@ async function resyncDriveState() {
 		store.scanDiagnosis = s.scanDiagnosis || { summary: '', findings: [] }
 
 		// A scan that started while we were disconnected has to restore its
-		// banner, and one that finished has to take it down.
-		store.scanning = s.scanActive
-		store.scanOperation = s.scanOperation || ''
-		store.scanStartedAt = s.scanStartedAt ? s.scanStartedAt * 1000 : 0
-		if (s.scanActive) {
-			startScanClock()
-		} else {
-			stopScanClock()
+		// banner, and one that finished has to end the way its missed event
+		// would have ended it. While the Scan request is still in flight the
+		// server may not have started the scan yet, so its answer is not news.
+		if (!store.scanPending) {
+			const waiting = store.scanning || store.scanRequested
+			const waitedFor = Math.floor(store.scanStartedAt / 1000)
+			if (s.scanActive) {
+				store.scanning = true
+				store.scanOperation = s.scanOperation || ''
+				store.scanStartedAt = s.scanStartedAt * 1000
+				startScanClock()
+			} else if (waiting && s.lastScanPhase && s.lastScanStartedAt >= waitedFor) {
+				finishScan(s.lastScanPhase, s.lastScanMessage)
+			} else {
+				store.scanning = false
+				store.scanOperation = ''
+				stopScanClock()
+			}
 		}
 
 		// A recovery that finished while we were disconnected must clear the
@@ -654,6 +662,7 @@ async function scanDisc(driveIndex) {
 	// Whatever was cached is being replaced by a read of the disc.
 	store.scanCachedAt = 0
 	store.scanRequested = true
+	store.scanPending = true
 	startScanClock()
 
 	try {
@@ -661,11 +670,15 @@ async function scanDisc(driveIndex) {
 			method: 'POST',
 			headers: { 'Accept': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
 		})
+		store.scanPending = false
 
 		// 202: the scan is running, or the disc carries a spurious AACS
 		// directory and is being copied. Neither is a title list nor an error.
 		if (resp.status === 202) {
 			const info = await resp.json()
+			// The server's clock names this scan; a resync matches its outcome
+			// by it.
+			if (info.started_at) store.scanStartedAt = info.started_at * 1000
 			if (info.status === 'recovering') {
 				stopScanClock()
 				store.scanning = false
@@ -683,6 +696,7 @@ async function scanDisc(driveIndex) {
 		store.scanRequested = false
 		store.scanError = (await resp.text()) || 'Scan failed (HTTP ' + resp.status + ')'
 	} catch (err) {
+		store.scanPending = false
 		stopScanClock()
 		store.scanning = false
 		store.scanRequested = false

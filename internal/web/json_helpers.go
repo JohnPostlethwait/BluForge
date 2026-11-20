@@ -321,6 +321,13 @@ type DriveStoreJSON struct {
 	ScanActive    bool   `json:"scanActive"`
 	ScanOperation string `json:"scanOperation"`
 	ScanStartedAt int64  `json:"scanStartedAt"`
+	// LastScanPhase, LastScanMessage and LastScanStartedAt say how the drive's
+	// most recent finished scan ended, for a page that missed its terminal
+	// event. LastScanStartedAt is a Unix time; it tells the page whether that
+	// outcome belongs to the scan it is waiting on.
+	LastScanPhase     string `json:"lastScanPhase"`
+	LastScanMessage   string `json:"lastScanMessage"`
+	LastScanStartedAt int64  `json:"lastScanStartedAt"`
 	// ScanCachedAt is when the drive's cached scan was taken, as a Unix time, or
 	// 0 when no scan is cached. A cached title list and one just read out of the
 	// drive are otherwise indistinguishable to the page — which is how a

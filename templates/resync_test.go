@@ -25,12 +25,12 @@ func TestDriveDetailResetsOnDiscInsert(t *testing.T) {
 func TestDriveDetailUsesOneResetForBothDiscEvents(t *testing.T) {
 	html := renderDriveDetail(t)
 
-	handler := strings.Index(html, "addEventListener('drive-event'")
+	handler := strings.Index(html, "evtSource.on('drive-event'")
 	if handler < 0 {
 		t.Fatal("no drive-event handler on the drive page")
 	}
 	body := html[handler:]
-	if end := strings.Index(body, "addEventListener('disc_recovery'"); end > 0 {
+	if end := strings.Index(body, "evtSource.on('disc_recovery'"); end > 0 {
 		body = body[:end]
 	}
 
@@ -81,11 +81,13 @@ func TestDashboardResyncsWhenTheEventStreamReturns(t *testing.T) {
 	if !strings.Contains(html, "resyncDrives") {
 		t.Fatal("the dashboard has no resync function")
 	}
-	if !strings.Contains(html, "addEventListener('open'") {
-		t.Error("the dashboard does not resync when the event stream reconnects")
+	// openEvents (static/events.js) resyncs on reconnect, on a stalled stream,
+	// and when the tab comes back to the front.
+	if !strings.Contains(html, "openEvents(resyncDrives)") {
+		t.Error("the dashboard does not open its stream through openEvents with its resync")
 	}
-	if !strings.Contains(html, "visibilitychange") {
-		t.Error("the dashboard does not resync when the tab is brought back to the front")
+	if strings.Contains(html, "new EventSource(") {
+		t.Error("the dashboard opens a raw EventSource, which nothing resyncs")
 	}
 }
 
@@ -95,11 +97,11 @@ func TestActivityResyncsWhenTheEventStreamReturns(t *testing.T) {
 	if !strings.Contains(html, "resyncActivity") {
 		t.Fatal("the activity page has no resync function")
 	}
-	if !strings.Contains(html, "addEventListener('open'") {
-		t.Error("the activity page does not resync when the event stream reconnects")
+	if !strings.Contains(html, "openEvents(resyncActivity)") {
+		t.Error("the activity page does not open its stream through openEvents with its resync")
 	}
-	if !strings.Contains(html, "visibilitychange") {
-		t.Error("the activity page does not resync when the tab is brought back to the front")
+	if strings.Contains(html, "new EventSource(") {
+		t.Error("the activity page opens a raw EventSource, which nothing resyncs")
 	}
 }
 
@@ -138,11 +140,46 @@ func TestActivityResyncClearsASalvageThatEndedWhileAway(t *testing.T) {
 func TestActivityAdoptsAJobItHasNotSeenBefore(t *testing.T) {
 	html := renderActivity(t)
 
-	handler := strings.Index(html, "addEventListener('rip-update'")
+	handler := strings.Index(html, "evtSource.on('rip-update'")
 	if handler < 0 {
 		t.Fatal("no rip-update handler on the activity page")
 	}
 	if !strings.Contains(html, "resyncActivity") {
 		t.Error("the rip-update handler has no way to pick up an unknown job")
+	}
+}
+
+// A scan's "done" lost with the event stream left the banner up for six
+// minutes and never loaded the titles: the resync only took the banner down.
+// It has to end the scan exactly as the missed event would have.
+func TestDriveResyncFinishesAScanWhoseEventWasMissed(t *testing.T) {
+	html := renderDriveDetail(t)
+
+	if !strings.Contains(html, "openEvents(resyncDriveState)") {
+		t.Error("the drive page does not open its stream through openEvents with its resync")
+	}
+
+	fn := strings.Index(html, "function resyncDriveState(")
+	if fn < 0 {
+		t.Fatal("resyncDriveState is not defined")
+	}
+	body := html[fn:]
+	if end := strings.Index(body, "\n}"); end > 0 {
+		body = body[:end]
+	}
+	if !strings.Contains(body, "s.lastScanPhase") || !strings.Contains(body, "finishScan(") {
+		t.Error("resyncDriveState does not finish a scan from the server's last outcome")
+	}
+
+	finish := strings.Index(html, "function finishScan(")
+	if finish < 0 {
+		t.Fatal("finishScan is not defined")
+	}
+	fbody := html[finish:]
+	if end := strings.Index(fbody, "\n}"); end > 0 {
+		fbody = fbody[:end]
+	}
+	if !strings.Contains(fbody, "loadScanResults(") {
+		t.Error("finishScan does not load the titles of a finished scan")
 	}
 }

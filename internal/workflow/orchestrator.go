@@ -88,6 +88,8 @@ type Orchestrator struct {
 	// scanning tracks in-flight scans so the page can be told what a scan that
 	// takes half an hour is actually doing. Guarded by scanMu.
 	scanning map[int]*scanState
+	// scanLast is how each drive's most recent scan ended. Guarded by scanMu.
+	scanLast map[int]scanOutcome
 	// scanCancel holds the cancel for each running scan, keyed by drive index,
 	// so a physical drive change can stop makemkvcon reading a disc that is no
 	// longer there. The scan is detached from the caller's context on purpose
